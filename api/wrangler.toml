@@ -1,12 +1,12 @@
 name = "recon-erp-api"
-main = "src/index.js"
-compatibility_date = "2024-01-01"
+main = "src/worker.js"
+compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "recon-erp"
-database_id = ""
+database_id = "1a7d3b6c-1808-4c81-baae-f5c06dc414c0"
 
 [vars]
 JWT_SECRET = "change-me-in-production"

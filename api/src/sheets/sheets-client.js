@@ -1,20 +1,30 @@
-'use strict';
-
 /**
- * sheets-client.js — Google Sheets API v4 client (service-account auth).
+ * sheets-client.js — Google Sheets API wrapper using a Service Account
  *
- * Reads rows from a Google Spreadsheet and hands structured data to the
- * importer. No server-side Google Apps Script code is required; the Apps
- * Script side only needs to POST to /api/v1/sheets/import on a time-driven
- * trigger (or a Cloudflare cron later).
+ * Reads sheets via the official googleapis client. Expects credentials
+ * at GOOGLE_APPLICATION_CREDENTIALS (path to service-account JSON) or
+ * GOOGLE_SERVICE_ACCOUNT_KEY (raw JSON string).
  *
- * Environment (loaded via dotenv):
- *   GOOGLE_APPLICATION_CREDENTIALS  path to the service account JSON
- *   GOOGLE_SHEET_ID                 the spreadsheet ID
+ * Environment variables:
+ *   GOOGLE_APPLICATION_CREDENTIALS  path to JSON key file
+ *   GOOGLE_SHEET_ID                 target spreadsheet id
  *   GOOGLE_API_SCOPE                default: https://www.googleapis.com/auth/spreadsheets
  */
 
-const { google } = require('googleapis');
+let google = null;
+function getGoogle() {
+  if (!google) {
+    try {
+      const req = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : eval('require');
+      const g = req('googleapis');
+      google = g.google || g;
+    } catch (e) {
+      throw new Error('googleapis package is not available in edge environment. Run sheets import locally.');
+    }
+  }
+  return google;
+}
+
 const fs = require('fs');
 const path = require('path');
 
@@ -27,11 +37,10 @@ class SheetsClient {
     this._sheets = null;
   }
 
-  get auth() {
-    return this._auth;
-  }
-
   get sheets() {
+    if (!this._sheets) {
+      throw new Error('SheetsClient not connected. Call .connect() first.');
+    }
     return this._sheets;
   }
 
@@ -58,47 +67,59 @@ class SheetsClient {
       throw new Error('Service account JSON is missing client_email or private_key');
     }
 
+    const g = getGoogle();
     const scope = this.env.GOOGLE_API_SCOPE || DEFAULT_SCOPE;
-    this._auth = new google.auth.GoogleAuth({
+    this._auth = new g.auth.GoogleAuth({
       scopes: [scope],
       keyFile: resolved,
     });
-    this._sheets = google.sheets({ version: 'v4', auth: this._auth });
+    this._sheets = g.sheets({ version: 'v4', auth: this._auth });
 
     // Force a token refresh so the client is immediately usable.
     await this._auth.getAccessToken();
   }
 
   /**
-   * Read a sheet and return raw rows (array of arrays) plus the header row.
+   * Fetch rows from a tab as a 2D string array. Empty trailing cells are
+   * preserved; missing rows answer [].
    *
-   * @param {string} gasSheet  - one of the tab names in api/src/sheets/sheets-config.js
-   * @param {string} [range]   - A1 notation (defaults to the used range)
-   * @param {string} [sheetId] - override for this.env.GOOGLE_SHEET_ID (e.g. from GUI)
-   * @returns {Promise<{headers: string[], rows: string[][]}>}
+   * @param {string} sheetId
+   * @param {string} tabName
+   * @param {string} [range='A:ZZ'] A1 notation range within the tab
+   * @returns {Promise<string[][]>}
    */
-  async readSheet(gasSheet, range, sheetId) {
-    if (!this._sheets) {
-      throw new Error('SheetsClient is not connected. Call connect() first.');
+  async getValues(sheetId, tabName, range = 'A:ZZ') {
+    if (!this._sheets) await this.connect();
+    const fullRange = `'${tabName}'!${range}`;
+    try {
+      const res = await this._sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: fullRange,
+        valueRenderOption: 'FORMATTED_VALUE',
+      });
+      return res.data.values || [];
+    } catch (err) {
+      throw new Error(`Failed to read range "${fullRange}" from sheet ${sheetId}: ${err.message}`);
     }
-    const id = sheetId || this.env.GOOGLE_SHEET_ID;
-    if (!id) {
-      throw new Error('GOOGLE_SHEET_ID is not set');
+  }
+
+  /**
+   * List the tab titles present in the target spreadsheet.
+   *
+   * @param {string} sheetId
+   * @returns {Promise<string[]>}
+   */
+  async getTabNames(sheetId) {
+    if (!this._sheets) await this.connect();
+    try {
+      const res = await this._sheets.spreadsheets.get({
+        spreadsheetId: sheetId,
+        fields: 'sheets.properties.title',
+      });
+      return (res.data.sheets || []).map((s) => s.properties.title);
+    } catch (err) {
+      throw new Error(`Failed to read spreadsheet metadata for ${sheetId}: ${err.message}`);
     }
-
-    const request = range
-      ? { spreadsheetId: id, range: `${gasSheet}!${range}` }
-      : { spreadsheetId: id, range: gasSheet };
-
-    const resp = await this._sheets.spreadsheets.values.get(request);
-    const values = resp.data.values || [];
-    if (values.length === 0) {
-      return { headers: [], rows: [] };
-    }
-
-    const headers = values[0].map((h) => String(h).trim());
-    const rows = values.slice(1).map((r) => r.map((v) => (v === null || v === undefined ? '' : String(v))));
-    return { headers, rows };
   }
 }
 

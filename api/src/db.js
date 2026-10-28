@@ -7,11 +7,13 @@ const fs = require('fs');
 const path = require('path');
 
 let Sqlite3 = null;
-if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+if (typeof process !== 'undefined' && process.versions && process.versions.node && !process.env.CF_WORKER) {
   try {
-    Sqlite3 = require('better-sqlite3');
+    // Dynamic require so esbuild does not bundle native better-sqlite3 into Workers
+    const req = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : eval('require');
+    Sqlite3 = req('better-sqlite3');
   } catch (e) {
-    // better-sqlite3 not available — will only work in Workers env
+    // better-sqlite3 not available — running in Workers environment
   }
 }
 
@@ -30,13 +32,17 @@ const COLUMN_MIGRATIONS = [
 
 // Reads schema.sql and returns the CREATE TABLE statements it contains.
 function readSchemaStatements() {
-  const schemaPath = path.join(__dirname, '..', 'schema.sql');
-  if (!fs.existsSync(schemaPath)) return [];
-  const schema = fs.readFileSync(schemaPath, 'utf-8');
-  return schema
-    .split(/;\s*\n/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  try {
+    const schemaPath = path.join(__dirname, '..', 'schema.sql');
+    if (!fs.existsSync(schemaPath)) return [];
+    const schema = fs.readFileSync(schemaPath, 'utf-8');
+    return schema
+      .split(/;\s*\n/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  } catch (e) {
+    return [];
+  }
 }
 
 // Applies the schema + column migrations. Safe to call repeatedly:
@@ -126,7 +132,7 @@ class D1Statement {
   }
 }
 
-// better-sqlite3 (local dev) statement wrapper
+// better-sqlite3 statement wrapper (matches D1 API)
 class SqliteStatement {
   constructor(stmt) {
     this.stmt = stmt;
@@ -139,17 +145,27 @@ class SqliteStatement {
   }
 
   async run() {
-    const result = this.stmt.run(...this._bindings);
-    return { success: true, meta: { last_row_id: result.lastInsertRowid, changes: result.changes } };
+    const info = this.stmt.run(...this._bindings);
+    return {
+      success: true,
+      meta: {
+        changes: info.changes,
+        last_row_id: Number(info.lastInsertRowid)
+      }
+    };
   }
 
   async all() {
-    const rows = this.stmt.all(...this._bindings);
-    return { results: rows };
+    const results = this.stmt.all(...this._bindings);
+    return {
+      success: true,
+      results
+    };
   }
 
   async first() {
-    return this.stmt.get(...this._bindings) || null;
+    const row = this.stmt.get(...this._bindings);
+    return row || null;
   }
 
   get raw() {

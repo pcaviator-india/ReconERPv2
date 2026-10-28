@@ -34,19 +34,32 @@ app.use(cors({
 }));
 
 // Rate limiting (frontend makes many calls per session — keep generous)
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX || '2000', 10),
-  message: { status: 'error', message: 'Too many requests, please try again later' }
-});
-app.use(limiter);
+// In Cloudflare Workers, global timers are disallowed and Cloudflare WAF handles DDoS/rate limiting
+const isWorker = typeof globalThis !== 'undefined' && (globalThis.__IS_CF_WORKER__ || typeof WebSocketPair !== 'undefined');
+const noopMiddleware = (req, res, next) => next();
 
-// Strict rate limit for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 2000,
-  message: { status: 'error', message: 'Too many auth attempts, please try again later' }
-});
+let limiter = noopMiddleware;
+let authLimiter = noopMiddleware;
+
+if (!isWorker) {
+  try {
+    limiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: parseInt(process.env.RATE_LIMIT_MAX || '2000', 10),
+      message: { status: 'error', message: 'Too many requests, please try again later' }
+    });
+    authLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 2000,
+      message: { status: 'error', message: 'Too many auth attempts, please try again later' }
+    });
+  } catch (e) {
+    limiter = noopMiddleware;
+    authLimiter = noopMiddleware;
+  }
+}
+
+app.use(limiter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -70,8 +83,10 @@ app.use('/api/v1/files', fileRoutes);
 app.use('/api/v1/system', systemRoutes);
 app.use('/api/v1/legacy', legacyRoutes);
 
-// Serve the frontend (login.html, index.html, js/, css/, modules/)
-app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
+// Serve the frontend statically for local dev
+if (!isWorker && typeof express.static === 'function') {
+  app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
+}
 
 // 404 handler
 app.use((req, res) => {
