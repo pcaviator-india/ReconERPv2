@@ -450,7 +450,7 @@
         }
 
         // NO SAVED SESSION: redirect to the single login page
-        window.location.href = 'login.html';
+        window.location.href = 'login';
       };
 
       function logoutUser() {
@@ -459,7 +459,7 @@
         localStorage.removeItem("recon_auth_token");
         // Redirect to the single source-of-truth login page instead of the
         // legacy overlay form that was previously embedded in this page.
-        window.location.href = 'login.html';
+        window.location.href = 'login';
       }
 
 
@@ -1754,7 +1754,7 @@ function startReconApp() {
           if (mainContent) mainContent.innerHTML = "";
 
           // 4. Go to the new single-source login page instead of the legacy overlay
-          window.location.href = 'login.html';
+          window.location.href = 'login';
 
           console.log("🚪 User logged out successfully.");
         }

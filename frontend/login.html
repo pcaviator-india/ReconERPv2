@@ -13,13 +13,27 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" />
     <style>
+      html, body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
       body {
         min-height: 100vh;
+        min-height: 100dvh;
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      .login-wrapper {
+        min-height: 100vh;
+        min-height: 100dvh;
+        width: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        font-family: 'Segoe UI', system-ui, sans-serif;
+        padding: 1.5rem 1rem;
+        box-sizing: border-box;
       }
       .login-card {
         background: #fff;
@@ -27,7 +41,9 @@
         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
         width: 100%;
         max-width: 400px;
+        margin: auto;
         padding: 2rem;
+        box-sizing: border-box;
       }
       .login-brand { text-align: center; margin-bottom: 1.5rem; }
       .login-brand h2 { font-weight: 700; color: #1e3c72; }
@@ -35,72 +51,74 @@
     </style>
   </head>
   <body>
-    <div class="login-card">
-      <div class="login-brand">
-        <h2><i class="bi bi-box-seam-fill text-primary me-2"></i>RECON ERP V2</h2>
-        <p class="text-muted mb-0">Inventory Management System</p>
-      </div>
+    <div class="login-wrapper">
+      <div class="login-card">
+        <div class="login-brand">
+          <h2><i class="bi bi-box-seam-fill text-primary me-2"></i>RECON ERP V2</h2>
+          <p class="text-muted mb-0">Inventory Management System</p>
+        </div>
 
-      <!-- LOGIN FORM -->
-      <div id="loginForm">
-        <form id="formLogin" novalidate>
-          <div class="mb-3">
-            <label class="form-label" for="userId">User ID</label>
-            <input type="text" class="form-control" id="userId" placeholder="e.g. 1001" maxlength="4" required />
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="pin">PIN</label>
-            <input type="password" class="form-control" id="pin" placeholder="••••" maxlength="4" required />
-          </div>
-          <div id="msg" class="mb-3"></div>
-          <button type="submit" class="btn btn-primary w-100 mb-2" id="btnLogin">
-            <span id="btnLoginText"><i class="bi bi-box-arrow-in-right me-1"></i> Log In</span>
-            <span id="btnLoginSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
-          </button>
-          <div class="text-center">
-            <a href="#" id="btnBackToReset" class="small text-decoration-none">Forgot PIN?</a>
-          </div>
-        </form>
-      </div>
+        <!-- LOGIN FORM -->
+        <div id="loginForm">
+          <form id="formLogin" novalidate>
+            <div class="mb-3">
+              <label class="form-label" for="userId">User ID</label>
+              <input type="text" class="form-control" id="userId" placeholder="e.g. 1001" maxlength="4" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="pin">PIN</label>
+              <input type="password" class="form-control" id="pin" placeholder="••••" maxlength="4" required />
+            </div>
+            <div id="msg" class="mb-3"></div>
+            <button type="submit" class="btn btn-primary w-100 mb-2" id="btnLogin">
+              <span id="btnLoginText"><i class="bi bi-box-arrow-in-right me-1"></i> Log In</span>
+              <span id="btnLoginSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
+            </button>
+            <div class="text-center">
+              <a href="#" id="btnBackToReset" class="small text-decoration-none">Forgot PIN?</a>
+            </div>
+          </form>
+        </div>
 
-      <!-- RESET PIN (SEND EMAIL) FORM -->
-      <div id="resetForm" class="d-none">
-        <form id="formResetPin" novalidate>
-          <h6 class="mb-3 text-center">Reset your PIN</h6>
-          <div class="mb-3">
-            <label class="form-label" for="resetEmail">Work Email</label>
-            <input type="email" class="form-control" id="resetEmail" placeholder="you@company.com" required />
-          </div>
-          <div id="resetMsg" class="mb-3"></div>
-          <button type="submit" class="btn btn-primary w-100 mb-2" id="btnSendReset">
-            <span id="btnSendResetText"><i class="bi bi-envelope me-1"></i> Send Reset Link</span>
-            <span id="btnSendResetSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
-          </button>
-          <div class="text-center">
-            <a href="#" id="btnBackToLogin" class="small text-decoration-none">Back to Login</a>
-          </div>
-        </form>
-      </div>
+        <!-- RESET PIN (SEND EMAIL) FORM -->
+        <div id="resetForm" class="d-none">
+          <form id="formResetPin" novalidate>
+            <h6 class="mb-3 text-center">Reset your PIN</h6>
+            <div class="mb-3">
+              <label class="form-label" for="resetEmail">Work Email</label>
+              <input type="email" class="form-control" id="resetEmail" placeholder="you@company.com" required />
+            </div>
+            <div id="resetMsg" class="mb-3"></div>
+            <button type="submit" class="btn btn-primary w-100 mb-2" id="btnSendReset">
+              <span id="btnSendResetText"><i class="bi bi-envelope me-1"></i> Send Reset Link</span>
+              <span id="btnSendResetSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
+            </button>
+            <div class="text-center">
+              <a href="#" id="btnBackToLogin" class="small text-decoration-none">Back to Login</a>
+            </div>
+          </form>
+        </div>
 
-      <!-- CONFIRM RESET (NEW PIN) FORM -->
-      <div id="confirmResetForm" class="d-none">
-        <form id="formConfirmResetPin" novalidate>
-          <h6 class="mb-3 text-center">Set a new PIN</h6>
-          <input type="hidden" id="resetToken" />
-          <div class="mb-3">
-            <label class="form-label" for="newPin">New PIN</label>
-            <input type="password" class="form-control" id="newPin" placeholder="••••" maxlength="4" required />
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="confirmPin">Confirm New PIN</label>
-            <input type="password" class="form-control" id="confirmPin" placeholder="••••" maxlength="4" required />
-          </div>
-          <div id="confirmMsg" class="mb-3"></div>
-          <button type="submit" class="btn btn-primary w-100 mb-2" id="btnConfirmReset">
-            <span id="btnConfirmResetText"><i class="bi bi-check-lg me-1"></i> Confirm Reset</span>
-            <span id="btnConfirmResetSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
-          </button>
-        </form>
+        <!-- CONFIRM RESET (NEW PIN) FORM -->
+        <div id="confirmResetForm" class="d-none">
+          <form id="formConfirmResetPin" novalidate>
+            <h6 class="mb-3 text-center">Set a new PIN</h6>
+            <input type="hidden" id="resetToken" />
+            <div class="mb-3">
+              <label class="form-label" for="newPin">New PIN</label>
+              <input type="password" class="form-control" id="newPin" placeholder="••••" maxlength="4" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="confirmPin">Confirm New PIN</label>
+              <input type="password" class="form-control" id="confirmPin" placeholder="••••" maxlength="4" required />
+            </div>
+            <div id="confirmMsg" class="mb-3"></div>
+            <button type="submit" class="btn btn-primary w-100 mb-2" id="btnConfirmReset">
+              <span id="btnConfirmResetText"><i class="bi bi-check-lg me-1"></i> Confirm Reset</span>
+              <span id="btnConfirmResetSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
 
@@ -199,10 +217,10 @@
         try {
           var result = await RECON_API.login(userId, pin);
           if (result.status === 'success') {
-            // Store user object for Index.html session init
+            // Store user object for index session init
             localStorage.setItem('recon_user_secure', JSON.stringify(result.data.user));
             showMsg('Login successful! Redirecting...', 'success');
-            setTimeout(function () { window.location.href = 'index.html'; }, 800);
+            setTimeout(function () { window.location.href = './'; }, 600);
           } else {
             showMsg(result.message || 'Login failed');
           }
@@ -274,10 +292,10 @@
       }
       var existingToken = localStorage.getItem('recon_user_secure');
       if (existingToken) {
-        window.location.href = 'index.html';
+        window.location.href = './';
       }
     </script>
-      <script>
+    <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -286,4 +304,3 @@
     </script>
   </body>
 </html>
-

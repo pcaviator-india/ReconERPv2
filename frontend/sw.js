@@ -2,13 +2,11 @@
  * RECON ERP — Progressive Web App Service Worker
  */
 
-const CACHE_NAME = 'recon-erp-v1';
+const CACHE_NAME = 'recon-erp-v3';
 
 const STATIC_ASSETS = [
   '/',
-  '/index.html',
-  '/login.html',
-  '/reset-pin.html',
+  '/login',
   '/manifest.webmanifest',
   '/icons/icon.svg',
   '/icons/icon-192.png',
@@ -29,7 +27,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: Clean up older caches
+// Activate: Clean up older caches immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -70,7 +68,35 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Third-Party CDNs (Bootstrap, Bootstrap Icons, Fonts): Stale-While-Revalidate
+  // 2. Navigation requests: Normalize URL to avoid Cloudflare 307 redirects
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      (async () => {
+        try {
+          let cleanUrl = req.url;
+          if (url.pathname.endsWith('/index.html') || url.pathname === '/index') {
+            cleanUrl = new URL('/', url.origin).href;
+          } else if (url.pathname.endsWith('.html')) {
+            cleanUrl = new URL(url.pathname.replace(/\.html$/, ''), url.origin).href;
+          }
+
+          const networkResponse = await fetch(cleanUrl);
+          if (networkResponse && networkResponse.status === 200) {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(req, networkResponse.clone());
+          }
+          return networkResponse;
+        } catch (err) {
+          const cached = await caches.match(req) || await caches.match('/') || await caches.match('/login');
+          if (cached) return cached;
+          throw err;
+        }
+      })()
+    );
+    return;
+  }
+
+  // 3. Third-Party CDNs (Bootstrap, Bootstrap Icons, Fonts): Stale-While-Revalidate
   if (url.origin.includes('jsdelivr.net') || url.origin.includes('fonts.googleapis.com')) {
     event.respondWith(
       caches.open(CACHE_NAME).then((cache) => {
@@ -90,11 +116,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Static App Shell: Cache-first with Network Fallback
+  // 4. Static App Shell: Cache-first with Network Fallback
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) {
-        // Fetch in background to update cache for next time
         fetch(req).then((fresh) => {
           if (fresh && fresh.status === 200) {
             caches.open(CACHE_NAME).then((cache) => cache.put(req, fresh));
@@ -122,4 +147,3 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 });
-
