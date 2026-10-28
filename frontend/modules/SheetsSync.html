@@ -72,6 +72,12 @@
                 </button>
               </div>
             </div>
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="ssHasHeaderRow" checked onchange="window.SheetsSync.pasteCount()">
+              <label class="form-check-label small fw-bold" for="ssHasHeaderRow">
+                First line contains column headers <span class="text-muted fw-normal">(uncheck if you copied only data rows without headers)</span>
+              </label>
+            </div>
             <textarea id="ssPasteBox" class="form-control font-monospace" rows="8"
               placeholder="Paste copied cells here (Header row + data rows)..."
               oninput="window.SheetsSync.pasteCount()"></textarea>

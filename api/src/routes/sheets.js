@@ -197,7 +197,7 @@ router.put('/mapping/:key', authenticateToken, async (req, res) => {
 router.post('/paste-preview', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
-    const { sheet, text, columnMap } = req.body || {};
+    const { sheet, text, columnMap, hasHeaderRow } = req.body || {};
     if (!sheet) return res.status(400).json({ status: 'error', message: 'sheet key is required (pick which sheet you pasted)' });
     if (!text || !String(text).trim()) return res.status(400).json({ status: 'error', message: 'No pasted data received' });
     // 10MB express limit already caps size; add a row guard for safety.
@@ -205,7 +205,8 @@ router.post('/paste-preview', authenticateToken, async (req, res) => {
     if (lineCount > 20000) return res.status(400).json({ status: 'error', message: 'Too many rows (max 20000 per paste)' });
     const client = new SheetsClient(clientEnv(await getConnection(db)));
     const importer = new Importer(db, client);
-    const result = await importer.previewPasted(sheet, String(text), columnMap);
+    const isHeader = hasHeaderRow !== false && hasHeaderRow !== "false";
+    const result = await importer.previewPasted(sheet, String(text), columnMap, isHeader);
     res.json({ status: 'success', data: result });
   } catch (err) {
     console.error('Sheets paste-preview error:', err);
@@ -221,14 +222,15 @@ router.post('/paste-preview', authenticateToken, async (req, res) => {
 router.post('/paste-import', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
-    const { sheet, text, columnMap } = req.body || {};
+    const { sheet, text, columnMap, hasHeaderRow } = req.body || {};
     if (!sheet) return res.status(400).json({ status: 'error', message: 'sheet key is required' });
     if (!text || !String(text).trim()) return res.status(400).json({ status: 'error', message: 'No pasted data received' });
     const lineCount = String(text).split(/\r?\n/).length;
     if (lineCount > 20000) return res.status(400).json({ status: 'error', message: 'Too many rows (max 20000 per paste)' });
     const client = new SheetsClient(clientEnv(await getConnection(db)));
     const importer = new Importer(db, client);
-    const result = await importer.importPasted(sheet, String(text), columnMap);
+    const isHeader = hasHeaderRow !== false && hasHeaderRow !== "false";
+    const result = await importer.importPasted(sheet, String(text), columnMap, isHeader);
     res.json({ status: 'success', data: result });
   } catch (err) {
     console.error('Sheets paste-import error:', err);
@@ -261,6 +263,7 @@ router.get('/status', authenticateToken, async (req, res) => {
     naturalKey: meta.naturalKey,
     columns: (meta.columns || []).length,
     expectedHeaders: (meta.columns || []).map((c) => c.header),
+    fields: (meta.columns || []).map((c) => ({ header: c.header, dbField: c.dbField })),
     sections: meta.sections ? Object.keys(meta.sections) : undefined,
   }));
   res.json({

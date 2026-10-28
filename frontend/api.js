@@ -306,12 +306,12 @@ const RECON_API = {
     return this._request('/sheets/paste-preview', 'POST', { sheet, text });
   },
 
-  async importPasted(sheet, text, columnMap) {
-    return this._request('/sheets/paste-import', 'POST', { sheet, text, columnMap });
+  async importPasted(sheet, text, columnMap, hasHeaderRow) {
+    return this._request('/sheets/paste-import', 'POST', { sheet, text, columnMap, hasHeaderRow });
   },
 
-  async previewPastedWithMap(sheet, text, columnMap) {
-    return this._request('/sheets/paste-preview', 'POST', { sheet, text, columnMap });
+  async previewPastedWithMap(sheet, text, columnMap, hasHeaderRow) {
+    return this._request('/sheets/paste-preview', 'POST', { sheet, text, columnMap, hasHeaderRow });
   },
 
   async getColumnMapping(sheetKey) {

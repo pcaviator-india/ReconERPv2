@@ -257,9 +257,12 @@
 
   function pasteCount() {
     var t = el('ssPasteBox') ? el('ssPasteBox').value : '';
+    var hasHdr = el('ssHasHeaderRow') ? el('ssHasHeaderRow').checked : true;
     var n = t.split(/\r?\n/).filter(function (l) { return l.trim().length > 0; }).length;
-    var count = Math.max(0, n - 1);
-    if (el('ssPasteCount')) el('ssPasteCount').textContent = String(count) + (count > 0 ? ' rows + header' : '');
+    var count = hasHdr ? Math.max(0, n - 1) : n;
+    if (el('ssPasteCount')) {
+      el('ssPasteCount').textContent = String(count) + (hasHdr ? ' data rows + 1 header' : ' data rows (no header)');
+    }
   }
 
   // ---- Column Mapping ----
@@ -316,23 +319,37 @@
     var html = '';
     pastedHeaders.forEach(function (h, i) {
       var saved = (savedMapping && savedMapping[String(i)]) || '';
-      // Try to auto-match if not saved
+      var cleanH = String(h || '').trim();
+      var normH = cleanH.toLowerCase().replace(/[\s\-_()\/]/g, '');
+
+      var fieldOptions = (expectedFields || []).map(function(f) {
+        if (typeof f === 'object' && f !== null) {
+          return { label: f.header || f.dbField, value: f.dbField || f.header };
+        }
+        var s = String(f);
+        return { label: s, value: s.toLowerCase().replace(/[\s\-_()\/]/g, '') || s };
+      });
+
       if (!saved) {
-        var lower = h.trim().toLowerCase();
-        expectedFields.forEach(function(f) {
-          if (f.toLowerCase() === lower || f.toLowerCase().replace(/_/g, ' ') === lower) {
-            saved = f;
+        for (var j = 0; j < fieldOptions.length; j++) {
+          var fo = fieldOptions[j];
+          var normL = fo.label.toLowerCase().replace(/[\s\-_()\/]/g, '');
+          var normV = fo.value.toLowerCase().replace(/[\s\-_()\/]/g, '');
+          if (normH === normL || normH === normV) {
+            saved = fo.value;
+            break;
           }
-        });
+        }
       }
+
       html += '<div class="col-md-6">';
       html += '<div class="p-2 bg-white rounded border d-flex align-items-center justify-content-between gap-2">';
-      html += '<div class="small text-truncate" style="max-width: 50%;"><b>Col ' + (i + 1) + ':</b> <code>' + esc(h) + '</code></div>';
+      html += '<div class="small text-truncate" style="max-width: 45%;"><b>Col ' + (i + 1) + ':</b> <code>' + esc(cleanH) + '</code></div>';
       html += '<div class="flex-grow-1"><select class="form-select form-select-sm" data-pasted-idx="' + i + '">';
       html += '<option value="">— skip this column —</option>';
-      expectedFields.forEach(function (f) {
-        var sel = (saved === f) ? 'selected' : '';
-        html += '<option value="' + esc(f) + '" ' + sel + '>\u2192 ' + esc(f) + '</option>';
+      fieldOptions.forEach(function (fo) {
+        var isSel = (saved === fo.value || saved === fo.label || String(saved).toLowerCase() === fo.value.toLowerCase() || String(saved).toLowerCase() === fo.label.toLowerCase()) ? 'selected' : '';
+        html += '<option value="' + esc(fo.value) + '" ' + isSel + '>\u2192 ' + esc(fo.label) + ' (' + esc(fo.value) + ')</option>';
       });
       html += '</select></div>';
       html += '</div></div>';
@@ -355,9 +372,10 @@
         if (f) mapping[pi] = f;
       });
       currentMapping = mapping;
-      var res = await window.RECON_API.previewPastedWithMap(key, text, mapping);
+      var hasHdr = el('ssHasHeaderRow') ? el('ssHasHeaderRow').checked : true;
+      var res = await window.RECON_API.previewPastedWithMap(key, text, mapping, hasHdr);
       var d = res.data || {};
-      lastPaste = { key: key, text: text, preview: d, mapping: mapping };
+      lastPaste = { key: key, text: text, preview: d, mapping: mapping, hasHeaderRow: hasHdr };
       var box = el('ssPastePreview');
       var hc = d.headerCheck || {};
       var html = '';
@@ -428,7 +446,8 @@
     try {
       // Load saved mapping for this sheet BEFORE preview
       await loadMappingPref(key);
-      var res = await window.RECON_API.previewPastedWithMap(key, text, currentMapping || {});
+      var hasHdr = el('ssHasHeaderRow') ? el('ssHasHeaderRow').checked : true;
+      var res = await window.RECON_API.previewPastedWithMap(key, text, currentMapping || {}, hasHdr);
       var d = res.data || {};
       var parsedHeaders = text.split(/\r?\n/).filter(function(l){return l.trim().length>0;});
       var firstLine = parsedHeaders[0] || '';
@@ -436,7 +455,7 @@
       var pastedHeaders = firstLine.split(delim).map(function(c){return c.trim();});
       var sheetListData = await sheetList();
       var m = sheetListData.filter(function(s){return s.key===key;})[0];
-      var expectedFields = m && m.expectedHeaders ? m.expectedHeaders : [];
+      var expectedFields = m && (m.fields || m.expectedHeaders) ? (m.fields || m.expectedHeaders) : [];
 
       // Show mapping UI if there are column mismatches
       var hc = d.headerCheck || {};
@@ -447,7 +466,7 @@
         if (box) box.classList.add('d-none');
       }
 
-      lastPaste = { key: key, text: text, preview: d, mapping: currentMapping };
+      lastPaste = { key: key, text: text, preview: d, mapping: currentMapping, hasHeaderRow: hasHdr };
       var box2 = el('ssPastePreview');
       var html = '';
       if (hc.ok) {
@@ -501,7 +520,8 @@
     if (!ok) return;
     setBusy('ssPasteConfirmBtn', true, 'Importing ' + n + ' rows to ' + lastPaste.key + '...');
     try {
-      var res = await window.RECON_API.importPasted(lastPaste.key, lastPaste.text, lastPaste.mapping || currentMapping || {});
+      var hasHdr = lastPaste.hasHeaderRow !== undefined ? lastPaste.hasHeaderRow : (el('ssHasHeaderRow') ? el('ssHasHeaderRow').checked : true);
+      var res = await window.RECON_API.importPasted(lastPaste.key, lastPaste.text, lastPaste.mapping || currentMapping || {}, hasHdr);
       var d = res.data || {};
       var errs = d.errors || [];
       var card = el('ssPasteResultCard');
