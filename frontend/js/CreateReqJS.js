@@ -2242,32 +2242,12 @@ window.confirmAndSend = function() {
   google.script.run
     .withSuccessHandler(function(res) {
       if (res && res.success && Array.isArray(res.data)) {
-        const pendingFallback = res.data.find(order => order && order.requiresFallbackChoice && order.dispatchDraft);
+        const pendingFallback = res.data.find(order => order && order.requiresFallbackChoice);
         if (pendingFallback) {
           Swal.fire({
-            icon: 'warning',
-            title: getI18nText('email_fallback_warning'),
-            text: getI18nText('email_fallback_text').replace('{orderId}', pendingFallback.orderId),
-            showCancelButton: true,
-            confirmButtonText: getI18nText('email_fallback_google'),
-            denyButtonText: getI18nText('email_fallback_brevo'),
-            showDenyButton: true
-          }).then((choice) => {
-            if (choice.isConfirmed || choice.isDenied) {
-              const provider = choice.isConfirmed ? 'Google' : 'Brevo';
-              google.script.run
-                .withSuccessHandler(function(retryRes) {
-                  if (retryRes && retryRes.success) {
-                    Swal.fire(getI18nText('msg_success'), getI18nText('email_fallback_sent').replace('{provider}', provider), 'success');
-                  } else {
-                    Swal.fire(getI18nText('msg_warning'), getI18nText('email_fallback_failed'), 'warning');
-                  }
-                })
-                .withFailureHandler(function(err) {
-                  Swal.fire(getI18nText('msg_warning'), getI18nText('email_fallback_dispatch_failed').replace('{error}', String(err)), 'warning');
-                })
-                .dispatchEmailWithProvider(pendingFallback.dispatchDraft, provider);
-            }
+            icon: 'error',
+            title: 'Email Send Failed',
+            text: pendingFallback.graphError || 'Microsoft Graph could not send the email. Please check the system configuration.',
           });
         }
       }

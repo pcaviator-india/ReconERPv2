@@ -2101,7 +2101,7 @@ window.sendIndividualRFQ('${escapeJsArg_(supplierName)}', '${order.id}')">
       orderId: orderId || `RFQ-${supplierName}`, // Added: Req ID for quote sheet ref and order history update
       // Consolidated RFQ: all source requirement IDs (single-req RFQs have one)
       orderIds: (order && order.orderIds) || splitRfqRefIds_(orderId) || [orderId],
-      replyTo: window.currentUser ? window.currentUser.email : "", // Added: For Brevo/Google Headers
+      replyTo: window.currentUser ? window.currentUser.email : "", // Added: For Graph Headers
       currentUserEmail: window.currentUser ? window.currentUser.email : "",
       // Supplier email is passed separately so it can be used for sending but
       // excluded from the "Emails" column in the Quotes sheet (only CC + routing emails are saved).
@@ -2132,39 +2132,11 @@ window.sendIndividualRFQ('${escapeJsArg_(supplierName)}', '${order.id}')">
 
     google.script.run
       .withSuccessHandler(function (response) {
-        if (response && response.requiresFallbackChoice && response.dispatchDraft) {
+        if (response && response.requiresFallbackChoice) {
           Swal.fire({
-            icon: "warning",
-            title: "Graph Email Failed",
-            text: "Graph send failed. Send via another provider?",
-            showCancelButton: true,
-            confirmButtonText: "Use Google",
-            denyButtonText: "Use Brevo",
-            showDenyButton: true,
-          }).then((choice) => {
-            if (choice.isConfirmed || choice.isDenied) {
-              const provider = choice.isConfirmed ? "Google" : "Brevo";
-              google.script.run
-                .withSuccessHandler(function (retryRes) {
-                  if (retryRes && retryRes.success) {
-                    Swal.fire("Sent", "RFQ sent via " + provider, "success");
-                    finishBulkSend(true);
-                  } else {
-                    setSendingState(false);
-                    Swal.fire(i18n("msg_error"), i18n("msg_sys_error"), "error");
-                    finishBulkSend(false);
-                  }
-                })
-                .withFailureHandler(function (err) {
-                  setSendingState(false);
-                  Swal.fire(i18n("msg_error"), i18n("msg_sys_error") + ": " + String(err), "error");
-                  finishBulkSend(false);
-                })
-                .dispatchEmailWithProvider(response.dispatchDraft, provider);
-            } else {
-              setSendingState(false);
-              finishBulkSend(false);
-            }
+            icon: "error",
+            title: "Email Send Failed",
+            text: response.graphError || "Microsoft Graph could not send the email. Please check the system configuration.",
           });
           return;
         }
@@ -4243,32 +4215,12 @@ window.confirmAndSend = window.confirmAndSend || function() {
   google.script.run
     .withSuccessHandler(function(res) {
       if (res && res.success && Array.isArray(res.data)) {
-        const pendingFallback = res.data.find(order => order && order.requiresFallbackChoice && order.dispatchDraft);
+        const pendingFallback = res.data.find(order => order && order.requiresFallbackChoice);
         if (pendingFallback) {
           Swal.fire({
-            icon: 'warning',
-            title: getI18nText('email_fallback_warning'),
-            text: getI18nText('email_fallback_text').replace('{orderId}', pendingFallback.orderId),
-            showCancelButton: true,
-            confirmButtonText: getI18nText('email_fallback_google'),
-            denyButtonText: getI18nText('email_fallback_brevo'),
-            showDenyButton: true
-          }).then((choice) => {
-            if (choice.isConfirmed || choice.isDenied) {
-              const provider = choice.isConfirmed ? 'Google' : 'Brevo';
-              google.script.run
-                .withSuccessHandler(function(retryRes) {
-                  if (retryRes && retryRes.success) {
-                    Swal.fire(getI18nText('msg_success'), getI18nText('email_fallback_sent').replace('{provider}', provider), 'success');
-                  } else {
-                    Swal.fire(getI18nText('msg_warning'), getI18nText('email_fallback_failed'), 'warning');
-                  }
-                })
-                .withFailureHandler(function(err) {
-                  Swal.fire(getI18nText('msg_warning'), getI18nText('email_fallback_dispatch_failed').replace('{error}', String(err)), 'warning');
-                })
-                .dispatchEmailWithProvider(pendingFallback.dispatchDraft, provider);
-            }
+            icon: "error",
+            title: "Email Send Failed",
+            text: pendingFallback.graphError || "Microsoft Graph could not send the email. Please check the system configuration.",
           });
         }
       }

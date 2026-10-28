@@ -2138,7 +2138,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   // card: To/Cc chips (add/remove/edit + autocomplete), Subject, editable HTML
   // body (the pre-rendered reminder + products table is prefilled and editable),
   // and Signature. Supplier email is intentionally NOT included — this is an
-  // internal intimation. On confirm, dispatches via dispatchEmailWithProvider
+  // internal intimation. On confirm, dispatches via Graph API
   // with the same Graph-first + fallback contract as RFQ.
   //
   window.sendPoReminder = function (index) {
@@ -2710,23 +2710,13 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     }
 
     function onSendResult(res) {
-      if (res && res.requiresFallbackChoice && res.dispatchDraft) {
-        // Graph lane failed — mirror the RFQ fallback provider choice.
+      if (res && res.requiresFallbackChoice) {
+        // Graph send failed — show error
         Swal.fire({
-          icon: "warning",
-          title: "Graph Email Failed",
-          text: res.graphError || res.emailError || "Graph send failed. Send via another provider?",
-          showCancelButton: true,
-          confirmButtonText: "Use Google",
-          showDenyButton: true,
-          denyButtonText: "Use Brevo",
-        }).then(function (choice) {
-          if (choice.isConfirmed || choice.isDenied) {
-            doDispatch(choice.isConfirmed ? "Google" : "Brevo");
-          } else {
-            restoreSendBtn();
-          }
-        });
+          icon: "error",
+          title: "Email Send Failed",
+          text: res.graphError || res.emailError || "Microsoft Graph could not send the email. Please check the system configuration.",
+        }).then(function () { restoreSendBtn(); });
         return;
       }
       if (res && res.success) {

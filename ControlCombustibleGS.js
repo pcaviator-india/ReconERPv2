@@ -155,10 +155,14 @@ function sendFuelAlertEmail(balanceData) {
     </div>
   `;
 
-  MailApp.sendEmail({
+  SmartDispatcher({
+    type: "FuelAlert",
+    refId: "",
     to: emailRecipient,
     subject: subject,
-    htmlBody: htmlBody
+    body: htmlBody,
+    replyTo: "noreply@recon.cl",
+    senderEmail: "noreply@recon.cl",
   });
 }
 

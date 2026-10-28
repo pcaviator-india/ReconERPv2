@@ -560,15 +560,17 @@ function saveRequirementToSheet(data) {
     .getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, 12)
     .setValues(rowsToAdd);
 
-  // 3. Send Email only if B16 is TRUE
+  // 3. Send Email via Graph only if email is enabled
   if (isEmailEnabled && data.emailTo) {
-    GmailApp.sendEmail(data.emailTo, data.subject, data.body, {
-      htmlBody:
-        data.body +
-        (pdfUrl
-          ? `<br><br><b>PDF:</b> <a href="${pdfUrl}">View Requirement</a>`
-          : ""),
-      name: "Recon ERP System",
+    SmartDispatcher({
+      type: "Requirement",
+      refId: data.orderId || "",
+      to: data.emailTo,
+      subject: data.subject,
+      body: data.body + (pdfUrl ? `<br><br><b>PDF:</b> <a href="${pdfUrl}">View Requirement</a>` : ""),
+      replyTo: data.replyTo || "noreply@recon.cl",
+      senderEmail: data.senderEmail || data.replyTo || "",
+      pdfUrl: pdfUrl || "",
     });
   }
 
@@ -6182,362 +6184,105 @@ function resolveMailAttachments_(mail) {
   return out;
 }
 
+/**
+ * SmartDispatcher — sends via Microsoft Graph API only.
+ * Brevo and Gmail/MailApp fallbacks have been removed.
+ */
 function SmartDispatcher(mail) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const configSheet = ss.getSheetByName("Config");
   const logSheet = ss.getSheetByName("Log");
-  const lock = LockService.getScriptLock();
 
   try {
-    lock.waitLock(10000);
+    const sender = String(mail.senderEmail || mail.from || mail.replyTo || "").trim();
+    if (!sender) throw new Error("Graph sender email missing — set senderEmail, from, or replyTo on the mail object.");
 
-    // 1. Daily Reset Logic
-    const todayStr = Utilities.formatDate(new Date(), "GMT-4", "yyyy-MM-dd");
-    const lastResetVal = configSheet.getRange("B9").getValue();
-    const lastResetStr = lastResetVal
-      ? Utilities.formatDate(new Date(lastResetVal), "GMT-4", "yyyy-MM-dd")
-      : "";
+    const creds = getAzureGraphCredentials_();
+    const accessToken = getMicrosoftGraphToken(creds);
+    const graphEndpoint =
+      "https://graph.microsoft.com/v1.0/users/" +
+      encodeURIComponent(sender) +
+      "/sendMail";
 
-    if (todayStr !== lastResetStr) {
-      configSheet.getRange("B6").setValue(0); // Reset Google
-      configSheet.getRange("B3").setValue(0); // Reset Brevo
-      configSheet.getRange("B9").setValue(new Date());
-      SpreadsheetApp.flush();
+    let bodyContent = String(mail.body || "");
+    if (mail.pdfUrl && String(mail.pdfUrl).trim() !== "") {
+      bodyContent +=
+        '<br><br><p style="font-size:12px;color:#666;"><strong>PDF Link:</strong> <a href="' +
+        String(mail.pdfUrl) +
+        '" target="_blank">Download PDF</a></p>';
     }
 
-    // 2. Fetch all Quota Data
-    const googleSent = configSheet.getRange("B6").getValue() || 0;
-    const googleLimit = configSheet.getRange("B8").getValue() || 90;
-    const brevoSent = configSheet.getRange("B3").getValue() || 0;
-    const brevoLimit = configSheet.getRange("B4").getValue() || 280;
-    const brevoApiKey = String(configSheet.getRange("B2").getValue()).trim();
-    const brevoSenderEmail = configSheet.getRange("B10").getValue();
+    const messagePayload = {
+      message: {
+        subject: String(mail.subject || ""),
+        body: { contentType: "HTML", content: bodyContent },
+        toRecipients: sanitizeGraphRecipients_(mail.to).valid,
+        ccRecipients: sanitizeGraphRecipients_(mail.cc).valid,
+        bccRecipients: sanitizeGraphRecipients_(mail.bcc).valid,
+      },
+      saveToSentItems: true,
+    };
 
-    let serviceUsed = "";
-    let messageId = "N/A";
-
-    const fallbackProviderRaw = mail && mail.fallbackProvider ? String(mail.fallbackProvider).trim() : "";
-    const fallbackProvider =
-      fallbackProviderRaw === "Google" || fallbackProviderRaw === "Brevo" ? fallbackProviderRaw : "";
-    const shouldAttemptGraph = !mail || mail.forceGraph !== false;
-
-    // 3. Graph-first by default for all mails
-    if (shouldAttemptGraph) {
-      try {
-        const sender = String(mail.senderEmail || mail.from || mail.replyTo || "").trim();
-        if (!sender) throw new Error("Graph sender email missing");
-
-        const creds = getAzureGraphCredentials_();
-        const accessToken = getMicrosoftGraphToken(creds);
-        const graphEndpoint =
-          "https://graph.microsoft.com/v1.0/users/" +
-          encodeURIComponent(sender) +
-          "/sendMail";
-
-        let bodyContent = String(mail.body || "");
-        if (mail.pdfUrl && String(mail.pdfUrl).trim() !== "") {
-          bodyContent +=
-            '<br><br><p style="font-size:12px;color:#666;"><strong>PDF Link:</strong> <a href="' +
-            String(mail.pdfUrl) +
-            '" target="_blank">Download PDF</a></p>';
-        }
-
-        const messagePayload = {
-          message: {
-            subject: String(mail.subject || ""),
-            body: { contentType: "HTML", content: bodyContent },
-            // FIX #2: tolerant per-recipient sanitization (comma/semicolon/space/newline).
-            // Invalid addresses are dropped + reported instead of failing the whole Graph send.
-            toRecipients: sanitizeGraphRecipients_(mail.to).valid,
-            ccRecipients: sanitizeGraphRecipients_(mail.cc).valid,
-            bccRecipients: sanitizeGraphRecipients_(mail.bcc).valid,
-          },
-          saveToSentItems: true,
-        };
-        // Generic attachments (mail.attachments): Drive URLs + inline base64 blobs.
-        try {
-          const graphAtts = resolveMailAttachments_(mail);
-          if (graphAtts.length) {
-            // Map each element defensively: one bad blob previously threw and
-            // aborted the WHOLE array, silently dropping every attachment.
-            const mapped = [];
-            graphAtts.forEach(function (b, ai) {
-              try {
-                const bytes = b.getBytes();
-                if (!bytes || !bytes.length) {
-                  console.warn("Graph attachment[" + ai + "] empty — skipped");
-                  return;
-                }
-                mapped.push({
-                  "@odata.type": "#microsoft.graph.fileAttachment",
-                  name: b.getName() || ("attachment_" + (ai + 1)),
-                  contentBytes: Utilities.base64Encode(bytes),
-                });
-              } catch (oneErr) {
-                console.warn("Graph attachment[" + ai + "] skipped: " + oneErr.toString());
-              }
+    // Attachments
+    try {
+      const graphAtts = resolveMailAttachments_(mail);
+      if (graphAtts.length) {
+        const mapped = [];
+        graphAtts.forEach(function (b, ai) {
+          try {
+            const bytes = b.getBytes();
+            if (!bytes || !bytes.length) { console.warn("Graph attachment[" + ai + "] empty — skipped"); return; }
+            mapped.push({
+              "@odata.type": "#microsoft.graph.fileAttachment",
+              name: b.getName() || ("attachment_" + (ai + 1)),
+              contentBytes: Utilities.base64Encode(bytes),
             });
-            if (mapped.length) messagePayload.message.attachments = mapped;
+          } catch (oneErr) {
+            console.warn("Graph attachment[" + ai + "] skipped: " + oneErr.toString());
           }
-        } catch (attErr) {
-          console.warn("Failed to add Graph attachments: " + attErr.toString());
-        }
-        // Abort with a CLEAR error if nothing valid remains (instead of Graph 400)
-        var badTo = sanitizeGraphRecipients_(mail.to).invalid;
-        var badCc = sanitizeGraphRecipients_(mail.cc).invalid;
-        var badBcc = sanitizeGraphRecipients_(mail.bcc).invalid;
-        var skipped = badTo.concat(badCc).concat(badBcc);
-        if (!messagePayload.message.toRecipients.length) {
-          throw new Error(
-            "No valid 'To' recipients. Skipped invalid: " +
-            (skipped.length ? skipped.join(", ") : String(mail.to || "(empty)"))
-          );
-        }
-        if (skipped.length) {
-          console.warn("SmartDispatcher: skipped invalid email(s): " + skipped.join(", "));
-        }
-
-        const gresp = UrlFetchApp.fetch(graphEndpoint, {
-          method: "post",
-          contentType: "application/json",
-          payload: JSON.stringify(messagePayload),
-          headers: {
-            Authorization: "Bearer " + accessToken,
-            Accept: "application/json",
-          },
-          muteHttpExceptions: true,
         });
-
-        if (gresp.getResponseCode() === 202) {
-          serviceUsed = "Graph";
-          messageId = "GRAPH-OK";
-        } else {
-          throw new Error(
-            "Graph API Error: " + gresp.getResponseCode() + " " + gresp.getContentText(),
-          );
-        }
-      } catch (graphErr) {
-        const graphError = "Graph send failed: " + graphErr.toString();
-
-        if (!fallbackProvider) {
-          logSheet.appendRow([
-            new Date(),
-            mail.type,
-            mail.refId,
-            mail.to,
-            mail.subject,
-            "ERROR",
-            "Failed",
-            graphError,
-          ]);
-          return {
-            success: false,
-            requiresFallbackChoice: true,
-            graphError: graphError,
-            fallbackOptions: ["Google", "Brevo"],
-            message: "Graph send failed. Retry with fallbackProvider set to 'Google' or 'Brevo'.",
-          };
-        }
-
-        serviceUsed = fallbackProvider;
+        if (mapped.length) messagePayload.message.attachments = mapped;
       }
+    } catch (attErr) {
+      console.warn("Failed to add Graph attachments: " + attErr.toString());
     }
 
-    // 4. If Graph not used/succeeded, select lane
-    if (!serviceUsed) {
-      if (fallbackProvider) {
-        serviceUsed = fallbackProvider;
-      } else if (mail.type === "RFQ") {
-        if (brevoSent < brevoLimit) {
-          serviceUsed = "Brevo";
-        } else if (googleSent < googleLimit) {
-          serviceUsed = "Google";
-        } else {
-          throw new Error("System Quota Exhausted: Both Google and Brevo limits reached.");
-        }
-      } else {
-        if (googleSent < googleLimit) {
-          serviceUsed = "Google";
-        } else if (brevoSent < brevoLimit) {
-          serviceUsed = "Brevo";
-        } else {
-          throw new Error("System Quota Exhausted: No available email service.");
-        }
-      }
-    }
-
-    // 5. Execution for fallback/non-Graph lanes
-    if (serviceUsed === "Google") {
-      if (googleSent >= googleLimit) {
-        throw new Error("System Quota Exhausted: Google limit reached.");
-      }
-
-      const options = {
-        to: mail.to,
-        subject: mail.subject,
-        htmlBody: mail.body,
-        replyTo: mail.replyTo,
-        name: "RECON ERP",
-      };
-
-      // Add CC if provided (sanitized: tolerant split + per-address validation)
-      if (mail.cc && typeof mail.cc === "string" && mail.cc.trim() !== "") {
-        var ccClean = sanitizeGraphRecipients_(mail.cc);
-        var ccAddresses = ccClean.valid.map(function (r) { return r.emailAddress.address; });
-        if (ccAddresses.length) options.cc = ccAddresses.join(", ");
-        if (ccClean.invalid.length) console.warn("Google lane: skipped invalid CC: " + ccClean.invalid.join(", "));
-      }
-
-      // Add PDF attachment if pdfUrl is provided
-      if (mail.pdfUrl && typeof mail.pdfUrl === "string" && mail.pdfUrl.trim() !== "") {
-        try {
-          const fileId = getDriveFileIdFromUrl_(mail.pdfUrl);
-          if (fileId) {
-            const pdfFile = DriveApp.getFileById(fileId);
-            options.attachments = [pdfFile];
-            console.log("PDF attached to email");
-          }
-        } catch (attachErr) {
-          console.warn("Failed to attach PDF:", attachErr.toString());
-        }
-      }
-
-      // Generic attachments (mail.attachments): Drive URLs + inline base64 blobs.
-      try {
-        const extraAtts = resolveMailAttachments_(mail);
-        if (extraAtts.length) {
-          options.attachments = (options.attachments || []).concat(extraAtts);
-        }
-      } catch (attErr) {
-        console.warn("Failed to add Google attachments: " + attErr.toString());
-      }
-
-      MailApp.sendEmail(options);
-      configSheet.getRange("B6").setValue(googleSent + 1);
-    } else if (serviceUsed === "Brevo") {
-      if (brevoSent >= brevoLimit) {
-        throw new Error("System Quota Exhausted: Brevo limit reached.");
-      }
-
-      const payload = {
-        sender: { name: "RECON ERP", email: brevoSenderEmail },
-        to: [{ email: mail.to }],
-        replyTo: { email: mail.replyTo },
-        subject: mail.subject,
-        htmlContent: mail.body,
-      };
-
-      // Add CC if provided (sanitized: tolerant split + per-address validation)
-      if (mail.cc && typeof mail.cc === "string" && mail.cc.trim() !== "") {
-        var ccCleanB = sanitizeGraphRecipients_(mail.cc);
-        if (ccCleanB.valid.length) {
-          payload.cc = ccCleanB.valid.map(function (r) { return { email: r.emailAddress.address }; });
-        }
-        if (ccCleanB.invalid.length) console.warn("Brevo lane: skipped invalid CC: " + ccCleanB.invalid.join(", "));
-      }
-
-      // For Brevo, add PDF link reference in body if provided
-      if (mail.pdfUrl && typeof mail.pdfUrl === "string" && mail.pdfUrl.trim() !== "") {
-        payload.htmlContent += `<br><br><p style="margin-top: 20px; font-size: 12px; color: #666;"><strong>PDF Link:</strong> <a href="${mail.pdfUrl}" target="_blank">Download Requirement PDF</a></p>`;
-      }
-
-      // Generic attachments (mail.attachments): base64 for the Brevo API.
-      try {
-        const brevoAtts = resolveMailAttachments_(mail);
-        if (brevoAtts.length) {
-          payload.attachments = brevoAtts.map(function (b) {
-            return { name: b.getName() || "attachment", content: Utilities.base64Encode(b.getBytes()) };
-          });
-        }
-      } catch (attErr) {
-        console.warn("Failed to add Brevo attachments: " + attErr.toString());
-      }
-
-      const response = UrlFetchApp.fetch(
-        "https://api.brevo.com/v3/smtp/email",
-        {
-          method: "post",
-          contentType: "application/json",
-          headers: {
-            accept: "application/json",
-            "api-key": String(brevoApiKey),
-          },
-          payload: JSON.stringify(payload),
-          muteHttpExceptions: true,
-        },
+    var skipped = sanitizeGraphRecipients_(mail.to).invalid
+      .concat(sanitizeGraphRecipients_(mail.cc).invalid)
+      .concat(sanitizeGraphRecipients_(mail.bcc).invalid);
+    if (!messagePayload.message.toRecipients.length) {
+      throw new Error(
+        "No valid 'To' recipients. Skipped invalid: " +
+        (skipped.length ? skipped.join(", ") : String(mail.to || "(empty)"))
       );
-
-      const resData = JSON.parse(response.getContentText());
-      if (
-        response.getResponseCode() === 201 ||
-        response.getResponseCode() === 200
-      ) {
-        messageId = resData.messageId || "API-OK";
-        configSheet.getRange("B3").setValue(brevoSent + 1);
-      } else {
-        throw new Error("Brevo API Error: " + response.getContentText());
-      }
+    }
+    if (skipped.length) {
+      console.warn("SmartDispatcher: skipped invalid email(s): " + skipped.join(", "));
     }
 
-    // 5. Logging
-    logSheet.appendRow([
-      new Date(),
-      mail.type,
-      mail.refId,
-      mail.to,
-      mail.subject,
-      serviceUsed,
-      "Success",
-      messageId,
-    ]);
-    return { success: true, service: serviceUsed };
+    const gresp = UrlFetchApp.fetch(graphEndpoint, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(messagePayload),
+      headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
+      muteHttpExceptions: true,
+    });
+
+    const responseCode = gresp.getResponseCode();
+    if (responseCode === 202) {
+      logSheet.appendRow([new Date(), mail.type, mail.refId, mail.to, mail.subject, "Graph", "Success", "GRAPH-OK"]);
+      return { success: true, service: "Graph" };
+    } else {
+      throw new Error("Graph API Error: " + responseCode + " " + gresp.getContentText());
+    }
   } catch (e) {
-    logSheet.appendRow([
-      new Date(),
-      mail.type,
-      mail.refId,
-      mail.to,
-      mail.subject,
-      "ERROR",
-      "Failed",
-      e.toString(),
-    ]);
+    try {
+      logSheet.appendRow([new Date(), mail.type, mail.refId, mail.to, mail.subject, "ERROR", "Failed", e.toString()]);
+    } catch (_) {}
     return { success: false, message: e.toString() };
-  } finally {
-    lock.releaseLock();
   }
 }
 
 
-
-//Whenever you have a script that notifies a manager (e.g., when a new requirement is created), stop using MailApp directly and use this instead:
-function notifyManagerOfNewRequirement(reqId, managerEmail, siteName) {
-  const details = {
-    type: "Requirement", // This will trigger Google Lane first
-    refId: reqId,
-    to: managerEmail,
-    subject: "New Requirement Created - " + siteName,
-    body: "A new requirement has been uploaded. Please review in the ERP.",
-    replyTo: "noreply@recon.cl",
-  };
-
-  SmartDispatcher(details);
-}
-
-function testBrevo() {
-  const apiKey =
-    process.env.BREVO_API_KEY || "REPLACE_WITH_YOUR_BREVO_API_KEY";
-
-  const res = UrlFetchApp.fetch("https://api.brevo.com/v3/account", {
-    method: "get",
-    headers: {
-      "api-key": apiKey,
-    },
-    muteHttpExceptions: true,
-  });
-
-  Logger.log(res.getContentText());
-}
 
 /**
  * Fetches inventory in chunks to prevent timeouts.
