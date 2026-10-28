@@ -17,9 +17,7 @@
       </button>
     </li>
     <li class="nav-item" role="presentation">
-      <button class="nav-link text-muted fw-bold py-2" id="tab-api-btn" data-bs-toggle="pill" data-bs-target="#tab-api" type="button" role="tab" aria-controls="tab-api" aria-selected="false">
-        <i class="bi bi-cloud-arrow-down me-2"></i>☁️ Method 2: Google Cloud Service Account <span class="badge bg-secondary ms-2">Automated API</span>
-      </button>
+      <button class="nav-link text-muted fw-bold py-2" id="tab-api-btn" data-bs-toggle="pill" data-bs-target="#tab-api" type="button" role="tab" aria-controls="tab-api" aria-selected="false"><i class="bi bi-cloud-arrow-down me-2"></i>☁️ Method 2: Google Sheets Live Sync Studio <span class="badge bg-primary ms-2">Visual Column Mapper &amp; Split Sync</span></button>
     </li>
   </ul>
 
@@ -151,86 +149,144 @@
       </div>
     </div>
 
-    <!-- ========================================================== -->
-    <!-- TAB 2: GOOGLE CLOUD SERVICE ACCOUNT (AUTOMATED API)       -->
+        <!-- ========================================================== -->
+    <!-- TAB 2: GOOGLE SHEETS LIVE SYNC STUDIO (VISUAL MAPPER)      -->
     <!-- ========================================================== -->
     <div class="tab-pane fade" id="tab-api" role="tabpanel" aria-labelledby="tab-api-btn">
-      <div class="alert alert-info border d-flex align-items-center gap-2 mb-3">
-        <i class="bi bi-info-circle-fill fs-4 text-primary"></i>
+      <div class="alert alert-primary border d-flex align-items-center gap-2 mb-3">
+        <i class="bi bi-diagram-3-fill fs-4 text-primary"></i>
         <div>
-          <b>Automated Google Sheets API Sync</b> communicates directly with Google's servers using a Google Cloud Service Account key file.
-          If you do not have a service account JSON or are running on serverless edge (Cloudflare Workers), please use <b>Method 1 (Copy &amp; Paste Import)</b> above.
+          <b>Google Sheets Live Sync Studio:</b> Pulls data directly from your Google Sheet, validates column alignment against database fields, splits flat order/quote sheets into parent &amp; child tables, and syncs directly into Cloudflare D1.
         </div>
       </div>
 
-      <!-- CONNECTION CARD -->
+      <!-- CONNECTION BAR -->
       <div class="card shadow-sm border-0 mb-3">
         <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
-          <b><i class="bi bi-gear me-1"></i> Google Sheets API Connection Details</b>
-          <div class="d-flex gap-2 align-items-center">
-            <span class="badge bg-secondary" id="ssConnBadge">Not loaded</span>
-            <button class="btn btn-outline-primary btn-sm" id="ssTestBtn" onclick="window.SheetsSync.test()">
-              <i class="bi bi-plug"></i> Test Connection
-            </button>
-          </div>
+          <b><i class="bi bi-link-45deg me-1"></i> Google Spreadsheet Connection</b>
+          <span class="badge bg-success" id="ssStudioConnBadge">Connected</span>
         </div>
         <div class="card-body">
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label fw-bold">Google Spreadsheet ID</label>
-              <input type="text" id="ssSheetId" class="form-control font-monospace" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
-              <div class="form-text">Copy from the sheet URL: <code>docs.google.com/spreadsheets/d/&lt;ID&gt;/edit</code>.
-                <a href="#" id="ssOpenSheet" target="_blank" class="d-none">Open sheet <i class="bi bi-box-arrow-up-right"></i></a>
-              </div>
+          <div class="row g-2 align-items-center">
+            <div class="col-md-8">
+              <label class="form-label small fw-bold">Google Spreadsheet ID</label>
+              <input type="text" id="ssStudioSheetId" class="form-control font-monospace" placeholder="1CVxPVeaO-WIV1YsSFYUawOk4UxL2pWCwCbKEFoBiSaM" value="1CVxPVeaO-WIV1YsSFYUawOk4UxL2pWCwCbKEFoBiSaM">
             </div>
-            <div class="col-md-6">
-              <label class="form-label fw-bold">Service Account File Path</label>
-              <input type="text" id="ssCredPath" class="form-control font-monospace" placeholder="api/gcp/service-account.json">
-              <div class="form-text">Path on server. Service account email: <code id="ssSvcEmail">—</code>
-                (share the sheet with this email as Viewer).
-              </div>
+            <div class="col-md-4 d-flex align-items-end gap-2 mt-3 mt-md-0">
+              <button class="btn btn-outline-primary w-100 fw-bold" onclick="window.SheetsSyncStudio.saveSheetId()">
+                <i class="bi bi-save me-1"></i> Save Sheet ID
+              </button>
+              <a href="https://docs.google.com/spreadsheets/d/1CVxPVeaO-WIV1YsSFYUawOk4UxL2pWCwCbKEFoBiSaM/edit" target="_blank" class="btn btn-outline-secondary" title="Open Google Sheet in new tab">
+                <i class="bi bi-box-arrow-up-right"></i>
+              </a>
             </div>
-          </div>
-          <div class="mt-3">
-            <label class="form-label fw-bold">Paste Service Account JSON <small class="text-muted">(optional — saves to the path above)</small></label>
-            <textarea id="ssSvcJson" class="form-control font-monospace" rows="3" placeholder='{"type":"service_account","client_email":"...","private_key":"..."}'></textarea>
-          </div>
-          <div class="mt-3 d-flex gap-2">
-            <button class="btn btn-success" onclick="window.SheetsSync.saveConnection()">
-              <i class="bi bi-save"></i> Save Connection
-            </button>
-            <button class="btn btn-outline-secondary" onclick="window.SheetsSync.loadConnection()">
-              <i class="bi bi-arrow-clockwise"></i> Reload
-            </button>
           </div>
         </div>
       </div>
 
-      <!-- SHEET PICKER + LIVE API PREVIEW -->
+      <!-- TAB SELECTOR -->
       <div class="card shadow-sm border-0 mb-3">
+        <div class="card-header bg-white py-3">
+          <b><i class="bi bi-table me-1"></i> Step 1: Select Sheet Tab to Sync</b>
+        </div>
+        <div class="card-body">
+          <div class="row g-3 align-items-center">
+            <div class="col-md-6">
+              <label class="form-label small fw-bold">Select Google Sheet Tab</label>
+              <select id="ssStudioSheetSelect" class="form-select fw-semibold" onchange="window.SheetsSyncStudio.onTabSelected()">
+                <option value="">-- Choose Sheet Tab --</option>
+                <option value="ordenes" selected>📋 Ordenes (Requisitions &amp; Line Items) [Split Table]</option>
+                <option value="quotes">💬 Quotes (Supplier Quotations &amp; Items) [Split Table]</option>
+                <option value="stock">📦 Stock (Current Inventory by Location)</option>
+                <option value="invMovement">🔄 Inv_Movement (Inventory Movements &amp; Issues)</option>
+                <option value="bundles">🧩 Bundles (Kits &amp; Bundle Items) [Split Table]</option>
+                <option value="controlCombustible">⛽ ControlCombustible (Fuel Usage Log)</option>
+                <option value="compraCombustible">🚛 CompraCombustible (Fuel Purchase Log)</option>
+                <option value="minMax">📊 MinMax (Site Min/Max Inventory Levels)</option>
+              </select>
+            </div>
+            <div class="col-md-6 d-flex align-items-end gap-2">
+              <button class="btn btn-primary fw-bold px-4" id="ssStudioFetchBtn" onclick="window.SheetsSyncStudio.fetchColumns()">
+                <i class="bi bi-cloud-download me-1"></i> 1. Fetch Columns &amp; Live Sample
+              </button>
+              <span id="ssStudioSheetInfo" class="small text-muted align-self-center"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISUAL COLUMN MAPPER -->
+      <div class="card shadow-sm border-0 mb-3 d-none" id="ssStudioMapperCard">
         <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
-          <b><i class="bi bi-table me-1"></i> Live Sheets Data Preview <small class="text-muted">(nothing is written until confirmed)</small></b>
-          <div class="d-flex gap-2 align-items-center flex-wrap">
-            <select id="ssSheetSelect" class="form-select form-select-sm" style="min-width:220px">
-              <option value="">All sheets</option>
-            </select>
-            <button class="btn btn-primary btn-sm" id="ssPreviewBtn" onclick="window.SheetsSync.preview()">
-              <i class="bi bi-eye"></i> Fetch &amp; Preview Live Data
+          <div>
+            <b><i class="bi bi-arrow-left-right me-1"></i> Step 2: Visual Column Matching &amp; Verification</b>
+            <div class="small text-muted" id="ssStudioMapperSubtitle">Review how sheet columns map to database fields</div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" onclick="window.SheetsSyncStudio.resetDefaultMapping()">
+              <i class="bi bi-arrow-counterclockwise me-1"></i> Reset to Defaults
             </button>
-            <button class="btn btn-success btn-sm d-none" id="ssConfirmBtn" onclick="window.SheetsSync.confirmImport()">
-              <i class="bi bi-check-circle"></i> Confirm Import
+            <button class="btn btn-success btn-sm fw-bold" onclick="window.SheetsSyncStudio.saveMappingPref()">
+              <i class="bi bi-save me-1"></i> Save Mapping Preference
             </button>
           </div>
         </div>
         <div class="card-body p-0">
-          <div id="ssPreviewBox" class="p-3 text-muted">Click <b>Fetch &amp; Preview Live Data</b> to load data via Google Sheets API.</div>
+          <div class="table-responsive" style="max-height: 480px;">
+            <table class="table table-hover align-middle mb-0">
+              <thead class="bg-light sticky-top">
+                <tr>
+                  <th style="width: 35%;">Sheet Column (Header)</th>
+                  <th style="width: 25%;">Live Sample Data (Row 1)</th>
+                  <th style="width: 5%;" class="text-center">→</th>
+                  <th style="width: 35%;">Target Database Field</th>
+                </tr>
+              </thead>
+              <tbody id="ssStudioMapperTbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card-footer bg-white border-top d-flex justify-content-between align-items-center py-2">
+          <span class="small text-muted"><i class="bi bi-shield-check text-success me-1"></i> Mappings are remembered for future cutover syncs</span>
+          <button class="btn btn-primary btn-sm fw-bold px-3" onclick="window.SheetsSyncStudio.generatePreview()">
+            <i class="bi bi-eye me-1"></i> Generate Transformed Preview
+          </button>
         </div>
       </div>
 
-      <!-- API RESULT -->
-      <div class="card shadow-sm border-0 d-none" id="ssResultCard">
-        <div class="card-header bg-white"><b><i class="bi bi-flag me-1"></i> Live Import Result</b></div>
-        <div class="card-body p-0"><div id="ssResultBox" class="p-3"></div></div>
+      <!-- TRANSFORMED PREVIEW CARD -->
+      <div class="card shadow-sm border-0 mb-3 d-none" id="ssStudioPreviewCard">
+        <div class="card-header bg-white py-3">
+          <b><i class="bi bi-check2-square me-1"></i> Step 3: Verified Data Transformation Preview</b>
+          <div class="small text-muted">Review the first 3 structured records before executing database writes</div>
+        </div>
+        <div class="card-body" id="ssStudioPreviewBody"></div>
+      </div>
+
+      <!-- EXECUTION & PROGRESS CARD -->
+      <div class="card shadow-sm border-0 mb-3 d-none" id="ssStudioSyncCard">
+        <div class="card-body p-4 text-center">
+          <h5 class="fw-bold text-dark mb-2" id="ssStudioSyncTitle">Ready to Sync</h5>
+          <p class="text-muted small mb-3" id="ssStudioSyncDesc">All columns verified. Click below to execute the live sync to Cloudflare D1.</p>
+
+          <button class="btn btn-success btn-lg px-5 fw-bold shadow-sm" id="ssStudioExecBtn" onclick="window.SheetsSyncStudio.executeSync()">
+            <i class="bi bi-cloud-arrow-up-fill me-2"></i> Sync This Sheet to Database
+          </button>
+
+          <!-- PROGRESS BAR -->
+          <div class="mt-4 d-none text-start" id="ssStudioProgressBox">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <span class="small fw-bold text-primary" id="ssStudioProgressStatus"><i class="bi bi-arrow-repeat spin me-1"></i> Syncing records...</span>
+              <span class="small text-muted fw-bold" id="ssStudioProgressPct">0%</span>
+            </div>
+            <div class="progress" style="height: 22px;">
+              <div id="ssStudioProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: 0%">0%</div>
+            </div>
+          </div>
+
+          <!-- RESULT SUMMARY -->
+          <div class="mt-3 d-none text-start" id="ssStudioResultAlert"></div>
+        </div>
       </div>
     </div>
   </div>

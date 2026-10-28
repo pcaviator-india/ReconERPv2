@@ -603,6 +603,461 @@
     }
   }
 
+  // ============================================================
+  // TAB 2: GOOGLE SHEETS LIVE SYNC STUDIO
+  // ============================================================
+  var studioState = {
+    schemas: null,
+    currentSheetKey: 'ordenes',
+    currentSheetData: null, // { sheetName, headers, sampleRows, totalRows }
+    activeMapping: {},      // { [header]: targetField }
+    sheetId: '1CVxPVeaO-WIV1YsSFYUawOk4UxL2pWCwCbKEFoBiSaM'
+  };
+
+  async function studioInit() {
+    try {
+      var savedId = localStorage.getItem('recon_sheets_sync_sheet_id');
+      if (savedId) {
+        studioState.sheetId = savedId;
+        if (el('ssStudioSheetId')) el('ssStudioSheetId').value = savedId;
+      }
+      var res = await window.RECON_API.getSchemaDefinitions();
+      if (res && res.data) {
+        studioState.schemas = res.data;
+      }
+      studioOnTabSelected();
+    } catch (err) {
+      console.warn('Could not load schema definitions:', err);
+    }
+  }
+
+  function studioSaveSheetId() {
+    var input = el('ssStudioSheetId');
+    if (!input) return;
+    var id = input.value.trim();
+    if (!id) {
+      alertBox('warning', 'Please enter a valid Google Spreadsheet ID.');
+      return;
+    }
+    studioState.sheetId = id;
+    localStorage.setItem('recon_sheets_sync_sheet_id', id);
+    alertBox('success', 'Spreadsheet ID saved successfully.');
+  }
+
+  function studioOnTabSelected() {
+    var sel = el('ssStudioSheetSelect');
+    if (!sel) return;
+    var key = sel.value;
+    studioState.currentSheetKey = key;
+    studioState.currentSheetData = null;
+    studioState.activeMapping = {};
+
+    var infoEl = el('ssStudioSheetInfo');
+    var mapperCard = el('ssStudioMapperCard');
+    var previewCard = el('ssStudioPreviewCard');
+    var syncCard = el('ssStudioSyncCard');
+
+    if (mapperCard) mapperCard.classList.add('d-none');
+    if (previewCard) previewCard.classList.add('d-none');
+    if (syncCard) syncCard.classList.add('d-none');
+
+    if (!key || !studioState.schemas || !studioState.schemas[key]) {
+      if (infoEl) infoEl.textContent = '';
+      return;
+    }
+
+    var def = studioState.schemas[key];
+    if (infoEl) {
+      infoEl.innerHTML = '<span class="badge bg-light text-dark border me-1"><i class="bi bi-file-earmark-spreadsheet me-1 text-success"></i>Tab: <b>' + esc(def.gasSheet) + '</b></span>'
+        + '<span class="badge bg-light text-dark border"><i class="bi bi-database me-1 text-primary"></i>Target: <b>' + (def.isSplit ? esc(def.parentTable) + ' + ' + esc(def.childTable) : esc(def.table)) + '</b></span>';
+    }
+  }
+
+  async function studioFetchColumns() {
+    var sel = el('ssStudioSheetSelect');
+    var key = sel ? sel.value : '';
+    if (!key) {
+      alertBox('warning', 'Please select a Google Sheet tab first.');
+      return;
+    }
+    var sheetIdInput = el('ssStudioSheetId');
+    var sheetId = (sheetIdInput ? sheetIdInput.value.trim() : '') || studioState.sheetId;
+    if (!sheetId) {
+      alertBox('warning', 'Please provide a valid Google Spreadsheet ID.');
+      return;
+    }
+
+    if (!studioState.schemas) {
+      try {
+        var schemaRes = await window.RECON_API.getSchemaDefinitions();
+        studioState.schemas = schemaRes.data;
+      } catch (e) {
+        alertBox('danger', 'Could not load schema definitions: ' + esc(e.message));
+        return;
+      }
+    }
+
+    var def = studioState.schemas[key];
+    if (!def) {
+      alertBox('danger', 'Unknown schema configuration for ' + key);
+      return;
+    }
+
+    setBusy('ssStudioFetchBtn', true, 'Fetching...');
+    try {
+      var res = await window.RECON_API.fetchRemoteSheet(sheetId, def.gasSheet);
+      var data = res.data;
+      studioState.currentSheetKey = key;
+      studioState.currentSheetData = data;
+
+      // Determine initial mapping:
+      // 1. Saved in localStorage?
+      var savedPref = null;
+      try {
+        var rawPref = localStorage.getItem('recon_sheetsync_mapping_' + key);
+        if (rawPref) savedPref = JSON.parse(rawPref);
+      } catch (e) {}
+
+      var mapping = {};
+      var defaultMapping = def.defaultMapping || {};
+
+      data.headers.forEach(function (h) {
+        var trimmed = (h || '').trim();
+        if (savedPref && savedPref[trimmed] !== undefined) {
+          mapping[trimmed] = savedPref[trimmed];
+        } else if (defaultMapping[trimmed]) {
+          mapping[trimmed] = defaultMapping[trimmed];
+        } else {
+          // Case-insensitive match check
+          var matchedKey = Object.keys(defaultMapping).find(function (k) {
+            return k.toLowerCase() === trimmed.toLowerCase();
+          });
+          if (matchedKey) {
+            mapping[trimmed] = defaultMapping[matchedKey];
+          } else {
+            mapping[trimmed] = '';
+          }
+        }
+      });
+
+      studioState.activeMapping = mapping;
+      studioRenderMapperUI();
+
+      var mapperCard = el('ssStudioMapperCard');
+      if (mapperCard) mapperCard.classList.remove('d-none');
+      var syncCard = el('ssStudioSyncCard');
+      if (syncCard) {
+        syncCard.classList.remove('d-none');
+        var syncTitle = el('ssStudioSyncTitle');
+        var syncDesc = el('ssStudioSyncDesc');
+        if (syncTitle) syncTitle.textContent = 'Ready to Sync: ' + def.gasSheet;
+        if (syncDesc) syncDesc.innerHTML = 'Found <b>' + data.totalRows + ' rows</b> with <b>' + data.headers.length + ' columns</b> in tab <code>' + esc(def.gasSheet) + '</code>. Review mappings above, preview if desired, then click below to execute live sync.';
+      }
+      var alertResult = el('ssStudioResultAlert');
+      if (alertResult) alertResult.classList.add('d-none');
+
+      alertBox('success', 'Successfully fetched <b>' + data.headers.length + ' columns</b> and <b>' + data.totalRows + ' rows</b> from Google Sheet <code>' + esc(def.gasSheet) + '</code>.');
+    } catch (err) {
+      alertBox('danger', 'Failed to fetch Google Sheet: ' + esc(err.message));
+    } finally {
+      setBusy('ssStudioFetchBtn', false);
+    }
+  }
+
+  function studioRenderMapperUI() {
+    var def = studioState.schemas[studioState.currentSheetKey];
+    var data = studioState.currentSheetData;
+    var tbody = el('ssStudioMapperTbody');
+    if (!tbody || !def || !data) return;
+
+    var subtitle = el('ssStudioMapperSubtitle');
+    if (subtitle) {
+      subtitle.innerHTML = 'Tab: <b>' + esc(def.gasSheet) + '</b> • Total Rows in Sheet: <b>' + data.totalRows + '</b>';
+    }
+
+    var optionsHtml = '<option value="">-- Ignore this column --</option>';
+    if (def.isSplit) {
+      optionsHtml += '<optgroup label="📋 Parent Table: ' + esc(def.parentTable) + '">';
+      (def.parentFields || []).forEach(function (f) {
+        optionsHtml += '<option value="parent.' + esc(f.field) + '">' + esc(f.label) + (f.required ? ' *' : '') + ' [parent.' + esc(f.field) + ']</option>';
+      });
+      optionsHtml += '</optgroup>';
+      optionsHtml += '<optgroup label="📦 Child Items: ' + esc(def.childTable) + '">';
+      (def.childFields || []).forEach(function (f) {
+        optionsHtml += '<option value="child.' + esc(f.field) + '">' + esc(f.label) + (f.required ? ' *' : '') + ' [child.' + esc(f.field) + ']</option>';
+      });
+      optionsHtml += '</optgroup>';
+    } else {
+      optionsHtml += '<optgroup label="🗄️ Database Table: ' + esc(def.table) + '">';
+      (def.fields || []).forEach(function (f) {
+        optionsHtml += '<option value="' + esc(f.field) + '">' + esc(f.label) + (f.required ? ' *' : '') + ' [' + esc(f.field) + ']</option>';
+      });
+      optionsHtml += '</optgroup>';
+    }
+
+    var sampleRow0 = data.sampleRows && data.sampleRows[0] ? data.sampleRows[0] : [];
+    var sampleRow1 = data.sampleRows && data.sampleRows[1] ? data.sampleRows[1] : sampleRow0;
+
+    var rowsHtml = '';
+    data.headers.forEach(function (header, idx) {
+      var trimmed = (header || '').trim();
+      var mappedVal = studioState.activeMapping[trimmed] || '';
+      var sampleVal = sampleRow0[idx] !== undefined && sampleRow0[idx] !== '' ? sampleRow0[idx] : (sampleRow1[idx] !== undefined ? sampleRow1[idx] : '');
+
+      var isMapped = Boolean(mappedVal);
+      var rowClass = isMapped ? '' : 'table-light text-muted';
+
+      rowsHtml += '<tr class="' + rowClass + '">';
+      // Sheet Column
+      rowsHtml += '<td><span class="badge bg-secondary me-2">#' + idx + '</span><b class="text-dark">' + esc(header) + '</b></td>';
+      // Sample Data
+      rowsHtml += '<td><code class="text-secondary small bg-light p-1 rounded d-inline-block text-truncate" style="max-width: 240px;" title="' + esc(sampleVal) + '">' + esc(sampleVal || '<empty>') + '</code></td>';
+      // Arrow
+      rowsHtml += '<td class="text-center text-muted"><i class="bi bi-arrow-right"></i></td>';
+      // Database Target Field Select
+      rowsHtml += '<td>';
+      rowsHtml += '<select class="form-select form-select-sm studio-mapper-select" data-col-idx="' + idx + '" data-header="' + esc(trimmed) + '" onchange="window.SheetsSyncStudio.onMappingChange(this)">';
+      rowsHtml += optionsHtml;
+      rowsHtml += '</select>';
+      rowsHtml += '</td>';
+      rowsHtml += '</tr>';
+    });
+
+    tbody.innerHTML = rowsHtml;
+
+    // Apply values
+    var selects = tbody.querySelectorAll('.studio-mapper-select');
+    selects.forEach(function (selEl) {
+      var h = selEl.dataset.header;
+      if (studioState.activeMapping[h]) {
+        selEl.value = studioState.activeMapping[h];
+      }
+    });
+  }
+
+  function studioOnMappingChange(selEl) {
+    var header = selEl.dataset.header;
+    var val = selEl.value;
+    studioState.activeMapping[header] = val;
+    var row = selEl.closest('tr');
+    if (row) {
+      if (val) row.classList.remove('table-light', 'text-muted');
+      else row.classList.add('table-light', 'text-muted');
+    }
+  }
+
+  function studioSaveMappingPref() {
+    var key = studioState.currentSheetKey;
+    if (!key) return;
+    localStorage.setItem('recon_sheetsync_mapping_' + key, JSON.stringify(studioState.activeMapping));
+    alertBox('success', 'Mapping preference for <b>' + esc(key) + '</b> saved successfully!');
+  }
+
+  function studioResetDefaultMapping() {
+    var key = studioState.currentSheetKey;
+    var def = studioState.schemas && studioState.schemas[key];
+    if (!def || !studioState.currentSheetData) return;
+
+    localStorage.removeItem('recon_sheetsync_mapping_' + key);
+    var mapping = {};
+    var defaultMapping = def.defaultMapping || {};
+
+    studioState.currentSheetData.headers.forEach(function (h) {
+      var trimmed = (h || '').trim();
+      if (defaultMapping[trimmed]) {
+        mapping[trimmed] = defaultMapping[trimmed];
+      } else {
+        var matchedKey = Object.keys(defaultMapping).find(function (k) {
+          return k.toLowerCase() === trimmed.toLowerCase();
+        });
+        mapping[trimmed] = matchedKey ? defaultMapping[matchedKey] : '';
+      }
+    });
+
+    studioState.activeMapping = mapping;
+    studioRenderMapperUI();
+    alertBox('info', 'Reset column mappings to original defaults.');
+  }
+
+  async function studioGeneratePreview() {
+    var key = studioState.currentSheetKey;
+    var def = studioState.schemas && studioState.schemas[key];
+    var data = studioState.currentSheetData;
+    if (!def || !data) return;
+
+    var previewCard = el('ssStudioPreviewCard');
+    var previewBody = el('ssStudioPreviewBody');
+    if (previewCard) previewCard.classList.remove('d-none');
+    if (previewBody) previewBody.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-primary me-2"></span> Transforming sample rows...</div>';
+
+    try {
+      var res = await window.RECON_API.previewTransformed(key, data.headers, data.sampleRows, studioState.activeMapping);
+      var previewData = res.data;
+
+      if (!previewData || !previewData.records || !previewData.records.length) {
+        previewBody.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle me-2"></i>No records were generated from the sample rows. Please verify your column mappings.</div>';
+        return;
+      }
+
+      var html = '';
+      if (def.isSplit) {
+        html += '<div class="mb-2 text-muted small">Showing preview of <b>' + previewData.records.length + ' structured parent records</b> transformed from flat rows:</div>';
+        html += '<div class="d-flex flex-column gap-3">';
+
+        previewData.records.slice(0, 3).forEach(function (rec, idx) {
+          var p = rec.parent || {};
+          var items = rec.items || [];
+          var groupKey = p[def.groupKeyField] || ('Parent #' + (idx + 1));
+
+          html += '<div class="card border shadow-none">';
+          html += '<div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">';
+          html += '<div>';
+          html += '<span class="badge bg-primary fs-6 me-2"><i class="bi bi-folder2-open me-1"></i>' + esc(groupKey) + '</span>';
+          if (p.status) html += '<span class="badge bg-info text-dark me-2">' + esc(p.status) + '</span>';
+          if (p.requested_by || p.supplier) html += '<span class="small text-muted me-2"><i class="bi bi-person me-1"></i>' + esc(p.requested_by || p.supplier) + '</span>';
+          if (p.created_at) html += '<span class="small text-muted"><i class="bi bi-calendar3 me-1"></i>' + esc(p.created_at) + '</span>';
+          html += '</div>';
+          html += '<span class="badge bg-secondary">' + items.length + ' Line Items</span>';
+          html += '</div>';
+
+          html += '<div class="card-body p-0">';
+          if (items.length === 0) {
+            html += '<div class="p-3 text-muted small">No line items mapped for this record.</div>';
+          } else {
+            html += '<div class="table-responsive"><table class="table table-sm table-striped align-middle mb-0">';
+            html += '<thead class="table-light"><tr><th style="width: 25%;">GEO Code</th><th style="width: 20%;">P/N</th><th style="width: 15%;">Quantity</th><th>Description / Notes</th></tr></thead>';
+            html += '<tbody>';
+            items.forEach(function (it) {
+              html += '<tr>';
+              html += '<td><b class="text-primary">' + esc(it.geo || it.geo_code || '—') + '</b></td>';
+              html += '<td><code>' + esc(it.pn || '—') + '</code></td>';
+              html += '<td><span class="badge bg-secondary">' + esc(it.quantity_requested || it.quantity || it.qty || 1) + '</span></td>';
+              html += '<td class="small text-muted">' + esc(it.item_notes || it.description_es || '—') + '</td>';
+              html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+          }
+          html += '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div class="mb-2 text-muted small">Showing preview of <b>' + previewData.records.length + ' normalized rows</b> for table <code>' + esc(def.table) + '</code>:</div>';
+        html += '<div class="table-responsive"><table class="table table-sm table-bordered table-hover align-middle mb-0">';
+        html += '<thead class="table-light"><tr>';
+        var firstRec = previewData.records[0] || {};
+        var fieldKeys = Object.keys(firstRec);
+        fieldKeys.forEach(function (fk) {
+          html += '<th>' + esc(fk) + '</th>';
+        });
+        html += '</tr></thead><tbody>';
+        previewData.records.slice(0, 5).forEach(function (rec) {
+          html += '<tr>';
+          fieldKeys.forEach(function (fk) {
+            html += '<td><span class="small">' + esc(rec[fk] !== undefined ? rec[fk] : '—') + '</span></td>';
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+
+      previewBody.innerHTML = html;
+      previewCard.scrollIntoView({ behavior: 'smooth' });
+    } catch (err) {
+      previewBody.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-2"></i>Failed to generate preview: ' + esc(err.message) + '</div>';
+    }
+  }
+
+  async function studioExecuteSync() {
+    var key = studioState.currentSheetKey;
+    var def = studioState.schemas && studioState.schemas[key];
+    var data = studioState.currentSheetData;
+    var sheetIdInput = el('ssStudioSheetId');
+    var sheetId = (sheetIdInput ? sheetIdInput.value.trim() : '') || studioState.sheetId;
+
+    if (!key || !def || !data) {
+      alertBox('warning', 'Please fetch the sheet columns before executing sync.');
+      return;
+    }
+
+    var confirmMsg = 'Are you ready to sync all ' + (data.totalRows || 'records') + ' rows from Google Sheet tab "' + def.gasSheet + '" into Cloudflare D1?';
+    if (!confirm(confirmMsg)) return;
+
+    var execBtn = el('ssStudioExecBtn');
+    var progressBox = el('ssStudioProgressBox');
+    var progressBar = el('ssStudioProgressBar');
+    var progressStatus = el('ssStudioProgressStatus');
+    var progressPct = el('ssStudioProgressPct');
+    var resultAlert = el('ssStudioResultAlert');
+
+    if (execBtn) execBtn.disabled = true;
+    if (progressBox) progressBox.classList.remove('d-none');
+    if (resultAlert) resultAlert.classList.add('d-none');
+
+    if (progressStatus) progressStatus.innerHTML = '<i class="bi bi-cloud-arrow-down spin me-1"></i> Fetching entire tab from Google Sheets & transforming records...';
+    if (progressBar) { progressBar.style.width = '35%'; progressBar.textContent = '35%'; }
+    if (progressPct) progressPct.textContent = '35%';
+
+    try {
+      var res = await window.RECON_API.syncRemoteTab(sheetId, key, studioState.activeMapping);
+      var result = res.data || {};
+
+      if (progressBar) { progressBar.style.width = '100%'; progressBar.textContent = '100%'; }
+      if (progressPct) progressPct.textContent = '100%';
+      if (progressStatus) progressStatus.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i> Sync Complete!';
+
+      var resultHtml = '<div class="alert alert-' + ((result.errors && result.errors.length) ? 'warning' : 'success') + ' shadow-sm border">';
+      resultHtml += '<h5 class="alert-heading fw-bold mb-2"><i class="bi bi-check-circle-fill me-2"></i>Sync Completed Successfully</h5>';
+      resultHtml += '<p class="mb-2">Processed Google Sheet tab: <b>' + esc(result.sheetName || def.gasSheet) + '</b> (<b>' + (result.totalRowsProcessed || data.totalRows) + ' rows</b>).</p>';
+      resultHtml += '<div class="d-flex gap-3 flex-wrap my-2">';
+      if (result.isSplit) {
+        resultHtml += '<div class="p-2 bg-white rounded border"><small class="text-muted d-block">Parent Records Created/Updated</small><b class="fs-5 text-primary">' + (result.importedParents || 0) + '</b> <span class="badge bg-light text-dark border">' + esc(def.parentTable) + '</span></div>';
+        resultHtml += '<div class="p-2 bg-white rounded border"><small class="text-muted d-block">Child Line Items Imported</small><b class="fs-5 text-success">' + (result.importedChildren || 0) + '</b> <span class="badge bg-light text-dark border">' + esc(def.childTable) + '</span></div>';
+      } else {
+        resultHtml += '<div class="p-2 bg-white rounded border"><small class="text-muted d-block">Records Upserted</small><b class="fs-5 text-success">' + (result.importedRecords || 0) + '</b> <span class="badge bg-light text-dark border">' + esc(def.table) + '</span></div>';
+      }
+      resultHtml += '</div>';
+
+      if (result.errors && result.errors.length) {
+        resultHtml += '<div class="mt-2 small text-danger"><b>Warnings / Errors (' + result.errors.length + '):</b><ul class="mb-0">';
+        result.errors.slice(0, 5).forEach(function (e) {
+          resultHtml += '<li>' + esc(e.message || JSON.stringify(e)) + '</li>';
+        });
+        resultHtml += '</ul></div>';
+      }
+      resultHtml += '</div>';
+
+      if (resultAlert) {
+        resultAlert.innerHTML = resultHtml;
+        resultAlert.classList.remove('d-none');
+        resultAlert.scrollIntoView({ behavior: 'smooth' });
+      }
+
+      alertBox('success', '<b>Sync Completed!</b> ' + (result.isSplit ? (result.importedParents + ' parents and ' + result.importedChildren + ' child items') : (result.importedRecords + ' records')) + ' successfully imported into D1.');
+    } catch (err) {
+      if (resultAlert) {
+        resultAlert.innerHTML = '<div class="alert alert-danger shadow-sm"><i class="bi bi-x-circle-fill me-2"></i><b>Sync Failed:</b> ' + esc(err.message) + '</div>';
+        resultAlert.classList.remove('d-none');
+      }
+      alertBox('danger', 'Sync failed: ' + esc(err.message));
+    } finally {
+      if (execBtn) execBtn.disabled = false;
+    }
+  }
+
+  window.SheetsSyncStudio = {
+    init: studioInit,
+    saveSheetId: studioSaveSheetId,
+    onTabSelected: studioOnTabSelected,
+    fetchColumns: studioFetchColumns,
+    renderMapperUI: studioRenderMapperUI,
+    onMappingChange: studioOnMappingChange,
+    saveMappingPref: studioSaveMappingPref,
+    resetDefaultMapping: studioResetDefaultMapping,
+    generatePreview: studioGeneratePreview,
+    executeSync: studioExecuteSync
+  };
+
   window.SheetsSync = {
     loadConnection: loadConnection,
     saveConnection: saveConnection,
@@ -625,5 +1080,6 @@
   window.initSheetsSync = function () {
     loadConnection();
     fillPastePicker();
+    studioInit();
   };
 })();

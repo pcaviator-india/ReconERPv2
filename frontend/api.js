@@ -321,6 +321,22 @@ const RECON_API = {
   async saveColumnMapping(sheetKey, mapping) {
     return this._request('/sheets/mapping/' + sheetKey, 'PUT', { mapping });
   },
+  async getSchemaDefinitions() {
+    return this._request('/sheets/schema-definitions', 'GET');
+  },
+
+  async fetchRemoteSheet(sheetId, sheetName) {
+    return this._request('/sheets/fetch-remote-sheet', 'POST', { sheetId, sheetName });
+  },
+
+  async previewTransformed(sheetKey, headers, sampleRows, mapping) {
+    return this._request('/sheets/preview-transformed', 'POST', { sheetKey, headers, sampleRows, mapping });
+  },
+
+  async syncRemoteTab(sheetId, sheetKey, mapping) {
+    return this._request('/sheets/sync-remote-tab', 'POST', { sheetId, sheetKey, mapping });
+  },
+
 
   // ============================================
   // System

@@ -6,6 +6,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { SheetsClient } = require('../sheets/sheets-client');
 const { Importer } = require('../sheets/importer');
 const cfg = require('../sheets/sheets-config');
+const { SCHEMA_DEFINITIONS, parseCSV, transformRows } = require('../sheets/transformer');
 
 /** Resolve effective connection: DB config row > env var. */
 async function getConnection(db) {
