@@ -1,139 +1,218 @@
 <div class="container-fluid py-3" id="sheetsSyncRoot">
+  <!-- PAGE HEADER -->
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
-      <h3 class="mb-0"><i class="bi bi-cloud-download me-2"></i>Google Sheets Sync</h3>
-      <small class="text-muted">Preview sheet data, confirm, then import into local SQLite</small>
-    </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-outline-primary" id="ssTestBtn" onclick="window.SheetsSync.test()">
-        <i class="bi bi-plug"></i> Test Connection
-      </button>
-      <button class="btn btn-primary" id="ssPreviewBtn" onclick="window.SheetsSync.preview()">
-        <i class="bi bi-eye"></i> Fetch &amp; Preview
-      </button>
+      <h3 class="mb-0"><i class="bi bi-arrow-repeat text-primary me-2"></i>Data Migration &amp; Sheets Sync</h3>
+      <small class="text-muted">Import products, stock, users, and operational data into the Cloudflare D1 database</small>
     </div>
   </div>
 
   <div id="ssAlert"></div>
 
-  <!-- PASTE IMPORT CARD (Option 4 — no Google connection needed) -->
-  <div class="card shadow-sm border-0 mb-3 border-top border-primary border-3">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <b><i class="bi bi-clipboard-data me-1"></i> Paste &amp; Import <span class="badge bg-primary">No connection needed</span></b>
-      <div class="d-flex gap-2 align-items-center">
-        <select id="ssPasteSheet" class="form-select form-select-sm" style="min-width:220px">
-          <option value="">-- Pick which sheet you pasted --</option>
-        </select>
-        <button class="btn btn-primary btn-sm" id="ssPastePreviewBtn" onclick="window.SheetsSync.pastePreview()">
-          <i class="bi bi-eye"></i> Check Pasted Data
-        </button>
-        <button class="btn btn-success btn-sm d-none" id="ssPasteConfirmBtn" onclick="window.SheetsSync.pasteConfirm()">
-          <i class="bi bi-check-circle"></i> Confirm Import
-        </button>
-      </div>
-    </div>
-    <div class="card-body">
-      <div class="alert alert-light border small mb-2">
-        <b>How to:</b> open the tab in Google Sheets → <kbd>Ctrl+A</kbd> → <kbd>Ctrl+C</kbd> →
-        pick the matching sheet above → paste below <b>including the header row</b> → Check Pasted Data.
-      </div>
-      <div class="row g-2 mb-2">
-        <div class="col-md-6">
-          <label class="form-label fw-bold small">Expected headers for: <code id="ssExpectedFor">—</code></label>
-          <div id="ssExpectedHeaders" class="small text-muted font-monospace">Pick a sheet to see its expected columns.</div>
-        </div>
-        <div class="col-md-6 text-end">
-          <label class="form-label small d-block">Rows detected: <b id="ssPasteCount">0</b></label>
-          <button class="btn btn-outline-secondary btn-sm" onclick="window.SheetsSync.pasteClear()">Clear</button>
-        </div>
-      </div>
-      <textarea id="ssPasteBox" class="form-control font-monospace" rows="7"
-        placeholder="Paste the copied sheet here (header row + data rows)..."
-        oninput="window.SheetsSync.pasteCount()"></textarea>
-      <div id="ssPastePreview" class="mt-2"></div>
+  <!-- NAVIGATION TABS -->
+  <ul class="nav nav-pills nav-fill mb-3 bg-white p-2 rounded shadow-sm border" id="sheetsSyncTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active fw-bold py-2" id="tab-paste-btn" data-bs-toggle="pill" data-bs-target="#tab-paste" type="button" role="tab" aria-controls="tab-paste" aria-selected="true">
+        <i class="bi bi-clipboard-data me-2"></i>📋 Method 1: Copy &amp; Paste Import <span class="badge bg-success ms-2">Direct / Recommended</span>
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link text-muted fw-bold py-2" id="tab-api-btn" data-bs-toggle="pill" data-bs-target="#tab-api" type="button" role="tab" aria-controls="tab-api" aria-selected="false">
+        <i class="bi bi-cloud-arrow-down me-2"></i>☁️ Method 2: Google Cloud Service Account <span class="badge bg-secondary ms-2">Automated API</span>
+      </button>
+    </li>
+  </ul>
 
-      <!-- COLUMN MAPPING UI (shown when headers don't match) -->
-      <div id="ssMappingBox" class="mt-3 d-none border rounded p-3 bg-light">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <small class="text-muted fw-bold"><i class="bi bi-sliders me-1"></i>Column Mapping</small>
-          <button class="btn btn-outline-secondary btn-sm" onclick="window.SheetsSync.applyMapping()">
-            <i class="bi bi-check2 me-1"></i>Apply Mapping
-          </button>
-        </div>
-        <div class="small text-muted mb-2">Match each pasted column to a database field. Unmapped columns are skipped.</div>
-        <div id="ssMappingList" class="row g-2"></div>
-        <div class="mt-2 d-flex gap-2">
-          <button class="btn btn-outline-primary btn-sm" onclick="window.SheetsSync.saveMappingPref()">
-            <i class="bi bi-save me-1"></i>Save Mapping Preference
-          </button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="window.SheetsSync.clearMappingPref()">
-            <i class="bi bi-trash me-1"></i>Clear Saved
-          </button>
-          <span id="ssMappingStatus" class="small text-success mt-1 d-none">Mapping saved.</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- CONNECTION CARD -->
-  <div class="card shadow-sm border-0 mb-3">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-      <b><i class="bi bi-gear me-1"></i> Connection Details</b>
-      <span class="badge bg-secondary" id="ssConnBadge">Not loaded</span>
-    </div>
-    <div class="card-body">
-      <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label fw-bold">Google Spreadsheet ID</label>
-          <input type="text" id="ssSheetId" class="form-control font-monospace" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
-          <div class="form-text">Copy from the sheet URL: <code>docs.google.com/spreadsheets/d/&lt;ID&gt;/edit</code>.
-            <a href="#" id="ssOpenSheet" target="_blank" class="d-none">Open sheet <i class="bi bi-box-arrow-up-right"></i></a>
+  <div class="tab-content" id="sheetsSyncTabContent">
+    <!-- ========================================================== -->
+    <!-- TAB 1: COPY & PASTE IMPORT (NO CONNECTION NEEDED)         -->
+    <!-- ========================================================== -->
+    <div class="tab-pane fade show active" id="tab-paste" role="tabpanel" aria-labelledby="tab-paste-btn">
+      <div class="card shadow-sm border-0 mb-3 border-top border-primary border-3">
+        <div class="card-header bg-white py-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-clipboard-check me-2"></i>Copy &amp; Paste Data Import</h5>
+              <small class="text-muted">Import data directly from your Google Sheet or Excel by copying and pasting. No API keys or Google Cloud setup needed.</small>
+            </div>
+            <span class="badge bg-primary px-3 py-2 fs-6">Direct D1 Database Load</span>
           </div>
         </div>
-        <div class="col-md-6">
-          <label class="form-label fw-bold">Service Account File</label>
-          <input type="text" id="ssCredPath" class="form-control font-monospace" placeholder="api/gcp/service-account.json">
-          <div class="form-text">Path on the API server. Service account email: <code id="ssSvcEmail">—</code>
-            (share the sheet with this email as Viewer).
+
+        <div class="card-body">
+          <!-- STEP 1: PICK TARGET SHEET -->
+          <div class="p-3 bg-light rounded border mb-3">
+            <div class="row g-2 align-items-center">
+              <div class="col-md-5">
+                <label class="form-label fw-bold mb-1"><span class="badge bg-primary rounded-pill me-1">Step 1</span> Select Target Sheet / Table:</label>
+                <select id="ssPasteSheet" class="form-select form-select-lg">
+                  <option value="">-- Choose which sheet you want to import --</option>
+                </select>
+              </div>
+              <div class="col-md-7">
+                <label class="form-label fw-bold mb-1 text-muted small">Expected database columns for <code id="ssExpectedFor" class="text-primary">—</code>:</label>
+                <div id="ssExpectedHeaders" class="small p-2 bg-white rounded border font-monospace text-truncate" style="min-height: 42px;">
+                  Pick a sheet above to view its required columns.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- STEP 2: PASTE DATA -->
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <label class="form-label fw-bold mb-0">
+                <span class="badge bg-primary rounded-pill me-1">Step 2</span> Paste Copied Sheet Data:
+                <small class="text-muted fw-normal ms-2">(Open your sheet ➔ <kbd>Ctrl+A</kbd> ➔ <kbd>Ctrl+C</kbd> ➔ Paste below including header row)</small>
+              </label>
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-info text-dark">Rows detected: <b id="ssPasteCount">0</b></span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.SheetsSync.pasteClear()">
+                  <i class="bi bi-eraser me-1"></i>Clear
+                </button>
+              </div>
+            </div>
+            <textarea id="ssPasteBox" class="form-control font-monospace" rows="8"
+              placeholder="Paste copied cells here (Header row + data rows)..."
+              oninput="window.SheetsSync.pasteCount()"></textarea>
+          </div>
+
+          <!-- STEP 3: COLUMN MAPPING UI (Shown if headers need adjustment) -->
+          <div id="ssMappingBox" class="mb-3 d-none border rounded p-3 bg-warning-subtle">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+              <div>
+                <b class="text-dark"><i class="bi bi-sliders me-1"></i>Step 3: Column Mapping Required</b>
+                <div class="small text-muted">Some pasted column names don't match the database fields. Match each column below:</div>
+              </div>
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="window.SheetsSync.saveMappingPref()">
+                  <i class="bi bi-save me-1"></i>Save Preference
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window.SheetsSync.applyMapping()">
+                  <i class="bi bi-check2 me-1"></i>Apply Mapping
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.SheetsSync.clearMappingPref()">
+                  <i class="bi bi-trash me-1"></i>Clear
+                </button>
+              </div>
+            </div>
+            <div id="ssMappingList" class="row g-2"></div>
+            <span id="ssMappingStatus" class="small text-success mt-2 d-none fw-bold">✓ Mapping preference saved.</span>
+          </div>
+
+          <!-- STEP 4: ACTION & CONFIRMATION BAR -->
+          <div class="p-3 bg-white border rounded shadow-sm mb-3">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+              <div>
+                <h6 class="mb-0 fw-bold"><span class="badge bg-primary rounded-pill me-1">Step 4</span> Review &amp; Execute Import</h6>
+                <small class="text-muted">Click <b>Check &amp; Preview</b> to validate data. Once validated, click <b>Confirm &amp; Import</b>.</small>
+              </div>
+              <div class="d-flex gap-2 align-items-center flex-wrap">
+                <!-- ACTION BUTTON 1: CHECK & PREVIEW -->
+                <button type="button" class="btn btn-primary btn-lg px-4 fw-bold" id="ssPastePreviewBtn" onclick="window.SheetsSync.pastePreview()">
+                  <i class="bi bi-eye-fill me-1"></i> 1. Check &amp; Preview Data
+                </button>
+                <!-- ACTION BUTTON 2: CONFIRM & IMPORT -->
+                <button type="button" class="btn btn-success btn-lg px-4 fw-bold" id="ssPasteConfirmBtn" onclick="window.SheetsSync.pasteConfirm()" disabled>
+                  <i class="bi bi-cloud-arrow-up-fill me-1"></i> 2. Confirm &amp; Import to Database
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- PREVIEW RESULTS TABLE -->
+          <div id="ssPastePreview" class="mt-2"></div>
+
+          <!-- RESULT REPORT -->
+          <div class="card shadow-sm border-0 d-none mt-3" id="ssPasteResultCard">
+            <div class="card-header bg-success text-white fw-bold"><i class="bi bi-check-circle-fill me-2"></i>Import Summary</div>
+            <div class="card-body p-0"><div id="ssPasteResultBox" class="p-3"></div></div>
           </div>
         </div>
       </div>
-      <div class="mt-3">
-        <label class="form-label fw-bold">Paste Service Account JSON <small class="text-muted">(optional — saves to the path above)</small></label>
-        <textarea id="ssSvcJson" class="form-control font-monospace" rows="3" placeholder='{"type":"service_account","client_email":"...","private_key":"..."}'></textarea>
-      </div>
-      <div class="mt-3 d-flex gap-2">
-        <button class="btn btn-success" onclick="window.SheetsSync.saveConnection()">
-          <i class="bi bi-save"></i> Save Connection
-        </button>
-        <button class="btn btn-outline-secondary" onclick="window.SheetsSync.loadConnection()">
-          <i class="bi bi-arrow-clockwise"></i> Reload
-        </button>
-      </div>
     </div>
-  </div>
 
-  <!-- SHEET PICKER + PREVIEW -->
-  <div class="card shadow-sm border-0 mb-3">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <b><i class="bi bi-table me-1"></i> Data Preview <small class="text-muted">(nothing is written until you confirm)</small></b>
-      <div class="d-flex gap-2 align-items-center">
-        <select id="ssSheetSelect" class="form-select form-select-sm" style="min-width:220px">
-          <option value="">All sheets</option>
-        </select>
-        <button class="btn btn-success btn-sm d-none" id="ssConfirmBtn" onclick="window.SheetsSync.confirmImport()">
-          <i class="bi bi-check-circle"></i> Confirm Import
-        </button>
+    <!-- ========================================================== -->
+    <!-- TAB 2: GOOGLE CLOUD SERVICE ACCOUNT (AUTOMATED API)       -->
+    <!-- ========================================================== -->
+    <div class="tab-pane fade" id="tab-api" role="tabpanel" aria-labelledby="tab-api-btn">
+      <div class="alert alert-info border d-flex align-items-center gap-2 mb-3">
+        <i class="bi bi-info-circle-fill fs-4 text-primary"></i>
+        <div>
+          <b>Automated Google Sheets API Sync</b> communicates directly with Google's servers using a Google Cloud Service Account key file.
+          If you do not have a service account JSON or are running on serverless edge (Cloudflare Workers), please use <b>Method 1 (Copy &amp; Paste Import)</b> above.
+        </div>
+      </div>
+
+      <!-- CONNECTION CARD -->
+      <div class="card shadow-sm border-0 mb-3">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+          <b><i class="bi bi-gear me-1"></i> Google Sheets API Connection Details</b>
+          <div class="d-flex gap-2 align-items-center">
+            <span class="badge bg-secondary" id="ssConnBadge">Not loaded</span>
+            <button class="btn btn-outline-primary btn-sm" id="ssTestBtn" onclick="window.SheetsSync.test()">
+              <i class="bi bi-plug"></i> Test Connection
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Google Spreadsheet ID</label>
+              <input type="text" id="ssSheetId" class="form-control font-monospace" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
+              <div class="form-text">Copy from the sheet URL: <code>docs.google.com/spreadsheets/d/&lt;ID&gt;/edit</code>.
+                <a href="#" id="ssOpenSheet" target="_blank" class="d-none">Open sheet <i class="bi bi-box-arrow-up-right"></i></a>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Service Account File Path</label>
+              <input type="text" id="ssCredPath" class="form-control font-monospace" placeholder="api/gcp/service-account.json">
+              <div class="form-text">Path on server. Service account email: <code id="ssSvcEmail">—</code>
+                (share the sheet with this email as Viewer).
+              </div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label fw-bold">Paste Service Account JSON <small class="text-muted">(optional — saves to the path above)</small></label>
+            <textarea id="ssSvcJson" class="form-control font-monospace" rows="3" placeholder='{"type":"service_account","client_email":"...","private_key":"..."}'></textarea>
+          </div>
+          <div class="mt-3 d-flex gap-2">
+            <button class="btn btn-success" onclick="window.SheetsSync.saveConnection()">
+              <i class="bi bi-save"></i> Save Connection
+            </button>
+            <button class="btn btn-outline-secondary" onclick="window.SheetsSync.loadConnection()">
+              <i class="bi bi-arrow-clockwise"></i> Reload
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SHEET PICKER + LIVE API PREVIEW -->
+      <div class="card shadow-sm border-0 mb-3">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
+          <b><i class="bi bi-table me-1"></i> Live Sheets Data Preview <small class="text-muted">(nothing is written until confirmed)</small></b>
+          <div class="d-flex gap-2 align-items-center flex-wrap">
+            <select id="ssSheetSelect" class="form-select form-select-sm" style="min-width:220px">
+              <option value="">All sheets</option>
+            </select>
+            <button class="btn btn-primary btn-sm" id="ssPreviewBtn" onclick="window.SheetsSync.preview()">
+              <i class="bi bi-eye"></i> Fetch &amp; Preview Live Data
+            </button>
+            <button class="btn btn-success btn-sm d-none" id="ssConfirmBtn" onclick="window.SheetsSync.confirmImport()">
+              <i class="bi bi-check-circle"></i> Confirm Import
+            </button>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          <div id="ssPreviewBox" class="p-3 text-muted">Click <b>Fetch &amp; Preview Live Data</b> to load data via Google Sheets API.</div>
+        </div>
+      </div>
+
+      <!-- API RESULT -->
+      <div class="card shadow-sm border-0 d-none" id="ssResultCard">
+        <div class="card-header bg-white"><b><i class="bi bi-flag me-1"></i> Live Import Result</b></div>
+        <div class="card-body p-0"><div id="ssResultBox" class="p-3"></div></div>
       </div>
     </div>
-    <div class="card-body p-0">
-      <div id="ssPreviewBox" class="p-3 text-muted">Click <b>Fetch &amp; Preview</b> to load live data from Google Sheets.</div>
-    </div>
-  </div>
-
-  <!-- RESULT -->
-  <div class="card shadow-sm border-0 d-none" id="ssResultCard">
-    <div class="card-header bg-white"><b><i class="bi bi-flag me-1"></i> Import Result</b></div>
-    <div class="card-body p-0"><div id="ssResultBox" class="p-3"></div></div>
   </div>
 </div>
