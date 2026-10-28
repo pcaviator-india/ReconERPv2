@@ -1,0 +1,231 @@
+<div class="container-fluid py-3">
+    <!-- Top Navigation Tabs -->
+    <ul class="nav nav-tabs mb-3" id="labelTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="designer-tab" data-bs-toggle="tab" data-bs-target="#designer-pane" type="button" role="tab" data-i18n="lbl_tab_designer">Label Designer & Print Workspace</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="templates-tab" data-bs-toggle="tab" data-bs-target="#templates-pane" type="button" role="tab" onclick="loadTemplatesList()" data-i18n="lbl_tab_templates">Saved Templates</button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="labelTabContent">
+        <!-- UNIFIED DESIGNER & PREVIEW PANE -->
+        <div class="tab-pane fade show active" id="designer-pane" role="tabpanel">
+            <div class="row g-3">
+                <!-- LEFT PANEL: Toolbox & DB Columns -->
+                <div class="col-md-3 card p-3 shadow-sm" style="max-height: 75vh; overflow-y: auto;">
+                    <h5 class="fw-bold text-primary" data-i18n="lbl_toolbox_title">Toolbox & Data</h5>
+                    <hr class="my-2">
+                    <div class="d-grid gap-2 mb-3">
+                        <button class="btn btn-outline-primary btn-sm" onclick="addTextbox()" data-i18n="lbl_add_static_text">+ Add Static Text</button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="addBarcode()" data-i18n="lbl_add_barcode">+ Add Barcode (CODE128)</button>
+                    </div>
+
+                    <h6 class="text-muted small uppercase mt-2" data-i18n="lbl_db_columns">Database Columns (Click to Bind)</h6>
+                    <div id="db-columns-list" class="list-group mb-3 border rounded p-1" style="max-height: 180px; overflow-y: auto;">
+                        <!-- Populated dynamically -->
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold" data-i18n="lbl_template_name">Template Name</label>
+                        <input type="text" id="template-name-input" class="form-control form-control-sm" placeholder="e.g. Asset Barcode Tag" data-i18n-placeholder="lbl_template_name_ph">
+                    </div>
+                    <button class="btn btn-success btn-sm w-100 mb-2" onclick="saveTemplateJSON()" data-i18n="lbl_save_template">💾 Save Template to DB</button>
+                    <button class="btn btn-outline-secondary btn-sm w-100" onclick="createNewLabel()" data-i18n="lbl_new_label">📄 New Label</button>
+                </div>
+              
+                <!-- CENTER PANEL: Single Canvas Workspace (BarTender Style Live Data Toggle) -->
+               <div class="col-md-6 d-flex flex-column align-items-center bg-light border rounded p-3">
+                  <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
+                    <button class="btn btn-outline-secondary btn-sm px-2 py-0" onclick="zoomCanvas(0.9)" title="Zoom Out" data-i18n-title="lbl_zoom_out">🔍-</button>
+                    <button class="btn btn-outline-secondary btn-sm px-2 py-0" onclick="resetCanvasZoom()" title="Reset Zoom" data-i18n-title="lbl_reset_zoom"><span data-i18n="lbl_reset">Reset</span> (<span id="zoom-indicator">100%</span>)</button>
+                    <button class="btn btn-outline-secondary btn-sm px-2 py-0" onclick="zoomCanvas(1.1)" title="Zoom In" data-i18n-title="lbl_zoom_in">🔍+</button>
+
+                    <div class="form-check form-check-inline ms-2">
+                        <input class="form-check-input" type="checkbox" id="snapping-toggle" checked>
+                        <label class="form-check-label small" for="snapping-toggle" data-i18n="lbl_snap">Snap</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="rotation-snap-toggle">
+                        <label class="form-check-label small" for="rotation-snap-toggle" data-i18n="lbl_rotation_snap">5° Rot</label>
+                    </div>
+                  </div>
+                  <div class="d-flex justify-content-between align-items-center w-100 mb-2">
+                      <div>
+                          <h6 class="text-muted small fw-bold mb-0 d-inline-block" id="canvas-mode-title" data-i18n="lbl_canvas_mode">Canvas Workspace (Template Design Mode)</h6>
+                          <button id="live-data-toggle-btn" class="btn btn-outline-warning btn-sm fw-bold ms-2 py-0 px-2" style="font-size: 11px;" onclick="toggleLiveDataView()" data-i18n="lbl_show_live_data">👁️ Show Live Data</button>
+                      </div>
+                      <span id="preview-pagination-indicator" class="badge bg-secondary" style="display: none;" data-i18n="lbl_record_indicator">Record 0 of 0</span>
+                  </div>
+                  
+                  <!-- Outer Viewport Container (Locks it centered and provides scrolling room) -->
+                  <div id="canvas-viewport" class="position-relative shadow bg-gray-50 border mb-3 d-flex justify-content-center align-items-center w-100" style="overflow: auto; min-height: 280px; max-height: 400px;">
+                      <!-- Inner Scaler Container (Zooms everything uniformly) -->
+                      <div id="canvas-scaler" style="transform-origin: center center; transition: transform 0.05s ease-out; line-height: 0;">
+                          <canvas id="labelCanvas" width="400" height="250"></canvas>
+                      </div>
+                  </div>
+
+                  <!-- Live Data Record Navigation Controls (Appears when live data view is active) -->
+                  <div id="canvas-preview-controls" class="d-flex align-items-center gap-2" style="display: none !important;">
+                      <button class="btn btn-outline-secondary btn-sm px-2 py-0" style="font-size: 11px;" onclick="prevPreviewItem()" data-i18n="lbl_prev_record">◀ Prev Record</button>
+                      <button class="btn btn-outline-secondary btn-sm px-2 py-0" style="font-size: 11px;" onclick="nextPreviewItem()" data-i18n="lbl_next_record">Next Record ▶</button>
+                  </div>
+              </div>
+
+                <!-- RIGHT PANEL: Layers & Properties Inspector -->
+                <div class="col-md-3 card p-3 shadow-sm" style="max-height: 75vh; overflow-y: auto;">
+                    <h6 class="text-muted small fw-bold" data-i18n="lbl_layers_title">Canvas Layers</h6>
+                    <ul id="layer-list" class="list-group mb-3" style="max-height: 110px; overflow-y: auto;">
+                        <!-- Canvas objects listed here -->
+                    </ul>
+                    <hr class="my-2">
+
+                    <!-- PROPERTIES INSPECTOR -->
+                    <div id="inspector-container">
+                        <div id="canvas-properties">
+                            <h6 class="fw-bold text-primary" data-i18n="lbl_canvas_props">Canvas Properties</h6>
+                            <div class="mb-2">
+                                <label class="form-label small" data-i18n="lbl_unit">Unit</label>
+                                <select id="canvas-unit" class="form-select form-select-sm" onchange="changeCanvasUnit(this.value)">
+                                    <option value="px" selected data-i18n="lbl_unit_px">Pixels (px)</option>
+                                    <option value="in" data-i18n="lbl_unit_in">Inches (in)</option>
+                                    <option value="mm" data-i18n="lbl_unit_mm">Millimeters (mm)</option>
+                                    <option value="cm" data-i18n="lbl_unit_cm">Centimeters (cm)</option>
+                                </select>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small" data-i18n="lbl_width">Width</label>
+                                    <input type="number" id="prop-canvas-w" class="form-control form-control-sm" step="any" onchange="updateCanvasFromProperties()">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small" data-i18n="lbl_height">Height</label>
+                                    <input type="number" id="prop-canvas-h" class="form-control form-control-sm" step="any" onchange="updateCanvasFromProperties()">
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                              <label class="form-label small fw-bold mb-1" data-i18n="lbl_canvas_margin">Canvas Margin</label>
+                              <input type="number" id="prop-canvas-margin" class="form-control form-control-sm" value="0" min="0" step="1" onchange="updateCanvasFromProperties()">
+                            </div>
+                            <div class="text-muted small fst-italic mt-2" data-i18n="lbl_click_to_edit">Click any object on canvas to edit properties.</div>
+                        </div>
+
+                        <!-- Object Properties (Hidden until selected) -->
+                        <div id="object-properties" style="display:none;" class="small">
+                            <h6 class="fw-bold text-success" data-i18n="lbl_selected_object">Selected Object</h6>
+                            <div class="mb-2">
+                                <label class="form-label" data-i18n="lbl_element_label">Element Label</label>
+                                <input type="text" id="prop-name" class="form-control form-control-sm" oninput="updateProperty('name', this.value)">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" data-i18n="lbl_text_content">Text Content / Value</label>
+                                <textarea id="prop-text" class="form-control form-control-sm" rows="2" oninput="updateProperty('text', this.value)"></textarea>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" data-i18n="lbl_db_col_binding">DB Column Binding (`db_col`)</label>
+                                <select id="prop-db-col" class="form-select form-select-sm" onchange="updateProperty('db_col', this.value)">
+                                    <option value="" data-i18n="lbl_db_col_none">-- None (Static) --</option>
+                                </select>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label" data-i18n="lbl_font_family">Font Family</label>
+                                    <select id="prop-font" class="form-select form-select-sm" onchange="updateProperty('fontFamily', this.value)">
+                                        <option value="Arial">Arial</option>
+                                        <option value="Courier New">Courier New</option>
+                                        <option value="Times New Roman">Times New Roman</option>
+                                    </select>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label" data-i18n="lbl_font_size">Font Size</label>
+                                    <input type="number" id="prop-fontsize" class="form-control form-control-sm" onchange="updateProperty('fontSize', parseInt(this.value))">
+                                </div>
+                            </div>
+
+                            <!-- Standard Text Alignment Container (Visible only for text elements) -->
+                            <div id="standard-text-align-container" class="mb-2">
+                              <label class="form-label small fw-bold mb-1" data-i18n="lbl_text_align">Text Alignment</label>
+                              <select id="prop-text-align" class="form-select form-select-sm" onchange="updateProperty('textAlign', this.value)">
+                                <option value="left" data-i18n="lbl_align_left">Left</option>
+                                <option value="center" data-i18n="lbl_align_center">Center</option>
+                                <option value="right" data-i18n="lbl_align_right">Right</option>
+                              </select>
+                            </div>
+
+                            <!-- Barcode-specific Properties Section (Visible only for barcodes) -->
+                            <div id="barcode-specific-properties" style="display:none;" class="border-top pt-2 mt-2">
+                              <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="prop-barcode-showtext" checked onchange="updateProperty('showText', this.checked)">
+                                <label class="form-check-label small fw-bold" for="prop-barcode-showtext" data-i18n="lbl_barcode_show_text">Show Text Below Barcode</label>
+                              </div>
+                              <div class="mb-2">
+                                <label class="form-label small fw-bold mb-1" data-i18n="lbl_barcode_text_align">Barcode Text Alignment</label>
+                                <select id="prop-barcode-align" class="form-select form-select-sm" onchange="updateProperty('textAlign', this.value)">
+                                  <option value="left" data-i18n="lbl_align_left">Left</option>
+                                  <option value="center" data-i18n="lbl_align_center">Center</option>
+                                  <option value="right" data-i18n="lbl_align_right">Right</option>
+                                </select>
+                              </div>
+                            </div>
+                            <button class="btn btn-outline-danger btn-sm w-100 mt-2" onclick="deleteSelectedObject()" data-i18n="lbl_delete_element">Delete Element</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOTTOM PANEL: Product Search, Print Queue & Batch Print -->
+            <div class="row mt-3">
+                <div class="col-12 card p-3 shadow-sm bg-white">
+                    <div class="row">
+                        <!-- Product Search & Add Queue -->
+                        <div class="col-md-6 border-end">
+                            <h6 class="fw-bold text-secondary mb-2" data-i18n="lbl_search_title">Search & Add Products to Print Queue</h6>
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" id="product-search-input" class="form-control" placeholder="Search by GEO, PN, Name..." oninput="filterPrintProducts(this.value)" data-i18n-placeholder="lbl_search_ph">
+                            </div>
+                            <div id="print-product-selection-list" class="list-group border rounded p-1" style="max-height: 130px; overflow-y: auto;">
+                                <div class="text-center text-muted small py-2" data-i18n="lbl_search_hint">Type at least 2 characters to search products...</div>
+                            </div>
+                        </div>
+
+                        <!-- Print Queue Manager & Batch Print Trigger -->
+                        <div class="col-md-6 d-flex flex-column justify-content-between">
+                            <div>
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <h6 class="fw-bold text-success mb-0"><span data-i18n="lbl_print_queue">Print Queue</span> (<span id="queue-count">0</span> <span data-i18n="lbl_items">items</span>)</h6>
+                                </div>
+                                <div id="print-queue-panel" class="list-group border rounded p-1 bg-light mb-2" style="max-height: 100px; overflow-y: auto;">
+                                    <div class="text-center text-muted small py-1 fst-italic" data-i18n="lbl_queue_empty">No products added yet. Click [+] from search results.</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" onclick="executeBatchPrint()" data-i18n="lbl_batch_print">🖨️ Print Batch Labels</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TEMPLATES TAB -->
+        <div class="tab-pane fade" id="templates-pane" role="tabpanel">
+            <div class="card p-3 shadow-sm">
+                <h4 data-i18n="lbl_templates_title">Saved Label Templates</h4>
+                <p class="text-muted small" data-i18n="lbl_templates_desc">Manage, preview, open, or delete your predefined label templates.</p>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle" id="templates-table">
+                        <thead>
+                            <tr>
+                                <th data-i18n="lbl_col_id">ID</th>
+                                <th data-i18n="lbl_col_name">Template Name</th>
+                                <th data-i18n="lbl_col_updated">Last Updated</th>
+                                <th data-i18n="lbl_col_actions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

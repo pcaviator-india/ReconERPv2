@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+  </head>
+  <body>
+    <div class="container-fluid py-3">
+
+      <!-- HEADER -->
+      <div class="d-flex justify-content-between align-items-center mb-3">
+
+        <div>
+          <h3 class="mb-0">Invoice Import</h3>
+          <small class="text-muted">
+            Import supplier invoices and map items to Master inventory
+          </small>
+        </div>
+
+        <button
+          class="btn btn-primary"
+          onclick="startInvoiceImport()"
+        >
+          <i class="bi bi-upload"></i>
+          Import Invoice
+        </button>
+
+      </div>
+
+      <!-- IMPORT CARD -->
+      <div class="card shadow-sm border-0 mb-3">
+
+        <div class="card-body">
+
+          <div class="row g-3">
+
+            <div class="col-md-3">
+              <label class="form-label">Supplier</label>
+              <select id="inv_supplier" class="form-select">
+                <option value="">Select Supplier</option>
+              </select>
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label">Invoice No</label>
+              <input
+                id="inv_invoiceNo"
+                class="form-control"
+              >
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label">Invoice Date</label>
+              <input
+                type="date"
+                id="inv_invoiceDate"
+                class="form-control"
+              >
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label">Import Type</label>
+              <select id="inv_importType" class="form-select">
+                <option value="PDF">PDF</option>
+                <option value="XML">XML</option>
+              </select>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      <div class="card shadow-sm border-0 mb-3">
+
+        <div class="card-header bg-white">
+          <b>Invoice File</b>
+        </div>
+
+        <div class="card-body">
+
+          <div class="row g-3">
+
+            <div class="col-md-4">
+
+              <label class="form-label">
+                Upload Invoice
+              </label>
+
+              <input
+                type="file"
+                accept=".pdf,.xml"
+                class="form-control"
+                onchange="handleInvoiceUpload(this)"
+              >
+
+            </div>
+
+            <div class="col-md-8">
+
+              <label class="form-label">
+                Extracted Text Preview
+              </label>
+
+              <textarea
+                id="pdfTextPreview"
+                class="form-control"
+                style="height:180px;font-size:12px;"
+              ></textarea>
+
+            </div>
+
+          </div>
+
+          <div
+            id="extractStatus"
+            class="small text-muted mt-2"
+          ></div>
+
+        </div>
+
+      </div>
+
+      <!-- STAGING AREA -->
+      <div class="card shadow-sm border-0">
+
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+
+          <div>
+            <b>Imported Lines</b>
+          </div>
+
+          <div>
+
+            <button
+              class="btn btn-success btn-sm"
+              onclick="confirmInvoiceImport()"
+            >
+              Confirm Import
+            </button>
+
+          </div>
+
+        </div>
+
+        <div class="card-body p-0">
+
+          <div id="invoiceLinesBox"></div>
+
+        </div>
+
+      </div>
+
+    </div>
+    <script src="./ImportInvJS.html"></script>
+</body>
+
+  <script src="./ImportInvJS.html"></script>
+</body>
+</html>

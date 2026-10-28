@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RECON ERP — Reset PIN</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" />
+    <style>
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      .reset-card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+        width: 100%;
+        max-width: 400px;
+        padding: 2rem;
+      }
+      .alert { border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="reset-card">
+      <div class="text-center mb-4">
+        <h2 class="fw-bold text-primary"><i class="bi bi-shield-lock-fill me-2"></i>RECON ERP</h2>
+        <p class="text-muted mb-0">Set a new PIN</p>
+      </div>
+
+      <div id="msg" class="mb-3"></div>
+
+      <form id="resetForm" novalidate>
+        <input type="hidden" id="resetToken" />
+        <div class="mb-3">
+          <label class="form-label" for="newPin">New PIN</label>
+          <input type="password" class="form-control" id="newPin" placeholder="••••" maxlength="4" required />
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="confirmPin">Confirm New PIN</label>
+          <input type="password" class="form-control" id="confirmPin" placeholder="••••" maxlength="4" required />
+        </div>
+        <button type="submit" class="btn btn-primary w-100 mb-2" id="btnConfirm">
+          <span id="btnConfirmText"><i class="bi bi-check-lg me-1"></i> Confirm New PIN</span>
+          <span id="btnConfirmSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
+        </button>
+        <div class="text-center">
+          <a href="login.html" class="small text-decoration-none">Back to Login</a>
+        </div>
+      </form>
+    </div>
+
+    <script src="api.js"></script>
+    <script>
+      var msgEl = document.getElementById('msg');
+      var form = document.getElementById('resetForm');
+      var btn = document.getElementById('btnConfirm');
+      var btnText = document.getElementById('btnConfirmText');
+      var btnSpinner = document.getElementById('btnConfirmSpinner');
+
+      function showMsg(text, type) {
+        type = type || 'danger';
+        msgEl.innerHTML = '<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert">' +
+          text +
+          '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>';
+      }
+
+      // Token from the emailed link
+      var urlParams = new URLSearchParams(window.location.search);
+      var token = urlParams.get('token');
+      if (!token) {
+        showMsg('Invalid or missing reset token. Please use the link from your reset email.');
+        btn.disabled = true;
+      } else {
+        document.getElementById('resetToken').value = token;
+      }
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var newPin = document.getElementById('newPin').value.trim();
+        var confirmPin = document.getElementById('confirmPin').value.trim();
+
+        if (!/^\d{4}$/.test(newPin)) { showMsg('New PIN must be exactly 4 digits'); return; }
+        if (newPin !== confirmPin) { showMsg('PINs do not match'); return; }
+
+        btn.disabled = true;
+        btnText.classList.add('d-none');
+        btnSpinner.classList.remove('d-none');
+
+        try {
+          var result = await RECON_API.confirmResetPin(token, newPin);
+          if (result.status === 'success') {
+            showMsg('PIN updated successfully! Redirecting to login...', 'success');
+            setTimeout(function () { window.location.href = 'login.html'; }, 1500);
+          } else {
+            showMsg(result.message || 'Reset failed');
+          }
+        } catch (err) {
+          showMsg(err.message || 'Reset failed. Please try again.');
+        } finally {
+          btn.disabled = false;
+          btnText.classList.remove('d-none');
+          btnSpinner.classList.add('d-none');
+        }
+      });
+    </script>
+  </body>
+</html>

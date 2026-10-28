@@ -1,0 +1,214 @@
+ <style>
+  /* Sticky header + filters: stays visible on scroll */
+  .quote-sticky-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    background: #fff;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .quote-toolbar {
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+    border: 1px solid rgba(13, 110, 253, 0.08);
+    border-radius: 1rem;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  /* Title + legend row */
+  .quote-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+  }
+  .quote-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .quote-legend .legend-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .quote-legend .legend-dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    display: inline-block;
+    border: 1px solid rgba(0,0,0,0.15);
+  }
+
+  /* Single-row filter bar: search + all selects, horizontal scroll on small screens */
+  .quote-filter-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    align-items: center;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+  .quote-filter-row .quote-search {
+    flex: 1 1 220px;
+    min-width: 200px;
+  }
+  .quote-filter-row .quote-filter {
+    flex: 0 0 auto;
+    min-width: 140px;
+    max-width: 190px;
+  }
+
+  .quote-search .input-group-text {
+    border-right: 0;
+    background: #fff;
+    color: #6c757d;
+  }
+
+  .quote-search .form-control {
+    border-left: 0;
+  }
+
+  .quote-card {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    cursor: pointer;
+  }
+
+  .quote-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12) !important;
+  }
+
+  .quote-card .quote-meta {
+    color: #6c757d;
+    font-size: 0.92rem;
+  }
+
+  .quote-card .quote-hint {
+    color: #0d6efd;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  /* Segmented status bar — one equal slice per item, merged blocks by colour */
+  .quote-status-bar-track {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .qsb-segment {
+    transition: opacity 0.15s ease;
+  }
+
+  .qsb-segment:hover {
+    opacity: 0.78;
+  }
+
+  .quote-status-bar-legend {
+    justify-content: flex-start;
+  }
+
+  .quote-status-bar-legend span {
+    white-space: nowrap;
+  }
+
+  .quote-results {
+    color: #6c757d;
+    font-size: 0.85rem;
+  }
+
+  .quote-summary-tile {
+    border: 1px solid rgba(13, 110, 253, 0.12);
+    border-radius: 0.9rem;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    min-height: 100%;
+  }
+
+  .quote-summary-label {
+    color: #6c757d;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.25rem;
+  }
+
+  .quote-summary-value {
+    font-weight: 700;
+    color: #212529;
+    word-break: break-word;
+  }
+</style>
+  <!-- Load JavaScript modules -->
+  <script src="./QuoteMgmtJS.html"></script>
+
+
+<div class="card shadow-sm border-0 p-3 animate__animated animate__fadeIn">
+  <div class="quote-sticky-wrap">
+  <div class="quote-toolbar">
+    <!-- Row 1: Title + status colour legend -->
+    <div class="quote-title-row mb-2">
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <h5 class="fw-bold text-primary m-0" data-i18n="quote_management_title">Quote Management</h5>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.refreshCurrentModule()" title="Refresh">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+      <div id="quoteStatusLegend" class="quote-legend" aria-label="Status colours"></div>
+    </div>
+    <!-- Row 2: ALL filters + search in ONE single row -->
+    <div class="quote-filter-row">
+      <div class="input-group quote-search">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input id="quoteSearchInput" type="text" class="form-control" placeholder="Search GEO, P/N, description" data-i18n-placeholder="quote_search_placeholder" oninput="window.filterQuotes()">
+      </div>
+      <select id="filterQuoteSite" class="form-select shadow-sm quote-filter" onchange="window.filterQuotes()">
+        <option value="" data-i18n="all_sites">All Sites</option>
+      </select>
+      <select id="filterQuoteCat" class="form-select shadow-sm quote-filter" onchange="window.filterQuotes()">
+        <option value="" data-i18n="all_categories">All Categories</option>
+      </select>
+      <select id="filterQuoteSubCat" class="form-select shadow-sm quote-filter" onchange="window.filterQuotes()">
+        <option value="" data-i18n="all_sub_categories">All Sub Categories</option>
+      </select>
+      <select id="filterQuoteSupplier" class="form-select shadow-sm quote-filter" onchange="window.filterQuotes()">
+        <option value="" data-i18n="all_suppliers">All Suppliers</option>
+      </select>
+      <select id="filterQuoteStatus" class="form-select shadow-sm quote-filter" onchange="window.filterQuotes()">
+        <option value="__ALL__" data-i18n="status_all_incl_deleted">All (include Deleted)</option>
+        <option value="" data-i18n="status_active_excl_deleted">Active (exclude Deleted)</option>
+        <option value="Pending" data-i18n="status_pending">Pending</option>
+        <option value="Not Quoted" data-i18n="status_not_quoted">Not Quoted</option>
+        <option value="Quoted" data-i18n="status_quoted">Quoted</option>
+        <option value="Approved" data-i18n="status_approved">Approved</option>
+        <option value="Sent" data-i18n="status_sent">Sent</option>
+        <option value="Received" data-i18n="status_received">Received</option>
+        <option value="Despatched" data-i18n="status_despatched">Despatched</option>
+        <option value="Final Received" data-i18n="status_final_received">Final Received</option>
+        <option value="Deleted" data-i18n="status_deleted">Deleted</option>
+      </select>
+    </div>
+    <div id="quoteResultsCount" class="quote-results mt-1"></div>
+  </div>
+  </div>
+
+  <div id="quoteLoader" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="mt-2 text-muted" data-i18n="quote_grouping_docs">Grouping documents...</p>
+  </div>
+  <div id="bgJobsBubbleHost"></div>
+
+  <div id="quoteContainer" class="row g-3 d-none">
+  </div>
+</div>
+

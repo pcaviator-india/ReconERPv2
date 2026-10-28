@@ -1,0 +1,121 @@
+<div class="container-fluid py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0" i18n="m_fuel_control">Control Combustible</h4>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-info" onclick="copyToClipboard()">
+        <i class="bi bi-clipboard"></i> Copiar TSV
+      </button>
+      <button class="btn btn-outline-primary" onclick="exportToCSV()">
+        <i class="bi bi-file-earmark-spreadsheet"></i> CSV
+      </button>
+      <button class="btn btn-outline-success" onclick="exportToExcel()">
+        <i class="bi bi-file-earmark-excel"></i> Excel
+      </button>
+      <button class="btn btn-outline-danger" onclick="exportToPDF()">
+        <i class="bi bi-file-earmark-pdf"></i> PDF
+      </button>
+    </div>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalFuelReception">
+      + Recibir Combustible
+    </button>
+  </div>
+
+  <div class="card bg-primary text-white p-3 mb-3">
+    <h5>Stock Actual de Combustible</h5>
+    <h2 id="fuel_balance_display">0.00 L</h2>
+  </div>
+  
+  <div class="card p-3 shadow-sm mb-4">
+    <div class="row g-2">
+      <div class="col-md-3">
+        <label>Proyecto</label>
+        <select id="fuel_proyecto" class="form-select"></select>
+      </div>
+      <div class="col-md-3">
+        <label>Tipo de Activo</label>
+        <select id="fuel_asset_type" class="form-select" onchange="updateAssetDropdown()">
+          <option value="">Seleccione...</option>
+          <option value="Vehiculo">Vehículo</option>
+          <option value="Generador">Generador</option>
+          <option value="Maquina">Maquinaria</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label>Patente / ID</label>
+        <select id="fuel_asset_id" class="form-select"></select>
+      </div>
+      
+      <div class="col-md-3">
+        <label>Cantidad (Litros)</label>
+        <input type="number" id="fuel_litros" class="form-control" placeholder="0.00">
+      </div>
+      <div class="col-md-3">
+        <label>Kilometraje / Horómetro</label>
+        <input type="number" id="fuel_km" class="form-control" placeholder="1">
+      </div>
+      <div class="col-md-6 position-relative">
+        <label>Nombre de quien carga</label>
+        <input id="fuel_nombre_input" class="form-control" placeholder="Escanee o seleccione una persona..." autocomplete="off" oninput="updateFuelPersonSuggestions()" onfocus="updateFuelPersonSuggestions()" onkeydown="handleFuelPersonKeyDown(event)" onblur="setTimeout(hideFuelPersonSuggestions, 150)">
+        <div id="fuel_nombre_results" class="list-group position-absolute w-100" style="z-index: 1000; max-height: 260px; overflow-y: auto; display: none;
+          border: 1px solid #ced4da; border-top: none; background: white;"></div>
+      </div>
+      
+      <div class="col-12 mt-2">
+        <button id="btn_save_fuel_entry" class="btn btn-success" onclick="saveFuelEntry(this)">
+          <i class="bi bi-check-circle me-1"></i> Guardar Registro
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3 shadow-sm">
+    <button class="btn btn-outline-secondary w-100" data-bs-toggle="collapse" data-bs-target="#filterSection">
+      🔍 Filtros Avanzados
+    </button>
+    <div class="collapse mt-3" id="filterSection">
+      <div class="row g-2">
+        <div class="col-md-2">
+          <label>Desde</label>
+          <input type="date" id="f_date_from" class="form-control" onchange="applyFilters()">
+        </div>
+        <div class="col-md-2">
+          <label>Hasta</label>
+          <input type="date" id="f_date_to" class="form-control" onchange="applyFilters()">
+        </div>
+        <div class="col-md-2">
+          <label>Proyecto</label>
+          <input type="text" id="f_project" class="form-control" oninput="applyFilters()" placeholder="Buscar...">
+        </div>
+        <div class="col-md-3">
+          <label>Patente / ID</label>
+          <input type="text" id="f_patente" class="form-control" oninput="applyFilters()" placeholder="Buscar...">
+        </div>
+        <div class="col-md-3">
+          <label>Persona</label>
+          <select id="f_person" class="form-select" onchange="applyFilters()">
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <div class="col-12 mt-2 text-end">
+          <button class="btn btn-sm btn-danger" onclick="clearFilters()">Limpiar Filtros</button>
+        </div>
+      </div>
+    </div>
+  </div>
+ 
+
+  <table class="table table-hover" id="fuel_table">
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>Proyecto</th>
+        <th>Tipo</th>
+        <th>ID / Patente</th>
+        <th>Litros</th>
+        <th>KM</th>
+        <th>Nombre</th>
+        <th>Usuario</th> </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>

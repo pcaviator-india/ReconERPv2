@@ -1,0 +1,73 @@
+<style>
+.lifecycle-shell { padding: 1rem; }
+.lifecycle-hero { background: linear-gradient(135deg,#0d6efd 0%,#16324f 100%); color:#fff; padding:1rem; border-radius:0.75rem; }
+.lifecycle-panel { background:#fff; border-radius:0.75rem; padding:0.75rem; border:1px solid rgba(0,0,0,0.04); }
+.table-small th, .table-small td { font-size:0.85rem; }
+.lifecycle-stage-segs{display:flex;gap:4px;margin-top:6px}
+.lifecycle-stage-segs .seg{flex:1;height:10px;background:#e9ecef;border-radius:3px}
+.lifecycle-stage-segs .seg.active{background:#0d6efd}
+.lifecycle-stage-segs .seg.past{background:#0dcaf0}
+
+
+  <!-- Load JavaScript modules -->
+  <script src="./LifecycleReportJS.html"></script>
+
+</style>
+  </body>
+
+<div class="lifecycle-shell">
+  <div class="lifecycle-hero mb-3 d-flex justify-content-between align-items-center">
+    <div>
+      <div class="small text-uppercase" data-i18n="m_procurement">Adquisiciones</div>
+      <div class="d-flex align-items-center gap-2">
+        <h4 class="mb-0" data-i18n="lifecycle_title">Lifecycle Report</h4>
+        <button type="button" class="btn btn-sm btn-outline-light" onclick="window.refreshCurrentModule()" title="Refresh">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+      <div class="small text-muted" data-i18n="lifecycle_subtitle">Trace requirements from creation through quotes to order</div>
+    </div>
+    <div class="d-flex gap-2">
+      <button id="lifecycleExportCsv" class="btn btn-light btn-sm" data-i18n="btn_export_csv">CSV</button>
+      <button id="lifecycleExportXlsx" class="btn btn-light btn-sm" data-i18n="quote_report_export_excel">Excel</button>
+      <button id="lifecycleExportPdf" class="btn btn-outline-light btn-sm" data-i18n="btn_export_pdf">PDF</button>
+    </div>
+  </div>
+
+  <div class="lifecycle-panel mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small" data-i18n="lbl_date_from">From</label>
+        <input id="lifecycleDateFrom" type="date" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small" data-i18n="lbl_date_to">To</label>
+        <input id="lifecycleDateTo" type="date" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small" data-i18n="lbl_site">Site</label>
+        <select id="lifecycleSiteFilter" class="form-select form-select-sm"><option value="">All Sites</option></select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small" data-i18n="lbl_status">Stage</label>
+        <select id="lifecycleStageFilter" class="form-select form-select-sm"><option value="all">All</option><option value="Requirement">Requirement</option><option value="Quoted">Quoted</option><option value="Ordered">Ordered</option></select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small" data-i18n="lbl_search">Search</label>
+        <input id="lifecycleSearch" type="search" class="form-control form-control-sm" data-i18n-placeholder="lifecycle_search_placeholder" placeholder="Order / Req / Supplier">
+      </div>
+    </div>
+  </div>
+
+  <div id="lifecycleLoading" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status"></div>
+    <div class="mt-2 text-muted" data-i18n="msg_loading_data">Loading data...</div>
+  </div>
+
+  <div id="lifecycleContent" class="d-none">
+    <div id="lifecycleCards" class="row g-3"></div>
+    <div id="lifecycleNoResults" class="text-center text-muted mt-3 d-none" data-i18n="msg_no_results">No results</div>
+  </div>
+</div>
+
+<script src="LifecycleReportJS.html"></script>

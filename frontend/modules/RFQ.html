@@ -1,0 +1,76 @@
+<div class="container-fluid py-4">
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-body d-flex justify-content-between align-items-center">
+      <div>
+        <h4 class="mb-0 fw-bold" data-i18n="m_create_quote">Create RFQ</h4>
+        <p class="text-muted small mb-0">Select pending items and group by supplier</p>
+      </div>
+      <button type="button" class="btn btn-outline-secondary" onclick="window.refreshCurrentModule()" title="Refresh">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <label class="form-label small fw-bold" data-i18n="site">Site</label>
+      <select id="rfqSiteFilter" class="form-select" onchange="window.refreshRFQList()"></select>
+    </div>
+    <div class="col-md-3">
+  <label class="form-label small fw-bold" data-i18n="m_cat">Category Filter</label>
+  <select id="rfqCategoryFilter" class="form-select" onchange="window.refreshRFQList()">
+      <option value="" data-i18n="all_categories">-- All Categories --</option>
+    </select>
+  </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-bold" data-i18n="rfq_status_filter">Requirement Status</label>
+      <select id="rfqStatusFilter" class="form-select" onchange="window.fetchRFQRequirements()">
+        <option value="Approved" selected data-i18n="status_approved">Approved</option>
+        <option value="All" data-i18n="rfq_status_all">All</option>
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small fw-bold" data-i18n="m_requirements">Requirements</label>
+      <select id="rfqSelector" class="form-select" multiple size="5" onchange="window.displayReqItems()"></select>
+      <div class="form-text" style="font-size:0.7rem;">Ctrl/Cmd+click to consolidate several requirements (same site & category) into one Quote.</div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4 d-none" id="rfqSubAreaWrap">
+    <div class="col-md-3">
+      <label class="form-label small fw-bold" data-i18n="sub_area">Sub Area</label>
+      <select id="rfqSubAreaFilter" class="form-select" onchange="window.onRFQSubAreaChange()">
+        <option value="" data-i18n="sub_area_placeholder">-- Select Sub Area --</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="rfqTableCard" class="card shadow-sm border-0 d-none mb-4">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead class="bg-light">
+          <tr>
+            <th data-i18n="geo">Geo</th>
+            <th style="min-width:110px;">Req(s)</th>
+            <th data-i18n="pn">P/N</th>
+            <th data-i18n="desc">Description</th>
+            <th data-i18n="item_notes">Item Notes</th>
+            <th data-i18n="item_images">Images</th>
+            <th data-i18n="supplier_notes" style="min-width:180px;">Supplier Notes</th>
+            <th data-i18n="qtyF">Qty Faena</th>
+            <th data-i18n="qty">Qty Pedido</th>
+            <th data-i18n="qtyB">Qty Bodega</th>
+            <th data-i18n="m_supplier">Supplier<br><small class="fw-normal">(search, pick & chip)</small></th>
+          </tr>
+        </thead>
+        <tbody id="rfqItemsBody"></tbody>
+      </table>
+    </div>
+    <div class="card-footer bg-white d-flex justify-content-between align-items-center gap-2">
+      <small class="text-muted">Search, pick suppliers to add them as chips. Click × on a chip to remove. Select at least 3 suppliers for competitive quotes.</small>
+      <button id="rfqPreviewBtn" class="btn btn-primary" onclick="window.generatePreviews()" data-i18n="preview_email">Preview Emails</button>
+    </div>
+  </div>
+
+  <div id="rfqPreviewContainer"></div>
+</div>

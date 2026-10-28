@@ -1,0 +1,17 @@
+name = "recon-erp-api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "recon-erp"
+database_id = ""
+
+[vars]
+JWT_SECRET = "change-me-in-production"
+JWT_EXPIRES_IN = "7d"
+API_BASE_URL = "https://recon-erp-api.your-domain.com"
+
+[observability]
+enabled = true

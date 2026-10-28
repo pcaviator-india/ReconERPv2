@@ -1,0 +1,307 @@
+<style>
+  .quote-report-shell {
+    background:
+      radial-gradient(circle at top right, rgba(13, 110, 253, 0.08), transparent 28%),
+      linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+    border: 1px solid rgba(13, 110, 253, 0.08);
+    border-radius: 1.25rem;
+    padding: 1rem;
+  }
+
+  .quote-report-hero {
+    background: linear-gradient(135deg, #16324f 0%, #0d6efd 100%);
+    color: #fff;
+    border-radius: 1rem;
+    padding: 1rem 1.1rem;
+    box-shadow: 0 16px 30px rgba(13, 110, 253, 0.16);
+  }
+
+  .quote-report-eyebrow {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    opacity: 0.82;
+  }
+
+  .quote-report-title {
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.15rem;
+  }
+
+  .quote-report-subtitle {
+    color: rgba(255, 255, 255, 0.88);
+    max-width: 52rem;
+    margin-bottom: 0;
+  }
+
+  .quote-report-panel {
+    background: #fff;
+    border: 1px solid rgba(13, 110, 253, 0.1);
+    border-radius: 1rem;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  .quote-report-panel-header {
+    padding: 0.95rem 1rem 0.25rem;
+  }
+
+  .quote-report-panel-body {
+    padding: 0.85rem 1rem 1rem;
+  }
+
+  .quote-report-kpi {
+    border: 1px solid rgba(13, 110, 253, 0.08);
+    border-radius: 1rem;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+    height: 100%;
+  }
+
+  .quote-report-kpi-label {
+    color: #6c757d;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.25rem;
+  }
+
+  .quote-report-kpi-value {
+    font-size: 1.65rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: #16324f;
+    line-height: 1.05;
+  }
+
+  .quote-report-kpi-note {
+    font-size: 0.82rem;
+    color: #6c757d;
+  }
+
+  .quote-report-status-card,
+  .quote-report-supplier-card,
+  .quote-report-aging-card {
+    border: 1px solid rgba(13, 110, 253, 0.09);
+    border-radius: 0.95rem;
+    background: linear-gradient(180deg, #fff 0%, #f9fbff 100%);
+    height: 100%;
+  }
+
+  .quote-report-status-bar,
+  .quote-report-aging-bar {
+    height: 0.5rem;
+    border-radius: 999px;
+    background: rgba(13, 110, 253, 0.1);
+    overflow: hidden;
+  }
+
+  .quote-report-status-fill,
+  .quote-report-aging-fill {
+    height: 100%;
+    border-radius: inherit;
+  }
+
+  .quote-report-status-label,
+  .quote-report-aging-label {
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #6c757d;
+  }
+
+  .quote-report-status-count,
+  .quote-report-aging-count {
+    font-weight: 800;
+    color: #16324f;
+  }
+
+  .quote-report-supplier-name {
+    font-weight: 800;
+    color: #16324f;
+  }
+
+  .quote-report-supplier-meta {
+    color: #6c757d;
+    font-size: 0.82rem;
+  }
+
+  .quote-report-table thead th {
+    white-space: nowrap;
+  }
+
+  .quote-report-badge {
+    border-radius: 999px;
+    padding: 0.28rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+
+  <!-- Load JavaScript modules -->
+  <script src="./QuoteReportJS.html"></script>
+
+</style>
+  </body>
+
+<div class="quote-report-shell animate__animated animate__fadeIn">
+  <div class="quote-report-hero mb-3">
+    <div class="d-flex flex-column flex-xl-row justify-content-between gap-3 align-items-xl-end">
+      <div>
+        <div class="quote-report-eyebrow" data-i18n="m_procurement">Adquisiciones</div>
+        <div class="d-flex align-items-center gap-2">
+          <h4 class="quote-report-title mb-1" data-i18n="quote_report_title">Reporte de Cotizaciones</h4>
+          <button type="button" class="btn btn-sm btn-outline-light" onclick="window.refreshCurrentModule()" title="Refresh">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+        <p class="quote-report-subtitle mb-0" data-i18n="quote_report_subtitle">Vista operativa de estados, proveedores y carga de cotizaciones desde la hoja Quotes.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center justify-content-xl-end">
+        <button id="quoteReportChartToggle" type="button" class="btn btn-light btn-sm shadow-sm">
+          <i class="bi bi-bar-chart-line me-1"></i><span data-i18n="quote_report_view_chart">Chart</span>
+        </button>
+        <button id="quoteReportTableToggle" type="button" class="btn btn-outline-light btn-sm shadow-sm">
+          <i class="bi bi-table me-1"></i><span data-i18n="quote_report_view_table">Table</span>
+        </button>
+        <button id="quoteReportExportExcel" type="button" class="btn btn-success btn-sm shadow-sm">
+          <i class="bi bi-file-earmark-excel me-1"></i><span data-i18n="quote_report_export_excel">Export Excel</span>
+        </button>
+        <button id="quoteReportExportPdf" type="button" class="btn btn-danger btn-sm shadow-sm">
+          <i class="bi bi-file-earmark-pdf me-1"></i><span data-i18n="quote_report_export_pdf">Export PDF</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="quote-report-panel mb-3">
+      <div class="quote-report-panel-header d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-end">
+      <div>
+        <div class="fw-bold text-secondary" data-i18n="quote_report_filters">Filters</div>
+        <div class="small text-muted" data-i18n="quote_report_grouped_by">Grouped by quote reference and supplier</div>
+      </div>
+    </div>
+    <div class="quote-report-panel-body pt-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-muted" data-i18n="quote_report_date_from">Date From</label>
+          <input id="quoteReportDateFrom" type="date" class="form-control form-control-sm shadow-sm">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-muted" data-i18n="quote_report_date_to">Date To</label>
+          <input id="quoteReportDateTo" type="date" class="form-control form-control-sm shadow-sm">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-muted" data-i18n="quote_report_aging_bucket">Aging Bucket</label>
+          <select id="quoteReportAgingFilter" class="form-select form-select-sm shadow-sm"></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-muted" data-i18n="lbl_site">Site</label>
+          <select id="quoteReportSiteFilter" class="form-select form-select-sm shadow-sm">
+            <option value="">All Sites</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-muted" data-i18n="quote_report_supplier">Supplier</label>
+          <select id="quoteReportSupplierFilter" class="form-select form-select-sm shadow-sm">
+            <option value="">All Suppliers</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-bold text-muted" data-i18n="status">Status</label>
+          <select id="quoteReportStatusFilter" class="form-select form-select-sm shadow-sm"></select>
+        </div>
+        <div class="col-12 col-xl-6">
+          <label class="form-label small fw-bold text-muted" data-i18n="lbl_search">Search</label>
+          <input id="quoteReportSearch" type="search" class="form-control form-control-sm shadow-sm" data-i18n-placeholder="quote_report_search_placeholder">
+        </div>
+        <div class="col-12 col-xl-6 d-flex flex-wrap gap-2 justify-content-xl-end">
+          <button id="quoteReportResetBtn" type="button" class="btn btn-light btn-sm shadow-sm">
+            <span data-i18n="quote_report_reset">Reset</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="quoteReportLoading" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status"></div>
+    <div class="mt-2 text-muted" data-i18n="msg_loading_data">Loading data...</div>
+  </div>
+
+  <div id="quoteReportContent" class="d-none">
+    <div id="quoteReportKpis" class="row g-3 mb-3"></div>
+
+    <div id="quoteReportChartView">
+      <div class="row g-3 mb-3">
+        <div class="col-lg-8">
+          <div class="quote-report-panel h-100">
+            <div class="quote-report-panel-header d-flex align-items-center justify-content-between gap-2">
+              <div>
+                <div class="fw-bold text-secondary" data-i18n="quote_report_status_distribution">Status Distribution</div>
+                <div class="small text-muted" data-i18n="quote_report_line_breakdown">Line-item breakdown by current status</div>
+              </div>
+            </div>
+            <div class="quote-report-panel-body">
+              <div id="quoteReportStatusCards" class="row g-3"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-4">
+          <div class="quote-report-panel h-100">
+            <div class="quote-report-panel-header d-flex align-items-center justify-content-between gap-2">
+              <div>
+                <div class="fw-bold text-secondary" data-i18n="quote_report_aging_buckets">Aging Buckets</div>
+                <div class="small text-muted" data-i18n="quote_report_age_note">Quote age based on last update</div>
+              </div>
+            </div>
+            <div id="quoteReportAgingCards" class="quote-report-panel-body d-grid gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quote-report-panel mb-3">
+        <div class="quote-report-panel-header d-flex align-items-center justify-content-between gap-2">
+          <div>
+            <div class="fw-bold text-secondary" data-i18n="quote_report_top_suppliers">Top Suppliers</div>
+            <div class="small text-muted" data-i18n="quote_report_ranked_by">Ranked by active quoted value</div>
+          </div>
+        </div>
+        <div id="quoteReportSuppliers" class="quote-report-panel-body d-grid gap-2"></div>
+      </div>
+    </div>
+
+    <div id="quoteReportTableView" class="d-none">
+      <div class="quote-report-panel">
+        <div class="quote-report-panel-header d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-end">
+          <div>
+            <div class="fw-bold text-secondary" data-i18n="quote_report_drilldown">Quote Drill-Down</div>
+            <div class="small text-muted" data-i18n="quote_report_grouped_by">Grouped by quote reference and supplier, with child-line status mix</div>
+          </div>
+          <div class="small text-muted" id="quoteReportResults"></div>
+        </div>
+        <div class="quote-report-panel-body pt-2">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle quote-report-table mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th data-i18n="quote_report_quote">Quote</th>
+                  <th data-i18n="quote_report_req">Req</th>
+                  <th data-i18n="quote_report_supplier">Supplier</th>
+                  <th data-i18n="quote_report_site">Site</th>
+                  <th data-i18n="quote_report_category">Category</th>
+                  <th class="text-center" data-i18n="quote_report_lines">Lines</th>
+                  <th data-i18n="quote_report_status_mix">Status Mix</th>
+                  <th class="text-end" data-i18n="quote_report_active_value">Active Value</th>
+                  <th data-i18n="quote_report_updated">Updated</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="quoteReportTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

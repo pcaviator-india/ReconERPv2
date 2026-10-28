@@ -1,0 +1,287 @@
+<div class="card shadow-sm border-0 p-3 animate__animated animate__fadeIn">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center gap-2">
+      <h5 class="fw-bold text-primary m-0" data-i18n="m_view_req">Requirement History</h5>
+      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.refreshCurrentModule()" title="Refresh">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+    </div>
+    <div class="d-flex gap-2 w-50">
+      <input type="text" id="historySearch" class="form-control shadow-sm" 
+             placeholder="Search Order, Geo, P/N, or Desc..." oninput="filterHistory()" data-i18n-placeholder="placeholder_history">
+  
+    </div>
+      <div class="btn-group" role="group" aria-label="View mode">
+        <button type="button" id="reqViewListBtn" class="btn btn-outline-secondary active" onclick="window.setReqViewMode('list')" title="List view">
+          <i class="bi bi-list-ul"></i>
+        </button>
+        <button type="button" id="reqViewCardsBtn" class="btn btn-outline-secondary" onclick="window.setReqViewMode('cards')" title="Card view">
+          <i class="bi bi-grid-3x3-gap"></i>
+        </button>
+      </div>
+      <button id="editBtn" class="btn btn-outline-primary" onmousedown="window.viewReqIgnoreClearOnce = true" onclick="handleEditClickReq(event)" disabled>
+        <i class="bi bi-pencil-square me-1"></i> 
+        <span data-i18n="btn_edit">Edit</span>
+      </button>
+      <div class="dropdown admin-only">
+        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" id="exportDropdownBtn">
+          <span data-i18n="btn_export">Export</span> 
+          <i class="bi bi-download ms-1"></i>
+        </button>
+        <ul class="dropdown-menu">
+          <li>
+            <button class="dropdown-item" type="button" onclick="handleExport('REQ', 'CSV', event)">
+              <i class="bi bi-filetype-csv me-2"></i>CSV
+            </button>
+          </li>
+          <li>
+            <button class="dropdown-item" type="button" onclick="handleExport('REQ', 'EXCEL', event)">
+              <i class="bi bi-file-earmark-excel me-2"></i>Excel
+            </button>
+          </li>
+          <li>
+            <button class="dropdown-item" type="button" onclick="handleExport('REQ', 'PDF', event)">
+              <i class="bi bi-file-pdf me-2"></i>PDF
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-2 mb-3 bg-light p-2 rounded border mx-0 align-items-center">
+  <div class="col-md-2">
+    <select id="filterFaena" class="form-select form-select-sm" onchange="filterHistory()">
+      <option value="" data-i18n="all_sites">All Sites (Faenas)</option>
+    </select>
+  </div>
+
+  <div class="col-md-2">
+    <select id="filterCategory" class="form-select form-select-sm shadow-sm" onchange="filterHistory()">
+      <option value="" data-i18n="all_categories">All Categories</option>
+    </select>
+  </div>
+
+  <div class="col-md-2">
+    <select id="filterStatus" class="form-select form-select-sm" onchange="filterHistory()">
+      <option value="" data-i18n="all_statuses">All Statuses</option>
+      <option value="Pending" data-i18n="status_pending">Pending</option>
+      <option value="Quoted" data-i18n="status_quoted">Quoted</option>
+      <option value="PO Created" data-i18n="status_po">PO Created</option>
+    </select>
+  </div>
+
+  <div class="col-md-2 d-none" id="filterSubAreaWrap">
+    <select id="filterSubArea" class="form-select form-select-sm" onchange="filterHistory()">
+      <option value="" data-i18n="all_sub_areas">All Sub Areas</option>
+    </select>
+  </div>
+
+  <div class="col-md-4 d-flex align-items-center justify-content-end">
+    <span id="selectionBadge" class="badge bg-primary d-none me-2">0 Orders Selected</span>
+    
+    <small class="text-muted me-2 d-none d-lg-inline">
+      Click rows to select. <strong>Ctrl + Click</strong> for multiple.
+    </small>
+
+    <button class="btn btn-sm btn-outline-danger border-0 flex-shrink-0" onclick="clearSelection()">
+      <i class="bi bi-x-circle"></i> Clear All
+    </button>
+  </div>
+</div>
+
+  <div id="reqTableWrap" class="table-responsive" style="max-height: 800px;">
+    <table class="table table-hover align-middle shadow-sm bg-white rounded">
+      <thead class="table-primary text-white">
+        <tr>
+          <th data-i18n="tbl_req_id" style="width: 120px;">Req ID</th>
+          <th data-i18n="tbl_date" style="width: 140px;">Date</th>
+          <th data-i18n="site" style="width: 140px;">Site</th>
+          <th data-i18n="tbl_user_desc" style="min-width:220px; max-width:320px;">User / Description</th> 
+          <th data-i18n="item_notes" class="text-start" style="width: 220px; min-width: 200px;">Item Notes</th>
+          <th data-i18n="supplier_notes" class="text-start" style="width: 220px; min-width: 200px;">Supplier Notes</th>
+          <th data-i18n="item_images" class="text-start" style="width: 110px;">Images</th>
+          <th data-i18n="tbl_geo_cat" style="width: 100px;">Geo / Cat</th>
+          <th data-i18n="qty" style="width: 80px;">Qty</th>
+          <th data-i18n="tbl_status" class="text-start" style="width: 170px; min-width: 150px;">Status</th>
+        </tr>
+      </thead>
+      <tbody id="historyTableBody"></tbody>
+    </table>
+  </div>
+  <div id="reqCardsContainer" class="row g-3 d-none" style="max-height: 800px; overflow-y: auto;"></div>
+</div>
+<style>
+  .row-selected { background-color: #e7f1ff !important; border-left: 4px solid #0d6efd !important; }
+  #historyTable thead th { white-space: nowrap; font-size: 0.85rem; }
+  #historyTable tbody td { font-size: 0.85rem; }
+
+  /* Clamp long description / notes text to 2 lines with ellipsis */
+  .req-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-width: 320px;
+  }
+  .req-notes-cell { text-align: left !important; }
+  .req-notes-cell .req-clamp { max-width: 260px; }
+  /* Supplier Notes column mirrors Item Notes: left aligned, clamped to 2 lines,
+     but tinted blue to visually separate the supplier-facing text from the
+     internal note. */
+  .req-supplier-cell { text-align: left !important; }
+  .req-supplier-cell .req-clamp { max-width: 260px; }
+  .req-notes-text { color: #1971c2 !important; }
+  .req-clamp > p, .req-clamp > div, .req-clamp > ul, .req-clamp > ol { margin: 0; }
+  .req-desc-en { font-size: 0.7rem; font-style: italic; }
+
+  /* Status column: left aligned so short statuses (Pending, Approved, ...) are
+     readable, badge never wider than the cell, and the collapsed quote refs
+     ("COT-101 +2") wrap under it instead of stretching the column. */
+  .req-status-cell { text-align: left !important; }
+  .req-status-badge {
+    max-width: 100%;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    font-weight: 600;
+  }
+  .req-status-refs {
+    font-size: 0.68rem;
+    line-height: 1.15;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+  }
+  .req-more {
+    font-size: 0.7rem;
+    cursor: pointer;
+    color: #0d6efd;
+    text-decoration: underline;
+    white-space: nowrap;
+  }
+  .req-clickable { cursor: pointer; }
+
+  /* Requirement edit modal: 9 data columns need near-full viewport width */
+  #editReqModal .modal-dialog { max-width: 98vw !important; width: 98vw; margin-left: auto; margin-right: auto; }
+  #editReqModal .modal-body .table-responsive { overflow-x: auto; }
+
+  /* Card view (mirrors quote cards) */
+  .req-card {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    cursor: pointer;
+  }
+  .req-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12) !important;
+  }
+  .req-card.req-card-selected { border-color: #0d6efd !important; box-shadow: 0 0 0 2px rgba(13,110,253,.25) !important; }
+  .req-card .req-card-meta { color: #6c757d; font-size: 0.85rem; }
+  .req-card .req-card-item { border-top: 1px solid #eef1f4; padding: 6px 0; font-size: 0.78rem; }
+  .req-card .req-card-item:first-child { border-top: 0; }
+  /* Status tint: all-Pending orders light yellow, anything further light green */
+  .req-card-pending { background-color: #fff8e1 !important; border-color: #f0d48a !important; }
+  .req-card-done { background-color: #e8f5e9 !important; border-color: #a5d6a7 !important; }
+</style>
+
+<div class="modal fade" id="editReqModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><span data-i18n="modal_edit_req">Edit Requirement:</span> <span id="editModalOrderNum"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      
+      <div class="modal-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-3">
+            <label class="form-label fw-bold" data-i18n="lbl_site_faena">Site (Faena)</label>
+            <input type="text" id="editFaena" class="form-control" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-bold" data-i18n="sub_area">Sub Area</label>
+            <input type="text" id="editSubArea" class="form-control" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-bold" data-i18n="sub_area_number">SubArea No</label>
+            <input type="text" id="editSubAreaNo" class="form-control" readonly>
+          </div>
+          <div class="col-md-3">
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-success btn-sm" id="btnApproveAll" onclick="approveAllItems()" data-i18n="btn_approve_all">
+                <i class="bi bi-check-all"></i> <span class="i18n-label">Approve All Items</span>
+              </button>
+              <button type="button" class="btn btn-danger btn-sm" id="btnDeleteAll" onclick="deleteAllItems()" data-i18n="btn_delete_all">
+                <i class="bi bi-trash-fill"></i> <span class="i18n-label">Delete All Items</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+          <div class="col-md-12">
+            <label class="form-label fw-bold">Emails</label>
+            <input type="text" id="editEmails" class="form-control" placeholder="name@company.com, name2@company.com">
+          </div>
+        </div>
+
+        <!-- Notes: the "Additional Message (Body)" the requester typed when the
+             requirement was created (Ordenes "Notes" column). Read-only so the
+             approver can see why the material is being requested. -->
+        <div class="row g-3 mb-4" id="editNotesRow">
+          <div class="col-md-12">
+            <label class="form-label fw-bold" data-i18n="lbl_req_notes">Notes</label>
+            <div id="editNotes" class="form-control bg-light" style="min-height:60px; max-height:180px; overflow-y:auto; font-size:12px; display:none;"></div>
+            <small id="editNotesEmpty" class="text-muted fst-italic" data-i18n="req_notes_empty">No notes for this requirement.</small>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-sm border align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 150px;" data-i18n="geo">Geo</th> <th data-i18n="m_pn">P/N</th>
+                <th data-i18n="desc">Description</th>
+                <th style="width: 80px;" data-i18n="qty">Qty</th>
+                <th style="width: 160px;" data-i18n="item_notes">Item Notes</th>
+                <th style="width: 160px;" data-i18n="supplier_notes">Supplier Notes</th>
+                <th style="width: 110px;" data-i18n="item_images">Images</th>
+                <th style="width: 120px;" data-i18n="status">Status</th>
+                <th style="width: 40px;"></th>
+              </tr>
+            </thead>
+            <tbody id="editItemsTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="mb-3 position-relative">
+          <label class="form-label fw-bold text-success" data-i18n="add_new_item_search">Add New Item via Search</label>
+          <div class="input-group">
+            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+            <input type="text" id="editItemSearch" class="form-control" 
+                   data-i18n-placeholder="placeholder_edit_item_search" placeholder="Search P/N or Description to add..." oninput="handleEditSearch(this.value)">
+          </div>
+          <ul id="editSearchResults" class="list-group position-absolute w-100 shadow-lg d-none" 
+              style="z-index: 1060; max-height: 200px; overflow-y: auto;">
+          </ul>
+        </div>
+
+        <button type="button" class="btn btn-sm btn-outline-success" onclick="addEditRow()" data-i18n="add_item_manually">
+          <i class="bi bi-plus-circle"></i> <span class="i18n-label">Add Item Manually</span>
+        </button>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="modal_cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveRequirementChanges()" data-i18n="btn_save_changes">
+          <span id="saveBtnSpinner" class="spinner-border spinner-border-sm d-none"></span> <span class="i18n-label">Save Changes</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="location_map_title">Rack & Location Manager</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="p-3 bg-light">
+
+<div class="container-fluid">
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="fw-bold mb-0" data-i18n="location_map_title">Rack & Location Manager</h5>
+      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.refreshCurrentModule()" title="Refresh">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+    </div>
+
+    <ul class="nav nav-tabs mb-4" id="locationTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-pane" type="button" role="tab" aria-controls="config-pane" aria-selected="true" data-i18n="location_map_configure_racks">Configure Racks</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="assign-tab" data-bs-toggle="tab" data-bs-target="#assign-pane" type="button" role="tab" aria-controls="assign-pane" aria-selected="false" data-i18n="location_map_assign_items">Assign Items to Location</button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="locationTabsContent">
+        
+        <div class="tab-pane fade show active" id="config-pane" role="tabpanel" aria-labelledby="config-tab">
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-primary text-white">
+                            <i class="bi bi-gear"></i> <span data-i18n="location_map_rack_configuration">Rack Configuration</span>
+                        </div>
+                        <div class="card-body">
+                            <form id="rackConfigForm">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" data-i18n="location_map_location_id_sector">Location ID (Sector)</label>
+                                    <select id="configLocationSelect" class="form-select form-select-lg" required>
+                                        <option value="" data-i18n="location_map_select_location">-- Select Location --</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" data-i18n="location_map_rack_id">Rack ID</label>
+                                    <input type="text" id="configRackId" class="form-control form-control-lg" placeholder="e.g., RACK-A01" required>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" data-i18n="location_map_has_sides">Has Sides (A/B)</label>
+                                    <select id="configHasSides" class="form-select form-select-lg">
+                                        <option value="Yes" data-i18n="location_map_yes">Yes</option>
+                                        <option value="No" data-i18n="location_map_no">No</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" data-i18n="location_map_number_of_shelves">Number of Shelves</label>
+                                    <input type="number" id="configShelves" class="form-control form-control-lg" min="1" max="20" required>
+                                </div>
+
+                                <button type="submit" class="btn btn-success w-100 btn-lg">
+                                    <i class="bi bi-check-circle"></i> <span data-i18n="location_map_save_rack_configuration">Save Rack Configuration</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="assign-pane" role="tabpanel" aria-labelledby="assign-tab">
+            
+            <div class="card shadow-sm mb-4">
+                <div class="card-body bg-dark text-white rounded">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-warning"><i class="bi bi-geo-alt"></i> <span data-i18n="location_map_choose_sector_location">1. Choose Sector Location</span></label>
+                            <select id="assignLocationSelect" class="form-select" onchange="onLocationChange()">
+                                <option value="" data-i18n="location_map_select_location">-- Select Location --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-white"><span data-i18n="location_map_target_rack">2. Target Rack</span></label>
+                            <select id="assignRackSelect" class="form-select" onchange="updateSidesAndShelvesDropdowns()">
+                                <option value="" data-i18n="location_map_select_rack">-- Select Rack --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold text-white" data-i18n="location_map_side">Side</label>
+                            <select id="assignSideSelect" class="form-select" onchange="loadShelfInventory()">
+                                <option value="" data-i18n="location_map_side">Side</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold text-white" data-i18n="location_map_level">Level</label>
+                            <select id="assignShelfSelect" class="form-select" onchange="loadShelfInventory()">
+                                <option value="" data-i18n="location_map_level">Lvl</option>
+                            </select>
+                        </div>
+                        <div class="col-md-1">
+                            <button onclick="clearTargetDropdownSelections()" class="btn btn-outline-light btn-sm w-100" title="Reset Filters"><i class="bi bi-arrow-counterclockwise"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-4">
+                
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100 border-warning">
+                        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                            <span class="fw-bold"><i class="bi bi-box-seam me-2"></i> <span data-i18n="location_map_unassigned_location_stock">Unassigned Location Stock</span></span>
+                            <span id="unassignedCountBadge" class="badge bg-dark text-white">0 items</span>
+                        </div>
+                        <div class="card-body p-3">
+                            
+                            <div class="mb-3" id="searchSection" style="opacity: 0.5; pointer-events: none;">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                                    <input type="text" id="itemSearchInput" class="form-control border-start-0" placeholder="Filter available list by ID or Name..." data-i18n-placeholder="location_map_filter_available_items">
+                                </div>
+                            </div>
+
+                            <div id="unassignedItemsContainer" class="border rounded overflow-auto bg-white" style="height: 380px;">
+                                <div class="text-center p-5 text-muted">
+                                    <i class="bi bi-building fs-1"></i>
+                                    <p class="mt-2" data-i18n="location_map_select_source_location">Select a source Sector Location to load available stock items.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-footer bg-light d-flex justify-content-between align-items-center">
+                            <button onclick="clearSelection()" class="btn btn-outline-secondary btn-sm" data-i18n="btn_clear">Clear Checks</button>
+                            <button onclick="saveAssignments()" class="btn btn-primary fw-bold"><i class="bi bi-box-arrow-in-right me-1"></i> <span data-i18n="location_map_put_on_shelf">Put on Shelf</span></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100 border-success">
+                        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                            <span class="fw-bold"><i class="bi bi-layers-half me-2"></i> <span data-i18n="location_map_current_shelf_inventory">Current Shelf Inventory</span></span>
+                            <span id="shelfCountBadge" class="badge bg-light text-dark">0 items</span>
+                        </div>
+                        <div class="card-body p-3">
+                            <div id="shelfInventoryContainer" class="border rounded overflow-auto bg-white" style="height: 435px;">
+                                <div class="text-center p-5 text-muted">
+                                    <i class="bi bi-info-circle fs-2"></i>
+                                    <p class="mt-2" data-i18n="storage_select_rack_side_level">Select a Rack, Side, and Level above to view or vacate items on that shelf storage row.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+  <script src="./LocationMapJS.html"></script>
+</body>
+
+  <script src="./LocationMapJS.html"></script>
+</body>
+</html>

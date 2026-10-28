@@ -1,0 +1,95 @@
+<div class="container-fluid py-3" id="asset_module_container">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0 fw-bold">
+      <i class="bi bi-box-seam me-2"></i>Gestión de Activos
+    </h4>
+    <button class="btn btn-primary" onclick="openAssetModal()">
+      <i class="bi bi-plus-lg me-1"></i>Nuevo Activo
+    </button>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-light">
+      <div class="row align-items-center g-2">
+        <div class="col-md-8">
+          <ul class="nav nav-pills card-header-pills">
+            <li class="nav-item">
+              <button class="nav-link active" id="tab-maquinaria" onclick="switchAssetTab('maquinaria')">
+                <i class="bi bi-truck me-1"></i>Maquinarias
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tab-generadores" onclick="switchAssetTab('generadores')">
+                <i class="bi bi-lightning-charge me-1"></i>Generadores
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tab-vehiculos" onclick="switchAssetTab('vehiculos')">
+                <i class="bi bi-car-front me-1"></i>Vehículos
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div class="col-md-4">
+          <div class="input-group">
+            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+            <input type="text" id="asset_search_input" class="form-control" placeholder="Buscar..." onkeyup="filterAssetTable()">
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card-body p-0">
+      <div class="asset-table-container">
+        <table class="table table-hover table-striped align-middle mb-0">
+          <thead id="asset_table_head">
+            </thead>
+          <tbody id="asset_table_body">
+            </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalAsset" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalAssetTitle">Agregar Activo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="modalAssetBody">
+        </div>
+      <div class="modal-footer">
+        </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Fixed height & scrolling container */
+  .asset-table-container {
+    max-height: calc(100vh - 260px); /* Automatically scales to viewport height */
+    overflow-y: auto;
+    position: relative;
+  }
+
+  /* Sticky header styling */
+  .asset-table-container table thead th {
+    position: sticky;
+    top: 0;
+    background-color: #f8f9fa; /* Prevents scrolling content from overlapping visually */
+    z-index: 2;
+    box-shadow: inset 0 -1px 0 #dee2e6; /* Keeps the border separation under sticky header */
+  }
+
+  .nav-pills .nav-link {
+    cursor: pointer;
+  }
+
+
+  <!-- Load JavaScript modules -->
+  <script src="./GestionActivosJS.html"></script>
+
+</body></style>

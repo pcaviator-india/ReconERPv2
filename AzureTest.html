@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <!-- Include Tailwind CSS for a modern enterprise dashboard design -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  </head>
+  <body class="bg-gray-50 font-sans antialiased text-gray-900">
+
+    <div class="max-w-4xl mx-auto p-6">
+      <!-- Header Section -->
+      <div class="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+        <h1 class="text-2xl font-bold text-gray-800 flex items-center">
+          <span class="h-3 w-3 bg-green-500 rounded-full mr-3 animate-pulse"></span>
+          Microsoft Graph API Live Integration Panel
+        </h1>
+        <p class="text-sm text-gray-500 mt-1">Proof of concept for background distributed emailing via Exchange Online.</p>
+      </div>
+
+      <!-- Action & Input Panel -->
+      <div class="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Target Mailbox to Query:</label>
+        <div class="flex gap-4">
+          <input type="email" id="emailInput" value="jkhatri@recondrilling.com" 
+                 class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          <button id="fetchBtn" onclick="loadLastEmail()" 
+                  class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2 rounded-md transition duration-150 ease-in-out shadow-sm">
+            Fetch Latest Email
+          </button>
+        </div>
+      </div>
+
+      <!-- Send Test Panel -->
+      <div class="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-800 mb-1">Send Email Test</h2>
+        <p class="text-sm text-gray-500 mb-4">This uses Microsoft Graph with the current ERP user as sender.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">To</label>
+            <input type="email" id="sendToInput" value="jkhatri@recondrilling.com"
+                   class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
+            <input type="text" id="sendSubjectInput" value="Graph send test from ERP"
+                   class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Body</label>
+          <textarea id="sendBodyInput" rows="6"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">Hello,
+
+This is a Microsoft Graph send-mail test from the Recon ERP AzureTest module.
+
+Regards,
+ERP Test</textarea>
+        </div>
+
+        <div class="flex gap-3 items-center">
+          <button id="sendBtn" onclick="sendTestEmail()"
+                  class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-6 py-2 rounded-md transition duration-150 ease-in-out shadow-sm">
+            Send Test Email
+          </button>
+          <span id="sendStatusMessage" class="hidden text-sm font-medium text-gray-500">Sending via Microsoft Graph...</span>
+        </div>
+      </div>
+
+      <!-- Result Card -->
+      <div id="resultCard" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hidden">
+        <div class="bg-gray-800 text-white px-6 py-3 font-semibold text-sm tracking-wide">
+          LIVE RESPONSE DATA (MICROSOFT GRAPH)
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <span class="text-xs font-bold uppercase tracking-wider text-gray-400 block">Subject</span>
+            <div id="emailSubject" class="text-lg font-semibold text-gray-900 mt-0.5"></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-gray-400 block">Sender</span>
+              <div id="emailFrom" class="text-sm font-medium text-gray-700 mt-0.5"></div>
+            </div>
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-gray-400 block">Received Timestamp</span>
+              <div id="emailTime" class="text-sm font-medium text-gray-700 mt-0.5"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading / Status Spinner -->
+      <div id="statusMessage" class="hidden text-center py-8 text-gray-500 font-medium">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-2 align-middle"></div>
+        Connecting securely to Microsoft Graph...
+      </div>
+
+      <div id="sendResultCard" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hidden mt-6">
+        <div class="bg-emerald-700 text-white px-6 py-3 font-semibold text-sm tracking-wide">
+          SEND TEST RESULT
+        </div>
+        <div class="p-6 space-y-3 text-sm">
+          <div><span class="font-bold text-gray-500 uppercase text-xs">Sender</span><div id="sendResultSender" class="text-gray-800"></div></div>
+          <div><span class="font-bold text-gray-500 uppercase text-xs">To</span><div id="sendResultTo" class="text-gray-800"></div></div>
+          <div><span class="font-bold text-gray-500 uppercase text-xs">Subject</span><div id="sendResultSubject" class="text-gray-800"></div></div>
+          <div><span class="font-bold text-gray-500 uppercase text-xs">Status</span><div id="sendResultStatus" class="text-gray-800"></div></div>
+        </div>
+      </div>
+
+      <!-- Mail.ReadWrite Capability Test Panel -->
+      <div class="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-800 mb-1">Mail.ReadWrite Capability Test</h2>
+        <p class="text-sm text-gray-500 mb-4">
+          Safe, non-destructive check of the Microsoft Graph <strong>application</strong> permissions needed to reply
+          inside an existing email thread. Nothing is ever sent &mdash; only temporary drafts are created and
+          immediately deleted.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">Target Mailbox</label>
+            <input type="email" id="rwMailboxInput"
+                   class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          </div>
+          <div class="flex items-end">
+            <button id="rwTestBtn" onclick="runReadWriteTest()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2 rounded-md transition duration-150 ease-in-out shadow-sm">
+              Run ReadWrite Test
+            </button>
+          </div>
+        </div>
+
+        <div id="rwStatusMessage" class="hidden text-sm font-medium text-gray-500 mb-3">
+          Testing Microsoft Graph application permissions...
+        </div>
+
+        <div id="rwResultCard" class="hidden">
+          <div id="rwSummary" class="text-sm font-semibold mb-2"></div>
+          <div id="rwRoles" class="text-xs text-gray-500 mb-3"></div>
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="bg-gray-100 text-left text-xs uppercase tracking-wider text-gray-500">
+                <th class="px-3 py-2 border border-gray-200">Step</th>
+                <th class="px-3 py-2 border border-gray-200">Permission</th>
+                <th class="px-3 py-2 border border-gray-200">Result</th>
+                <th class="px-3 py-2 border border-gray-200">Detail</th>
+              </tr>
+            </thead>
+            <tbody id="rwStepRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Threading Test Panel (MIME reply, Mail.Read + Mail.Send) -->
+      <div class="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-800 mb-1">Threaded-Reply Test (headers)</h2>
+        <p class="text-sm text-gray-500 mb-4">
+          Sends <strong>2 real emails</strong> to the test mailbox: a seed + a threaded reply
+          (<code>Re:</code> subject + <code>In-Reply-To</code>/<code>References</code> headers),
+          then verifies both share the same <code>conversationId</code>. Uses only
+          <strong>Mail.Read + Mail.Send</strong>. Use your own mailbox.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">Test Mailbox (receives 2 emails)</label>
+            <input type="email" id="thMailboxInput"
+                   class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          </div>
+          <div class="flex items-end gap-2 flex-wrap">
+            <button id="thSeedBtn" onclick="runThreadSeed()"
+                    class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-6 py-2 rounded-md transition duration-150 ease-in-out shadow-sm">
+              Step 1: Send seed
+            </button>
+            <button id="thReplyBtn" onclick="runThreadReply()"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-6 py-2 rounded-md transition duration-150 ease-in-out shadow-sm">
+              Step 2: Send reply
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Thread tag (auto-filled by Step 1)</label>
+          <input type="text" id="thTagInput" placeholder="QT-YYYYMMDD-HHMMSS"
+                 class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+        </div>
+
+        <div id="thStatusMessage" class="hidden text-sm font-medium text-gray-500 mb-3">
+          Sending seed, searching, replying, verifying... (takes ~30s)
+        </div>
+
+        <div id="thResultCard" class="hidden">
+          <div id="thSummary" class="text-sm font-semibold mb-2"></div>
+          <div id="thTag" class="text-xs text-gray-500 mb-3"></div>
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="bg-gray-100 text-left text-xs uppercase tracking-wider text-gray-500">
+                <th class="px-3 py-2 border border-gray-200">Step</th>
+                <th class="px-3 py-2 border border-gray-200">Permission</th>
+                <th class="px-3 py-2 border border-gray-200">Result</th>
+                <th class="px-3 py-2 border border-gray-200">Detail</th>
+              </tr>
+            </thead>
+            <tbody id="thStepRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <script src="./AzureTestJS.html"></script>
+</body>
+
+  <script src="./AzureTestJS.html"></script>
+</body>
+</html>

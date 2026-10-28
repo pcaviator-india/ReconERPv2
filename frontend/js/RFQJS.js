@@ -1,0 +1,4404 @@
+let rfqMasterData = []; // All pending requirements (cached)
+  let sitesWithSuffix = {}; // Map site names to their suffixes
+
+  // Per-supplier quote document attachments on the RFQ preview cards:
+  // { [supplierName]: { url, fileName } } — uploaded via uploadQuoteAttachment
+  // and stamped onto the quote rows when the RFQ/PDF is finally sent.
+  window.rfqAttachments = {};
+
+  let rfqStockData = {
+      siteStock: {},
+      bodegaStock: {}
+    };
+
+  window.isQuoteEmailEnabled = function () {
+    const entry = (window.globalConfig || []).find(
+      (item) => item.feature === "quoEmailEnabled",
+    );
+    const value = entry ? entry.status : false;
+    return value === true || value === "TRUE" || value === 1 || value === "1";
+  };
+
+  // ============================================
+  // MULTI-REQUIREMENT CONSOLIDATION HELPERS
+  // A consolidated Quote is created from 1..N requirements of the SAME SITE and
+  // SAME CATEGORY. Requirements selected in #rfqSelector (multi-select) are
+  // merged into a single "virtual order": items sharing a GEO have their
+  // quantities summed, and every merged item keeps the list of source req IDs
+  // (item.orderIds) so the backend can update each requirement's lifecycle.
+  // ============================================
+
+  // Splits a combined Ref ID ("100123+100127") into its source requirement IDs.
+  // Plain single refs pass through unchanged.
+  function splitRfqRefIds_(value) {
+    return String(value || "")
+      .split("+")
+      .map(function (id) { return String(id || "").trim(); })
+      .filter(Boolean);
+  }
+
+  // Resolves an orderId that may be a combined ref. Falls back to the merged
+  // (virtual) order built from the current multi-selection.
+  function resolveRfqOrder_(orderId) {
+    const ids = splitRfqRefIds_(orderId);
+    if (ids.length === 1) {
+      const found = rfqMasterData.find(function (r) { return String(r.id) === String(orderId); });
+      if (found) return found;
+    }
+    // Combined ref (or unknown id): rebuild the virtual order from the UI
+    const merged = window.getMergedRfqOrder_();
+    return (merged && !merged.error && String(merged.id) === String(orderId)) ? merged : null;
+  }
+
+  // Builds the merged "virtual order" from the current rfqSelector selection.
+  // Returns { error, message } on validation failure (mixed sites, missing
+  // category filter, missing orders).
+  // 
+  // MODE DETECTION:
+  // - If BOTH site AND category are selected → MULTI mode: consolidates requirements
+  //   of the same site+category. Returns error if rules violated.
+  // - If site OR category is missing → SINGLE mode: allows only 1 requirement,
+  //   returns it as a normal (non-consolidated) order without consolidation logic.
+  window.getMergedRfqOrder_ = function () {
+    const sel = document.getElementById("rfqSelector");
+    const catSel = document.getElementById("rfqCategoryFilter");
+    const siteSel = document.getElementById("rfqSiteFilter");
+    if (!sel || !catSel || !siteSel) return { error: true, message: "RFQ filters are not ready yet." };
+
+    const selectedIds = Array.from(sel.selectedOptions || []).map(function (o) { return o.value; }).filter(Boolean);
+    if (selectedIds.length === 0) return null;
+
+    const selectedCat = String(catSel.value || "").trim();
+    const selectedSite = String(siteSel.value || "").trim();
+    
+    // Detect mode: MULTI requires BOTH site AND category selected
+    const isMultiMode = selectedSite !== "" && selectedCat !== "";
+    
+    // In SINGLE mode (missing site OR category), enforce only 1 selection
+    if (!isMultiMode && selectedIds.length > 1) {
+      // Keep only the first selected requirement, clear the rest
+      const firstId = selectedIds[0];
+      Array.from(sel.options || []).forEach((o) => { o.selected = o.value === firstId; });
+      sel.value = firstId;
+      // Return a single order (not consolidated)
+      const order = rfqMasterData.find(function (r) { return String(r.id) === String(firstId); });
+      if (!order) return { error: true, message: "Selected requirement not found. Refresh and try again." };
+      
+      return {
+        id: order.id,
+        orderIds: [String(order.id)],
+        date: order.date || "",
+        site: order.site || "",
+        subArea: order.subArea || "",
+        subAreaConflict: false,
+        status: order.status || "",
+        category: selectedCat || (order.items[0] ? order.items[0].category : ""),
+        items: order.items || [],
+        isSingleMode: true
+      };
+    }
+
+    // MULTI mode: validate same-site / same-category rules
+    if (isMultiMode) {
+      if (!selectedCat) {
+        // This shouldn't happen in multi mode, but handle gracefully
+        return {
+          error: true,
+          message: "Consolidated RFQs require a Category. Select a category first.",
+        };
+      }
+
+      const orders = selectedIds
+        .map(function (id) { return rfqMasterData.find(function (r) { return String(r.id) === String(id); }); })
+        .filter(Boolean);
+
+      if (orders.length === 0) {
+        return { error: true, message: "Selected requirement(s) not found. Refresh and try again." };
+      }
+
+      // HARD RULE: all requirements must share the same site
+      const sites = Array.from(new Set(orders.map(function (o) { return String(o.site || "").trim(); })));
+      if (sites.length > 1) {
+        return {
+          error: true,
+          message: "All selected requirements must be from the SAME site (" + sites.join(", ") + " detected).",
+        };
+      }
+
+      const catUpper = selectedCat.toUpperCase();
+      const mergedItems = [];
+      const itemIndexByGeo = {};
+
+      orders.forEach(function (order) {
+        (order.items || []).forEach(function (item) {
+          // Only items of the selected category are part of the consolidated RFQ
+          if ((item.category || "").toUpperCase() !== catUpper) return;
+          const geo = String(item.geo || "").trim();
+          const pushNoteOnto = function(target, orderId, noteText) {
+            if (!String(noteText || '').trim()) return;
+            target.reqItemNotes = target.reqItemNotes || [];
+            const exists = target.reqItemNotes.some(function(n) {
+              return String(n.ref) === String(orderId) && String(n.notes) === String(noteText);
+            });
+            if (!exists) target.reqItemNotes.push({ ref: String(orderId), notes: String(noteText) });
+          };
+          if (geo && itemIndexByGeo[geo] !== undefined) {
+            // Decision: duplicate GEOs across requirements MERGE their quantities
+            const target = mergedItems[itemIndexByGeo[geo]];
+            target.qty = Number(target.qty || 0) + Number(item.qty || 0);
+            if (target.orderIds.indexOf(String(order.id)) === -1) target.orderIds.push(String(order.id));
+            // Union the requester's photos across the merged requirements (URLs
+            // deduplicated) so no source Req's attachments are lost.
+            try { target.images = window.mergeReqImages_(target.images, item.images); } catch (e) { /* keep target.images */ }
+            (item.reqItemNotes || []).forEach(function(n) {
+              if (n && String(n.notes || '').trim()) pushNoteOnto(target, n.ref || order.id, n.notes);
+            });
+            if (!item.reqItemNotes && String(item.itemNotes || '').trim()) {
+              pushNoteOnto(target, order.id, item.itemNotes);
+            }
+          } else {
+            const clone = Object.assign({}, item, {
+              orderIds: [String(order.id)],
+              originalOrderId: String(order.id),
+            });
+            clone.reqItemNotes = [];
+            (item.reqItemNotes || []).forEach(function(n) {
+              if (n && String(n.notes || '').trim()) pushNoteOnto(clone, n.ref || order.id, n.notes);
+            });
+            if (!item.reqItemNotes && String(item.itemNotes || '').trim()) {
+              pushNoteOnto(clone, order.id, item.itemNotes);
+            }
+            itemIndexByGeo[geo] = mergedItems.length;
+            mergedItems.push(clone);
+          }
+        });
+      });
+
+      return {
+        id: selectedIds.join("+"),
+        orderIds: orders.map(function (o) { return String(o.id); }),
+        date: orders.map(function (o) { return o.date; }).filter(Boolean).join(", "),
+        site: orders[0].site,
+        subArea: (function () {
+          const areas = Array.from(new Set(orders.map(function (o) { return String(o.subArea || "").trim(); }).filter(Boolean)));
+          return areas.length === 1 ? areas[0] : "";
+        })(),
+        subAreaConflict: (function () {
+          const areas = Array.from(new Set(orders.map(function (o) { return String(o.subArea || "").trim(); }).filter(Boolean)));
+          return areas.length > 1;
+        })(),
+        status: orders[0].status || "",
+        category: selectedCat,
+        items: mergedItems,
+      };
+    } else {
+      // SINGLE mode: return the first (and only) selected requirement
+      const orderId = selectedIds[0];
+      const order = rfqMasterData.find(function (r) { return String(r.id) === String(orderId); });
+      if (!order) return { error: true, message: "Selected requirement not found. Refresh and try again." };
+      
+      return {
+        id: order.id,
+        orderIds: [String(order.id)],
+        date: order.date || "",
+        site: order.site || "",
+        subArea: order.subArea || "",
+        subAreaConflict: false,
+        status: order.status || "",
+        category: selectedCat || (order.items[0] ? order.items[0].category : ""),
+        items: order.items || [],
+        isSingleMode: true
+      };
+    }
+  };
+
+  function escapeRegExp_(value) {
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // HTML attribute escape (for title="", etc.)
+  function attr_(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // HTML content escape
+  function escapeHtml_(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  // ============================================================
+  // PER-ITEM PHOTO THUMBNAILS (guarded: CreateReqJS.html defines the
+  // canonical window.reqDriveFileId_/reqDriveThumbUrl_/reqDriveImgOnerror_
+  // app-wide; the local copies keep the RFQ module self-contained).
+  // ============================================================
+  window.reqDriveFileId_ = window.reqDriveFileId_ || function (url) {
+    const u = String(url || "").trim();
+    if (!u) return "";
+    let m = u.match(/\/file\/d\/([-\w]{10,})/i);
+    if (m && m[1]) return m[1];
+    m = u.match(/[?&](?:id|ids)=([-\w]{10,})/i);
+    return (m && m[1]) ? m[1] : "";
+  };
+  window.reqDriveThumbUrl_ = window.reqDriveThumbUrl_ || function (url) {
+    const id = window.reqDriveFileId_(url);
+    return id ? ("https://drive.google.com/thumbnail?id=" + id + "&sz=w200") : String(url || "");
+  };
+  window.reqDriveImgOnerror_ = window.reqDriveImgOnerror_ || function (url) {
+    const id = window.reqDriveFileId_(url);
+    if (!id) return "";
+    const alt = "https://drive.google.com/uc?export=view&id=" + id;
+    return " onerror=\"if(this.dataset.fb){this.style.visibility='hidden';}else{this.dataset.fb='1';this.src='" + alt + "';}\"";
+  };
+
+  // Normalizes an "Item Images" value (comma-separated cell string, array of
+  // {url,name} or array of URL strings) into a deduplicated URL list.
+  window.reqImageUrlsOf_ = window.reqImageUrlsOf_ || function (raw) {
+    let list = [];
+    if (!raw) return list;
+    if (typeof raw === "string") list = raw.split(/\s*,\s*/);
+    else if (Array.isArray(raw)) list = raw;
+    const out = [], seen = {};
+    list.forEach(function (im) {
+      if (!im) return;
+      const u = String(typeof im === "string" ? im : (im.url || "")).trim();
+      if (!/^https?:\/\//i.test(u) || seen[u]) return;
+      seen[u] = true;
+      out.push(u);
+    });
+    return out;
+  };
+
+  // Unions two images values (string and/or array), deduped by URL. Used when
+  // consolidated requirements merge duplicate GEOs so no source Req's photos
+  // are lost. Returns an array of URL strings.
+  window.mergeReqImages_ = window.mergeReqImages_ || function (a, b) {
+    const out = window.reqImageUrlsOf_(a);
+    window.reqImageUrlsOf_(b).forEach(function (u) {
+      if (out.indexOf(u) === -1) out.push(u);
+    });
+    return out;
+  };
+
+  // Read-only thumbnail cell for one RFQ line's photos (thumbs link to the
+  // full Drive files). Returns an empty-state dash when there are none.
+  window.reqImagesTableCellHtml_ = window.reqImagesTableCellHtml_ || function (item, px) {
+    const size = Number(px) || 34;
+    const urls = window.reqImageUrlsOf_(item && item.images);
+    if (!urls.length) return '<span class="text-muted small">&mdash;</span>';
+    const thumbs = urls.map(function (u, i) {
+      const src = String(window.reqDriveThumbUrl_(u))
+        .replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      const href = String(u).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      const err = window.reqDriveImgOnerror_(u);
+      return '<a href="' + href + '" target="_blank" rel="noopener" title="' + href + '" ' +
+        'style="display:inline-block;width:' + size + 'px;height:' + size +
+        'px;border:1px solid #dee2e6;border-radius:4px;overflow:hidden;margin:1px;vertical-align:middle;background:#fff;">' +
+        '<img src="' + src + '" alt="Photo ' + (i + 1) + '" loading="lazy"' + err +
+        ' style="width:100%;height:100%;object-fit:cover;display:block;"></a>';
+    }).join("");
+    return '<span style="white-space:nowrap;display:inline-block;" title="' + urls.length +
+      ' photo(s) — click to open">' + thumbs + "</span>";
+  };
+
+  function getCleanRfqOrderRef(orderId, siteSuffix, categoryName) {
+    const raw = String(orderId || "").trim();
+    if (!raw) return "";
+
+    const suffix = String(siteSuffix || "").trim();
+    const category = String(categoryName || "").trim();
+    let cleaned = raw;
+
+    if (suffix && category) {
+      const comboPattern = new RegExp(
+        `\\s*-\\s*${escapeRegExp_(suffix)}\\s*-\\s*${escapeRegExp_(category)}\\s*$`,
+        "i",
+      );
+      cleaned = cleaned.replace(comboPattern, "");
+    }
+
+    if (suffix) {
+      const suffixPattern = new RegExp(
+        `\\s*-\\s*${escapeRegExp_(suffix)}\\s*$`,
+        "i",
+      );
+      cleaned = cleaned.replace(suffixPattern, "");
+    }
+
+    return cleaned || raw;
+  }
+
+  // ============================================
+  // RFQ PREVIEW LOADING STATE
+  // ============================================
+  // Flags + helper so the "Preview Emails" button is disabled with a spinner
+  // and a progress message is shown while the async preview chain is running,
+  // preventing duplicate clicks and giving the user visible feedback.
+  window.rfqPreviewBusy = false;
+  window.rfqPreviewOriginalBtnHtml = "";
+
+  function setRfqPreviewLoadingState(isLoading) {
+    const previewBtn = document.getElementById("rfqPreviewBtn");
+    if (isLoading) {
+      window.rfqPreviewBusy = true;
+      if (previewBtn) {
+        window.rfqPreviewOriginalBtnHtml = previewBtn.innerHTML || "";
+        previewBtn.disabled = true;
+        previewBtn.innerHTML =
+          '<span class="spinner-border spinner-border-sm me-1"></span>' +
+          (typeof i18n === "function" ? i18n("loading") : "Loading...");
+      }
+      const previewContainer = document.getElementById("rfqPreviewContainer");
+      if (previewContainer) {
+        previewContainer.innerHTML =
+          '<div class="alert alert-light border d-flex align-items-center gap-2 text-muted small rfq-preview-loading">' +
+          '<span class="spinner-border spinner-border-sm me-2" role="status"></span>' +
+          (typeof i18n === "function"
+            ? i18n("rfq_generating_preview")
+            : "Generating email previews, please wait...") +
+          "</div>";
+      }
+    } else {
+      window.rfqPreviewBusy = false;
+      if (previewBtn) {
+        previewBtn.disabled = false;
+        if (window.rfqPreviewOriginalBtnHtml) {
+          previewBtn.innerHTML = window.rfqPreviewOriginalBtnHtml;
+        }
+        window.rfqPreviewOriginalBtnHtml = "";
+      }
+    }
+  }
+
+  // ============================================
+  // MULTI-SELECT SUPPLIER HELPERS
+  // ============================================
+  // Returns the list of suppliers assigned to an item. Multi-select support uses
+  // an item.suppliers array; legacy single-supplier items (item.supplier string)
+  // are still supported.
+  function getItemSuppliers_(item) {
+    if (item && Array.isArray(item.suppliers) && item.suppliers.length > 0) {
+      return item.suppliers.filter(Boolean);
+    }
+    return item && item.supplier ? [item.supplier] : [];
+  }
+
+  // Escapes a value for use inside a single-quoted JS string literal within an
+  // inline event-handler attribute (backslashes + apostrophes).
+  function escapeJsArg_(value) {
+    return String(value || "")
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'");
+  }
+
+  // Rich-text toolbar for RFQ cards: works even if CreateReq helpers are not
+  // loaded (falls back to document.execCommand). Finds the card's editable body.
+  window.rfqBodyCmd = function (btn, cmd) {
+    try {
+      if (typeof window.execBodyCmd === "function") {
+        const card = btn ? btn.closest(".rfq-card") : null;
+        const ed = card ? card.querySelector(".rfq-body-rich") : null;
+        if (ed) {
+          ed.focus();
+          try { document.execCommand(cmd, false, null); } catch (e) { /* ignore */ }
+          return;
+        }
+      }
+      const card = btn ? btn.closest(".rfq-card") : null;
+      const ed = card ? card.querySelector(".rfq-body-rich") : null;
+      if (!ed) return;
+      ed.focus();
+      try { document.execCommand(cmd, false, null); } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
+  };
+
+  // ============================================
+  // SUB AREA SELECTOR (visible only for "Workshop" requirements)
+  // Data source: getValidationData() -> Validation sheet Col V (SubArea) /
+  // Col W (Emails SubArea). SubAreas belong to the Workshop site.
+  // The authoritative site is the SELECTED REQUIREMENT's site (order.site),
+  // because RFQ routing is scoped to the order, not the site filter.
+  // ============================================
+  window.updateRFQSubArea = function () {
+    const wrap = document.getElementById("rfqSubAreaWrap");
+    const sel = document.getElementById("rfqSubAreaFilter");
+    if (!wrap || !sel) return;
+
+    const orderSel = document.getElementById("rfqSelector");
+    let site = "";
+    let storedSubArea = "";
+    if (orderSel && orderSel.value) {
+      // Multi-select / combined ref: the authoritative site is the FIRST
+      // selected requirement's site (site equality is validated on merge).
+      const firstId = splitRfqRefIds_(orderSel.value)[0] || String(orderSel.value);
+      const order = rfqMasterData.find((r) => String(r.id) === String(firstId));
+      site = order ? String(order.site || "").trim() : "";
+      // SubArea persisted on the Ordenes row at requirement creation time
+      storedSubArea = order ? String(order.subArea || "").trim() : "";
+    }
+
+    if (site.toLowerCase() !== "workshop") {
+      wrap.classList.add("d-none");
+      sel.value = "";
+      return;
+    }
+
+    const populate = function (subAreas) {
+      const options = (subAreas || [])
+        .filter(function (sa) {
+          return sa && String(sa.site || "").trim().toLowerCase() === site.toLowerCase();
+        })
+        .map(function (sa) {
+          const name = String(sa.name || "").replace(/"/g, "&quot;");
+          return `<option value="${name}">${name}</option>`;
+        })
+        .join("");
+      sel.innerHTML =
+        `<option value="" data-i18n="sub_area_placeholder">-- Select Sub Area --</option>` +
+        options;
+      wrap.classList.remove("d-none");
+      // Pre-select the SubArea stored on the requirement (ignored if the
+      // option no longer exists -> falls back to the placeholder)
+      sel.value = storedSubArea;
+    };
+
+    if (window.CachedDataVal && Array.isArray(window.CachedDataVal.subAreas)) {
+      populate(window.CachedDataVal.subAreas);
+    } else {
+      google.script.run
+        .withSuccessHandler(function (data) {
+          window.CachedDataVal = data || {};
+          populate((data && data.subAreas) || []);
+          if (typeof updateUI === "function") updateUI();
+        })
+        .withFailureHandler(function (err) {
+          console.warn("Failed to load Sub Areas:", err);
+        })
+        .getValidationData();
+    }
+  };
+
+  window.onRFQSubAreaChange = function () {
+    // Regenerate previews (if open) so the CC field reflects the new SubArea
+    const previewContainer = document.getElementById("rfqPreviewContainer");
+    if (previewContainer && previewContainer.querySelector(".rfq-card")) {
+      window.generatePreviews();
+    }
+  };
+
+  // ============================================
+  // INITIALIZE RFQ MODULE (single guarded implementation)
+  // ============================================
+  window.initRFQModule = function (attempts = 0) {
+    const maxAttempts = 10;
+    console.log("🚀 Initializing RFQ Module... attempt", attempts + 1);
+
+    const siteSel = document.getElementById("rfqSiteFilter");
+    const catSel = document.getElementById("rfqCategoryFilter"); // New element
+    const reqSel = document.getElementById("rfqSelector");
+
+    if (!siteSel || !reqSel || !catSel) {
+      if (attempts < maxAttempts) {
+        setTimeout(() => window.initRFQModule(attempts + 1), 200);
+        return;
+      }
+      console.error("❌ RFQ HTML elements not found after retries");
+      return;
+    }
+
+    if (window.cachedSites && window.cachedSites.length > 0) {
+      siteSel.innerHTML =
+        `<option value="">${typeof getI18nText === 'function' ? getI18nText('all_sites') : 'All Sites'}</option>` +
+        window.cachedSites
+          .map((s) => `<option value="${s.name}">${s.name}</option>`)
+          .join("");
+      window.cachedSites.forEach((s) => {
+        sitesWithSuffix[s.name] = s.suffix || "";
+      });
+    }
+
+    // Add event listeners to enforce single/multi selection rules when filters change
+    siteSel.addEventListener("change", function () {
+      window.enforceSelectionMode();
+    });
+    catSel.addEventListener("change", function () {
+      window.enforceSelectionMode();
+    });
+
+    window.fetchRFQRequirements();
+  };
+
+  // Enforce selection rules based on current filter state:
+  // - If BOTH site AND category selected → allow multiple selections
+  // - If either is missing → keep only 1 selection
+  window.enforceSelectionMode = function () {
+    const siteSel = document.getElementById("rfqSiteFilter");
+    const catSel = document.getElementById("rfqCategoryFilter");
+    const reqSel = document.getElementById("rfqSelector");
+    
+    if (!siteSel || !catSel || !reqSel) return;
+
+    const isMultiMode = siteSel.value && catSel.value;
+    const selectedIds = Array.from(reqSel.selectedOptions || []).map(function (o) { return o.value; }).filter(Boolean);
+    
+    if (!isMultiMode && selectedIds.length > 1) {
+      // In SINGLE mode, keep only the first selected requirement
+      Array.from(reqSel.options || []).forEach((o) => { 
+        o.selected = selectedIds.indexOf(o.value) === 0; 
+      });
+      if (selectedIds.length > 0) {
+        const firstId = selectedIds[0];
+        if (Array.from(reqSel.options || []).some((o) => o.value === firstId)) {
+          reqSel.value = firstId;
+        } else {
+          reqSel.value = "";
+        }
+      }
+      // Refresh the display after adjusting selection
+      window.displayReqItems();
+    }
+  };
+
+  // Fetch requirements from the backend honouring the Requirement Status filter:
+  // "Approved" (default — requirements already approved, ready to quote), "All"
+  // (everything except Pending, which are still awaiting approval), or a specific
+  // status (Quoted, Sent, Received, Despatched, ...) for additional quotes.
+  window.fetchRFQRequirements = function () {
+    const siteSel2 = document.getElementById("rfqSiteFilter");
+    const catSel2 = document.getElementById("rfqCategoryFilter");
+    const statusSel = document.getElementById("rfqStatusFilter");
+    if (!catSel2) return;
+    const statusFilter = statusSel ? statusSel.value : "Approved";
+    google.script.run
+      .withSuccessHandler(function (data) {
+        rfqMasterData = data;
+
+        // --- Populate Category Filter ---
+        const cats = new Set();
+        data.forEach((order) => {
+          (order.items || []).forEach((item) => {
+            if (item && item.category) cats.add(item.category);
+          });
+        });
+
+        catSel2.innerHTML =
+          `<option value="">${typeof getI18nText === 'function' ? getI18nText('select_category') : 'Select Category'}</option>` +
+          Array.from(cats)
+            .sort()
+            .map((c) => `<option value="${c}">${c}</option>`)
+            .join("");
+        // -------------------------------------
+
+        console.log("✅ Loaded " + data.length + " requirements (status: " + statusFilter + ")");
+        window.refreshRFQList();
+      })
+      .withFailureHandler(function (err) {
+        console.error("Failed to load requirements for RFQ:", err);
+      })
+      .getPendingRequirementsForRFQ(siteSel2 ? siteSel2.value : "", statusFilter);
+  };
+
+  window.refreshRFQList = function () {
+    const siteSel = document.getElementById("rfqSiteFilter");
+    const categorySel = document.getElementById("rfqCategoryFilter");
+    const reqSel = document.getElementById("rfqSelector");
+
+    if (!siteSel || !categorySel || !reqSel) {
+      console.warn("RFQ dropdowns not ready yet; skipping refresh.");
+      return;
+    }
+
+    const site = siteSel.value;
+    const category = categorySel.value;
+
+    // Filter requirements that match the site AND contain items of the selected category
+    const filtered = rfqMasterData.filter((req) => {
+      const siteMatch = !site || req.site === site;
+      const catMatch =
+        !category || req.items.some((item) => (item.category || "").toUpperCase() === category.toUpperCase());
+      return siteMatch && catMatch;
+    });
+
+    reqSel.innerHTML =
+      `<option value="">${i18n('select_requirement')}</option>` +
+      filtered
+        .map(
+          (req) =>
+            `<option value="${req.id}">Order #${req.id} - ${req.date}${req.status ? " - " + req.status : ""}</option>`,
+        )
+        .join("");
+
+    // Reset table if requirements list changes
+    document.getElementById("rfqTableCard").classList.add("d-none");
+
+    // Detect selection mode: MULTI requires BOTH site AND category selected
+    const isMultiMode = site && category;
+
+    // Enforce selection limits based on mode
+    const selectedIds = Array.from(reqSel.selectedOptions || []).map(function (o) { return o.value; }).filter(Boolean);
+    
+    if (!isMultiMode && selectedIds.length > 1) {
+      // In SINGLE mode, keep only the first selected requirement
+      Array.from(reqSel.options || []).forEach((o) => { o.selected = selectedIds.indexOf(o.value) === 0; });
+      if (reqSel.value) {
+        // Keep the first one selected
+        const firstId = selectedIds[0];
+        if (Array.from(reqSel.options || []).some((o) => o.value === firstId)) {
+          reqSel.value = firstId;
+        } else {
+          reqSel.value = "";
+        }
+      }
+    }
+
+    // Deep-link preselect: the "+" in Quote Management navigates here with a
+    // specific requirement (or a consolidated combined ref "A+B") so the user can
+    // create an additional quote for it.
+    const preselect = String(window._rfqPreselectOrderId || "");
+    const preselectIds = window._rfqPreselectOrderIds ||
+      (preselect && preselect.indexOf("+") !== -1 ? splitRfqRefIds_(preselect) : null);
+    if (preselectIds && preselectIds.length) {
+      window._rfqPreselectOrderIds = "";
+      window._rfqPreselectOrderId = "";
+      const allFound = preselectIds.every((pid) =>
+        Array.from(reqSel.options || []).some((o) => o.value === pid));
+      if (allFound) {
+        window._rfqPreselectRetryAll = false;
+        Array.from(reqSel.options || []).forEach((o) => { o.selected = preselectIds.indexOf(o.value) !== -1; });
+        window.displayReqItems();
+      } else if (!window._rfqPreselectRetryAll) {
+        // Not in the current status-filtered list: widen the filters (status to
+        // "All (except Pending)", site back to All Sites), re-fetch and retry.
+        window._rfqPreselectOrderIds = preselectIds;
+        window._rfqPreselectRetryAll = true;
+        const statusSel = document.getElementById("rfqStatusFilter");
+        if (statusSel) statusSel.value = "All";
+        const siteSel2 = document.getElementById("rfqSiteFilter");
+        if (siteSel2) siteSel2.value = "";
+        window.fetchRFQRequirements();
+        return;
+      } else {
+        window._rfqPreselectRetryAll = false;
+        console.warn("RFQ preselect: requirement(s) #" + preselectIds.join("+") + " not found even with the widened status filter.");
+        Swal.fire({
+          icon: "warning",
+          title: i18n("rfq_preselect_not_found_title", "Requirement not found"),
+          text: i18n("rfq_preselect_not_found", "Requirement #" + preselectIds.join(", #") + " is not available with the current filters. Check the site filter or its status."),
+          timer: 3500,
+          showConfirmButton: false,
+        });
+      }
+    } else if (preselect) {
+      window._rfqPreselectOrderId = "";
+      const found = Array.from(reqSel.options || []).some((o) => o.value === preselect);
+      if (found) {
+        window._rfqPreselectRetryAll = false;
+        reqSel.value = preselect;
+        window.displayReqItems();
+      } else if (!window._rfqPreselectRetryAll) {
+        // Not in the current status-filtered list: widen the filters (status to
+        // "All (except Pending)", site back to All Sites), re-fetch and try the
+        // preselect again.
+        window._rfqPreselectOrderId = preselect;
+        window._rfqPreselectRetryAll = true;
+        const statusSel = document.getElementById("rfqStatusFilter");
+        if (statusSel) statusSel.value = "All";
+        const siteSel2 = document.getElementById("rfqSiteFilter");
+        if (siteSel2) siteSel2.value = "";
+        window.fetchRFQRequirements();
+        return;
+      } else {
+        window._rfqPreselectRetryAll = false;
+        console.warn("RFQ preselect: requirement #" + preselect + " not found even with the widened status filter.");
+        Swal.fire({
+          icon: "warning",
+          title: i18n("rfq_preselect_not_found_title", "Requirement not found"),
+          text: i18n("rfq_preselect_not_found", "Requirement #" + preselect + " is not available with the current filters. Check the site filter or its status."),
+          timer: 3500,
+          showConfirmButton: false,
+        });
+      }
+    }
+
+    // Keep the SubArea selector in sync (only shown for Workshop requirements)
+    if (typeof window.updateRFQSubArea === "function") window.updateRFQSubArea();
+  };
+
+  // ============================================
+  // DISPLAY REQUIREMENT ITEMS
+  // ============================================
+  /*
+  window.displayReqItems = function () {
+    const orderSel = document.getElementById("rfqSelector");
+    const categorySel = document.getElementById("rfqCategoryFilter");
+    if (!orderSel || !categorySel) return;
+
+    const orderId = orderSel.value;
+    const selectedCat = categorySel.value;
+
+    if (!orderId) {
+      document.getElementById("rfqTableCard").classList.add("d-none");
+      return;
+    }
+
+    const order = rfqMasterData.find((r) => r.id == orderId);
+    if (!order) return;
+
+    // Only show items matching the selected category
+    const filteredItems = order.items.filter(
+      (item) => !selectedCat || (item.category || "").toUpperCase() === selectedCat.toUpperCase(),
+    );
+
+    
+
+    document.getElementById("rfqTableCard").classList.remove("d-none");
+    const tbody = document.getElementById("rfqItemsBody");
+    const suppliers = window.CachedDataVal?.suppliers || [];
+
+    tbody.innerHTML = filteredItems
+      .map((item, idx) => {
+        const optionsHtml = suppliers
+          .map((s) => {
+            const isSelected = item.supplier === s.name ? "selected" : "";
+            return `<option value="${s.name}" ${isSelected}>${s.name}</option>`;
+          })
+          .join("");
+
+        // Primary Spanish (or raw desc), Secondary English
+        const primaryDesc = item.es || item.req_desc || "N/A";
+        const secondaryDesc = item.en || "";
+
+        // Inside your window.displayReqItems mapping
+        return `
+    <tr>
+      <td><small class="text-muted">${item.geo}</small></td>
+      <td><strong>${item.p || item.pn || ""}</strong></td>
+      <td>
+        <div style="font-weight: 600; color: #212529; line-height: 1.2;">${item.es || item.req_desc || "N/A"}</div>
+        <div style="font-size: 0.75rem; color: #6c757d; margin-top: 2px;">${item.en || ""}</div>
+      </td>
+      <td class="text-center"><strong>${siteStock}</strong></td>
+      <td class="text-center"><strong>${item.qty}</strong></td>
+      <td class="text-center"><strong>${bodegaStock}</strong></td>
+
+      <td>
+        <select class="form-select form-select-sm" 
+          onchange="window.assignSupplierByGeo('${orderId}', '${item.geo}', this.value)">
+          <option value="">-- Select --</option>
+          ${optionsHtml}
+        </select>
+      </td>
+    </tr>`;
+      })
+      .join("");
+
+    document.getElementById("rfqPreviewContainer").innerHTML = "";
+  };
+*/
+
+window.displayReqItems = function () {
+  const categorySel = document.getElementById("rfqCategoryFilter");
+  const siteSel = document.getElementById("rfqSiteFilter");
+
+  if (!categorySel || !siteSel) return;
+
+  // Multi-requirement consolidation: build the merged virtual order from the
+  // multi-select. Validates same-site / same-category rules.
+  const merged = window.getMergedRfqOrder_ ? window.getMergedRfqOrder_() : null;
+  if (!merged) {
+    document.getElementById("rfqTableCard").classList.add("d-none");
+    return;
+  }
+  if (merged.error) {
+    document.getElementById("rfqTableCard").classList.add("d-none");
+    const sel = document.getElementById("rfqSelector");
+    if (sel) sel.value = "";
+    // Log the error but do NOT show a popup - we allow selection without blocking
+    console.warn("RFQ merge error:", merged.message);
+    return;
+  }
+  if (merged.subAreaConflict) {
+    console.warn("RFQ consolidate: conflicting SubAreas across selected requirements — SubArea CC routing disabled.");
+  }
+
+  const order = merged;
+  const selectedCat = categorySel.value;
+
+  // Keep the SubArea selector in sync (only shown for Workshop requirements)
+  if (typeof window.updateRFQSubArea === "function") window.updateRFQSubArea();
+
+  google.script.run
+    .withSuccessHandler(function(stockData) {
+
+      rfqStockData = stockData || {
+        siteStock: {},
+        bodegaStock: {}
+      };
+
+      renderRFQItemsTable(order, selectedCat);
+      console.log(rfqStockData.siteStock);
+
+    })
+    .withFailureHandler(function(err) {
+
+      console.error("RFQ stock load failed:", err);
+
+      rfqStockData = {
+        siteStock: {},
+        bodegaStock: {}
+      };
+
+      renderRFQItemsTable(order, selectedCat);
+
+    })
+    .getRFQStockMap(order.site);
+};
+
+
+  // Seed text for a row's editable "Supplier Notes" cell. An edit made in this
+  // session always wins (item.supplierNotes is set by setRfqSupplierNotes),
+  // otherwise the notes stored on the requirement (reqSupplierNotes, one entry
+  // per source Req of a consolidated row) are joined.
+  function rfqSupplierNoteText_(item) {
+    if (!item) return "";
+    if (item.supplierNotes !== undefined && item.supplierNotes !== null) {
+      return String(item.supplierNotes);
+    }
+    return (Array.isArray(item.reqSupplierNotes) ? item.reqSupplierNotes : [])
+      .map(function (n) { return n && n.notes ? String(n.notes) : ""; })
+      .filter(Boolean)
+      .join(" | ");
+  }
+
+  // Keeps the in-memory requirement item(s) in sync while the user types in the
+  // "Supplier Notes" column. No re-render (keeps typing focus). The edited value
+  // is written to the SOURCE rfqMasterData items because a consolidated order is
+  // rebuilt from them on every resolveRfqOrder_ call, and it is ALSO stamped onto
+  // the already-built preview payload clones so the RFQ email tables stay correct
+  // without a full preview regeneration. Persistence to the Ordenes sheet happens
+  // on SEND (backend sendFinalRFQ), never here.
+  window.setRfqSupplierNotes = function (inputEl, orderId, geo) {
+    if (!inputEl) return;
+    const value = String(inputEl.value == null ? "" : inputEl.value);
+    const geoKey = String(geo);
+    const stamp = function (it) {
+      if (it && String(it.geo) === geoKey) {
+        it.supplierNotes = value;
+        // The edited value replaces the per-req stored notes (the backend prints
+        // item.supplierNotes when reqSupplierNotes carries nothing).
+        it.reqSupplierNotes = [];
+      }
+    };
+    // Source requirement items (single- and multi-selection modes).
+    splitRfqRefIds_(orderId).forEach(function (ref) {
+      const src = rfqMasterData.find(function (r) { return String(r.id) === String(ref); });
+      if (src && Array.isArray(src.items)) src.items.forEach(stamp);
+    });
+    // Currently rendered (possibly merged) order item.
+    const order = resolveRfqOrder_(orderId);
+    if (order && Array.isArray(order.items)) order.items.forEach(stamp);
+    // Already-built preview payload clones (feed the RFQ email tables).
+    try {
+      const lp = window.lastRfqPayloads;
+      if (lp) {
+        ["supplierPayload", "bodegaPayload"].forEach(function (k) {
+          if (Array.isArray(lp[k])) lp[k].forEach(stamp);
+        });
+        Object.keys(lp.bySupplier || {}).forEach(function (sup) {
+          if (Array.isArray(lp.bySupplier[sup])) lp.bySupplier[sup].forEach(stamp);
+        });
+      }
+    } catch (e) { /* ignore */ }
+  };
+
+window.renderRFQItemsTable = function(order, selectedCat) {
+
+  const filteredItems = order.items.filter(
+    (item) =>
+      !selectedCat ||
+      (item.category || "").toUpperCase() === selectedCat.toUpperCase()
+  );
+
+  document.getElementById("rfqTableCard").classList.remove("d-none");
+
+  const tbody = document.getElementById("rfqItemsBody");
+  const suppliers = window.CachedDataVal?.suppliers || [];
+
+  tbody.innerHTML = filteredItems
+    .map((item) => {
+
+      const siteStock =
+        Number(rfqStockData?.siteStock?.[item.geo] || 0);
+      console.log("Site Stock: ", siteStock);
+      const bodegaStock =
+        Number(rfqStockData?.bodegaStock?.[item.geo] || 0);
+      console.log("Bodega Stock: ", bodegaStock);
+
+      const optionsHtml = suppliers
+        .map((s) => `<option value="${s.name}">${s.name}</option>`)
+        .join("");
+
+      // Per-item workshop notes (unique per requirement): a consolidated row
+      // covers 1..N requirements, so each note is labelled with its Req ID.
+      const itemNotesHtml = (item.reqItemNotes || [])
+        .filter(function(n) { return n && String(n.notes || '').trim(); })
+        .map(function(n) {
+          const label = (typeof getI18nText === 'function' ? getI18nText('req_typed_notes') : 'Req {ref}: {notes}')
+            .replace('{ref}', String(n.ref || ''))
+            .replace('{notes}', String(n.notes || ''));
+          return `<div class="small text-warning-emphasis" style="font-size:0.7rem;"><i class="bi bi-sticky me-1"></i>${window.notesToHtml ? window.notesToHtml(label) : (window.escapeHtml ? window.escapeHtml(label) : label)}</div>`;
+        })
+        .join('');
+
+      return `
+      <tr>
+        <td><small class="text-muted">${item.geo}</small></td>
+
+        <td><small class="text-muted">#${(item.orderIds || [order.id]).join(", #")}</small></td>
+
+        <td>
+          <strong>${item.p || item.pn || ""}</strong>
+        </td>
+
+        <td>
+          <div style="font-weight:600;color:#212529;line-height:1.2;">
+            ${item.es || item.req_desc || "N/A"}
+          </div>
+          <div style="font-size:0.75rem;color:#6c757d;margin-top:2px;">
+            ${item.en || ""}
+          </div>
+        </td>
+
+        <td>${itemNotesHtml || '<span class="text-muted small">—</span>'}</td>
+
+        <td>${window.reqImagesTableCellHtml_ ? window.reqImagesTableCellHtml_(item, 34) : '<span class="text-muted small">&mdash;</span>'}</td>
+
+        <td style="min-width:180px;">
+          <textarea class="form-control form-control-sm rfq-supplier-notes" rows="2"
+            data-geo="${attr_(item.geo)}"
+            placeholder="${attr_(typeof getI18nText === 'function' ? getI18nText('supplier_notes_placeholder') : 'Notes for the supplier about this item...')}"
+            oninput="window.setRfqSupplierNotes(this,'${escapeJsArg_(order.id)}','${escapeJsArg_(item.geo)}')">${escapeHtml_(rfqSupplierNoteText_(item))}</textarea>
+        </td>
+
+        <td class="text-center">
+          <span class="${siteStock > 0 ? 'text-success' : 'text-danger'} fw-bold">
+            ${siteStock}
+          </span>
+        </td>
+
+        <td class="text-center">
+          <strong>${item.qty}</strong>
+        </td>
+
+        <td class="text-center">
+          <span class="${bodegaStock > 0 ? 'text-success' : 'text-danger'} fw-bold">
+            ${bodegaStock}
+          </span>
+        </td>
+
+        <td>
+          <div class="input-group input-group-sm mb-1">
+            <input type="text" class="form-control rfq-supplier-combo"
+              placeholder="🔍 Type supplier, Enter to add..."
+              list="rfq-suppliers-${String(item.geo).replace(/[^a-zA-Z0-9_-]/g, '_')}"
+              autocomplete="off"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();window.commitRfqSupplierCombo(this,'${order.id}','${escapeJsArg_(item.geo)}');}"
+              onchange="window.commitRfqSupplierCombo(this,'${order.id}','${escapeJsArg_(item.geo)}')"
+              onclick="event.stopPropagation()">
+            <datalist id="rfq-suppliers-${String(item.geo).replace(/[^a-zA-Z0-9_-]/g, '_')}">
+              ${optionsHtml}
+            </datalist>
+            <button type="button" class="btn btn-outline-secondary"
+              title="Add supplier"
+              onclick="window.commitRfqSupplierCombo(this.closest('td').querySelector('.rfq-supplier-combo'),'${order.id}','${escapeJsArg_(item.geo)}')">+</button>
+          </div>
+          <div class="rfq-supplier-tags d-flex flex-wrap gap-1 mt-1" data-geo="${item.geo}"></div>
+          <div class="form-text" style="font-size:0.7rem;">Type to search, Enter/click + to add — × on a chip removes.</div>
+          ${(item.quotedBy && item.quotedBy.length)
+            ? `<div class="form-text text-primary" style="font-size:0.7rem;"><i class="bi bi-chat-left-quote me-1"></i>${i18n("rfq_already_quoted_by", "Already quoted by")}: ${item.quotedBy.map((q) => `<span title="${attr_(q.quoteId || "")}">${String(q.supplier || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")} (${String(q.status || "")})</span>`).join(", ")}</div>`
+            : ""}
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  document.getElementById("rfqPreviewContainer").innerHTML = "";
+
+  // Paint selected-supplier tag pills under each row (Fix #4)
+  if (typeof window.refreshRfqSupplierTags === "function") {
+    try { window.refreshRfqSupplierTags(order); } catch (e) { console.warn(e); }
+  }
+};
+
+
+
+  // ============================================
+  // SUPPLIER COMBOBOX + CHIP-TAG SELECTION (no Ctrl+click, no separate boxes)
+  // ============================================
+  // UX: one textbox with native datalist suggestions — type to filter, pick a
+  // suggestion (or type exact name) then Enter / click + adds it as a chip-tag.
+  // × on a chip removes it. Selections live on item.suppliers
+  // (legacy item.supplier = first entry).
+  window.commitRfqSupplierCombo = function (inputEl, orderId, geo) {
+    try {
+      if (!inputEl) return;
+      const name = String(inputEl.value || "").trim();
+      if (!name) return;
+      // Multi-requirement consolidation: resolve the merged virtual order
+      const order = resolveRfqOrder_(orderId);
+      if (!order) return;
+      const item = order.items.find((i) => String(i.geo) === String(geo));
+      if (!item) return;
+      // Validate against known supplier list (case-insensitive exact match)
+      const suppliers = (window.CachedDataVal && window.CachedDataVal.suppliers) || [];
+      const match = suppliers.find(function (s) {
+        return String(s.name || "").toLowerCase() === name.toLowerCase();
+      });
+      if (!match) {
+        inputEl.classList.add("is-invalid");
+        try {
+          if (typeof Swal !== "undefined") {
+            Swal.fire({
+              icon: "warning",
+              title: "Unknown supplier",
+              text: `"${name}" is not in the supplier list. Pick a suggestion from the dropdown.`,
+              timer: 2200,
+              showConfirmButton: false,
+            });
+          }
+        } catch (e) { /* ignore */ }
+        return;
+      }
+      // Skip if this supplier is already selected as a chip on this item.
+      if (getItemSuppliers_(item).indexOf(match.name) !== -1) {
+        inputEl.value = "";
+        return;
+      }
+      // Block re-selecting a supplier that has already quoted this item —
+      // an additional quote must go to a DIFFERENT supplier.
+      const alreadyQuoted = (item.quotedBy || []).some(function (q) {
+        return String(q.supplier || "").trim().toLowerCase() === match.name.toLowerCase();
+      });
+      if (alreadyQuoted) {
+        inputEl.value = "";
+        try {
+          if (typeof Swal !== "undefined") {
+            Swal.fire({
+              icon: "info",
+              title: i18n("rfq_supplier_already_quoted_title", "Already quoted"),
+              text: i18n("rfq_supplier_already_quoted", "{supplier} has already quoted this item. Pick a different supplier.").replace("{supplier}", match.name),
+              timer: 2600,
+              showConfirmButton: false,
+            });
+          }
+        } catch (e) { /* ignore */ }
+        return;
+      }
+      inputEl.classList.remove("is-invalid");
+      window.addRfqSupplierByGeo(orderId, geo, { value: match.name });
+      inputEl.value = "";
+      inputEl.focus();
+    } catch (e) { console.warn("commitRfqSupplierCombo:", e); }
+  };
+
+  window.filterRfqSupplierOptions = function (inputEl) {
+    // Legacy no-op: combobox uses native datalist filtering. Kept so old
+    // inline handlers (if any cached rows) don't throw.
+    return;
+  };
+
+  // Backward-compatible alias (old rows may still reference it)
+  window.filterRfqSuppliers = window.filterRfqSupplierOptions;
+
+  // Add the dropdown's chosen supplier to the item's chip list (no Ctrl needed).
+  window.addRfqSupplierByGeo = function (orderId, geo, selectEl) {
+    const name = selectEl ? String(selectEl.value || "").trim() : "";
+    if (selectEl) selectEl.value = ""; // reset to placeholder
+    if (!name) return;
+    const order = resolveRfqOrder_(orderId);
+    if (!order) return;
+    const item = order.items.find((i) => String(i.geo) === String(geo));
+    if (!item) return;
+    const list = getItemSuppliers_(item);
+    if (list.indexOf(name) === -1) {
+      list.push(name);
+      item.suppliers = list;
+      item.supplier = list[0] || "";
+      console.log(`✅ Added [${name}] to Item ${geo} in Order #${orderId}`);
+    }
+    try { window.refreshRfqSupplierTags(order); } catch (e) { /* ignore */ }
+    const previewContainer = document.getElementById("rfqPreviewContainer");
+    if (previewContainer && previewContainer.innerHTML.trim() !== "") {
+      window.generatePreviews();
+    }
+  };
+
+  // Re-render tag pills for every row from the in-memory order items.
+  window.refreshRfqSupplierTags = function (order) {
+    document.querySelectorAll(".rfq-supplier-tags").forEach(function (box) {
+      const geo = box.getAttribute("data-geo");
+      const item = order && order.items
+        ? order.items.find(function (i) { return String(i.geo) === String(geo); })
+        : null;
+      const list = getItemSuppliers_(item || {});
+      box.innerHTML = list.map(function (name) {
+        const safe = String(name).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        return `<span class="email-chip" title="${safe}"><span class="email-chip-label">${safe}</span>` +
+          `<button type="button" class="email-chip-x" aria-label="Remove ${safe}" ` +
+          `onclick="window.removeRfqSupplierTag('${escapeJsArg_(String(order.id))}', '${escapeJsArg_(geo)}', '${escapeJsArg_(name)}')">×</button></span>`;
+      }).join("");
+    });
+  };
+
+  // Cross on a tag removes that supplier from the item's chip list.
+  window.removeRfqSupplierTag = function (orderId, geo, supplierName) {
+    const order = resolveRfqOrder_(orderId);
+    if (!order) return;
+    const item = order.items.find((i) => String(i.geo) === String(geo));
+    if (!item) return;
+    const next = getItemSuppliers_(item).filter(function (s) { return s !== supplierName; });
+    item.suppliers = next;
+    item.supplier = next.length > 0 ? next[0] : "";
+    window.refreshRfqSupplierTags(order);
+    const previewContainer = document.getElementById("rfqPreviewContainer");
+    if (previewContainer && previewContainer.innerHTML.trim() !== "") {
+      window.generatePreviews();
+    }
+  };
+
+
+
+  // ============================================
+  // ASSIGN SUPPLIERS TO ITEM (legacy multi-select onchange hook)
+  // Kept for backward compatibility: merges the <select> selection into chips.
+  // ============================================
+  window.assignSuppliersByGeo = function (orderId, geo, selectEl) {
+    if (selectEl && selectEl.value) {
+      window.addRfqSupplierByGeo(orderId, geo, selectEl);
+      return;
+    }
+    // 1. Find the specific order (consolidation-aware)
+    const order = resolveRfqOrder_(orderId);
+    if (!order) return;
+
+    // 2. Find the specific item by its unique GEO code within that order
+    const item = order.items.find((i) => i.geo === geo);
+    if (!item) {
+      console.error(`❌ Could not find item with GEO ${geo} in Order ${orderId}`);
+      return;
+    }
+
+    // 3. Read ALL selected suppliers from the multi-select element
+    const selected = Array.from(selectEl.selectedOptions || []).map(
+      (o) => o.value,
+    );
+    item.suppliers = selected;
+    item.supplier = selected.length > 0 ? selected[0] : "";
+    console.log(
+      `✅ Assigned [${selected.join(", ")}] to Item ${geo} in Order #${orderId}`,
+    );
+
+    // Keep tag pills in sync (Fix #4)
+    try { window.refreshRfqSupplierTags(order); } catch (e) { /* ignore */ }
+
+    // 4. Auto-refresh previews if they are already visible
+    const previewContainer = document.getElementById("rfqPreviewContainer");
+    if (previewContainer && previewContainer.innerHTML.trim() !== "") {
+      window.generatePreviews();
+    }
+  };
+
+  // Backward-compatible single-supplier assignment (kept for safety)
+  window.assignSupplierByGeo = function (orderId, geo, supplierName) {
+    const order = resolveRfqOrder_(orderId);
+    if (!order) return;
+    const item = order.items.find((i) => i.geo === geo);
+    if (!item) return;
+    item.suppliers = supplierName ? [supplierName] : [];
+    item.supplier = supplierName || "";
+    const previewContainer = document.getElementById("rfqPreviewContainer");
+    if (previewContainer && previewContainer.innerHTML.trim() !== "") {
+      window.generatePreviews();
+    }
+  };
+
+  // ============================================
+  // GENERATE EMAIL PREVIEWS
+  // ============================================
+    window.generatePreviews = function (isContinuation) {
+    // Re-entrancy guard: while a preview is being generated the button shows a
+    // spinner and is disabled, so additional clicks are ignored below as well
+    // (this also blocks auto-refreshes triggered from supplier changes).
+    if (!isContinuation && window.rfqPreviewBusy) {
+      console.warn("RFQ preview already in progress; ignoring duplicate click.");
+      return;
+    }
+
+    const orderSel = document.getElementById("rfqSelector");
+    const categorySel = document.getElementById("rfqCategoryFilter");
+    if (!orderSel || !categorySel) {
+      Swal.fire("Requirement Missing", "RFQ filters are not ready yet.", "warning");
+      return;
+    }
+
+    const orderId = orderSel.value;
+    const selectedCat = categorySel.value;
+
+    if (!orderId) {
+      Swal.fire(
+        "Requirement Missing",
+        "Please select a Requirement first.",
+        "warning",
+      );
+      return;
+    }
+
+    const isGeneral = selectedCat === "";
+    const displayCatName = isGeneral ? "General" : selectedCat;
+
+    const order = resolveRfqOrder_(orderId);
+    if (!order || !order.items) {
+      setRfqPreviewLoadingState(false);
+      return;
+    }
+    if (order.error) {
+      setRfqPreviewLoadingState(false);
+      console.warn("RFQ preview error:", order.message);
+      return;
+    }
+
+    // Activate the disabled + spinner + progress-message state, but only on a
+    // fresh user action (internal continuations reuse the existing state).
+    if (!isContinuation) {
+      setRfqPreviewLoadingState(true);
+    }
+
+    // ==========================================
+    // Per-site Min/Max preload (required before the Bodega/Deficit split)
+    // Falls back to an empty map (global Master min) on failure.
+    // When the map is not cached yet, this function re-invokes itself with
+    // isContinuation=true once the data arrives so the busy/loading state is
+    // not cleared while the full chain is still running.
+    // ==========================================
+    const mmSiteKey = String(order.site || "").trim().toUpperCase();
+    window.rfqSiteMinMaxCache = window.rfqSiteMinMaxCache || {};
+    if (!window.rfqSiteMinMaxCache[mmSiteKey]) {
+      window.rfqSiteMinMaxCache[mmSiteKey] = {}; // placeholder prevents loops
+      google.script.run
+        .withSuccessHandler(function (m) {
+          window.rfqSiteMinMaxCache[mmSiteKey] = m || {};
+          window.generatePreviews(true);
+        })
+        .withFailureHandler(function (err) {
+          console.warn("Failed to load site Min/Max for RFQ split:", err);
+          window.generatePreviews(true);
+        })
+        .getSiteMinMaxMap(order.site);
+      return;
+    }
+    const siteMinMaxMap = window.rfqSiteMinMaxCache[mmSiteKey];
+
+    const suppliers =
+      window.CachedDataVal && window.CachedDataVal.suppliers
+        ? window.CachedDataVal.suppliers
+        : [];
+    const quoteEmailEnabled = window.isQuoteEmailEnabled();
+    const currentUserEmail = (window.currentUser && window.currentUser.email)
+      ? String(window.currentUser.email).trim()
+      : "";
+
+    // 🔒 FIX: When "All Categories" is selected, still route CC by the REAL
+    // categories of the items in this order (never forced to "General").
+    const routingCats = (() => {
+      if (selectedCat) return selectedCat;
+      const cats = Array.from(
+        new Set(
+          (order.items || [])
+            .map((i) => String(i.category || "").trim())
+            .filter(Boolean)
+        )
+      );
+      return cats.length ? cats.join(", ") : selectedCat;
+    })();
+
+    // Selected SubArea (Workshop site) overrides the category CC recipients
+    const subArea = (document.getElementById("rfqSubAreaFilter") || {}).value || "";
+
+    // ==========================================
+    // RENDERER: Builds all the supplier preview cards. Called by BOTH the
+    // routing success and routing failure paths, so the loading state is always
+    // cleaned up and stale renders are avoided if the user changes the
+    // requirement/category while data is still being fetched.
+    // ==========================================
+    const renderPreview = function (categoryEmails, signature) {
+      try {
+        // Abandon stale renders: ignore results for a requirement/category that
+        // the user no longer has selected.
+        const curSel = document.getElementById("rfqSelector");
+        const curCat = document.getElementById("rfqCategoryFilter");
+        if (!curSel || !curCat || curSel.value !== orderId || curCat.value !== selectedCat) {
+          const staleContainer = document.getElementById("rfqPreviewContainer");
+          if (staleContainer && staleContainer.querySelector(".rfq-preview-loading")) {
+            staleContainer.innerHTML = "";
+          }
+          return;
+        }
+        const siteSuffix = sitesWithSuffix[order.site] || "";
+        const cleanOrderRef = getCleanRfqOrderRef(order.id, siteSuffix, displayCatName);
+        const siteLabel = String(order.site || "").trim();
+        const siteTag = siteLabel
+          ? `${siteLabel}${siteSuffix ? ` (${siteSuffix})` : ""}`
+          : (siteSuffix || "");
+
+        // ==========================================
+        // 🔒 INJECTED LOGIC: SEPARATE DEFICIT VS BODEGA
+        // ==========================================
+        const deficitItems = [];
+        const bodegaItems = [];
+        const masterInventoryList = window.CachedDataVal?.inventory || [];
+
+        order.items.forEach((item) => {
+          if (isGeneral || (item.category || "").toUpperCase() === selectedCat.toUpperCase()) {
+            
+            // Check stock available in Bodega / Site
+            const siteStk = Number(rfqStockData?.siteStock?.[item.geo] || 0);
+            const bodStk = Number(rfqStockData?.bodegaStock?.[item.geo] || 0);
+            const totalAvailableStock = siteStk + bodStk;
+
+            // Retrieve Minimum/Maximum thresholds: per-site override first,
+            // falling back to the global Master values.
+            const masterItem = masterInventoryList.find(mi => String(mi.geo || "").trim() === String(item.geo || "").trim());
+            const siteMM = siteMinMaxMap[String(item.geo || "").trim()];
+            const minStock = siteMM && siteMM.min != null
+              ? Number(siteMM.min || 0)
+              : (masterItem ? Number(masterItem.min || 0) : 0);
+            const maxStock = siteMM && siteMM.max != null
+              ? Number(siteMM.max || 0)
+              : (masterItem ? Number(masterItem.max || 0) : 0);
+
+            // Fix #5: when Min AND Max are both empty/zero, the product has no
+            // stock policy — never deduct store stock, send the full qty to supplier.
+            const hasMinMax = (Number(minStock) || 0) > 0 || (Number(maxStock) || 0) > 0;
+            if (!hasMinMax) {
+              deficitItems.push(item);
+              return;
+            }
+
+            // Logic check: Fulfill from internal stock only if it covers the requirement AND stays above min limit
+            if (totalAvailableStock >= item.qty && (totalAvailableStock - item.qty) >= minStock && item.supplier !== "BODEGA_HOLD") {
+              bodegaItems.push(item); // Fulfills from Bodega (bypasses supplier PDF/email loop entirely)
+            } else {
+              // Calculate remaining deficit that must be sent to the external supplier
+              const deficitQty = Math.max(0, item.qty - totalAvailableStock);
+              if (deficitQty > 0) {
+                const deficitItem = Object.assign({}, item, { qty: deficitQty, originalQty: item.qty });
+                deficitItems.push(deficitItem);
+              } else {
+                deficitItems.push(item);
+              }
+            }
+          }
+        });
+
+        // Group ONLY the deficit items for the supplier preview cards.
+        // With multi-select a single item can be assigned to SEVERAL suppliers,
+        // so it is duplicated into every supplier group it belongs to.
+        const grouped = {};
+        let groupedItemCount = 0;
+
+        deficitItems.forEach((item) => {
+          const itemSuppliers = getItemSuppliers_(item);
+          if (itemSuppliers.length === 0) {
+            if (!grouped["Unassigned"]) grouped["Unassigned"] = [];
+            grouped["Unassigned"].push(item);
+            groupedItemCount++;
+            return;
+          }
+          itemSuppliers.forEach((supplierName) => {
+            if (!grouped[supplierName]) grouped[supplierName] = [];
+            grouped[supplierName].push(item);
+            groupedItemCount++;
+          });
+        });
+
+        const supplierNames = Object.keys(grouped).filter(
+          (s) => s !== "Unassigned",
+        );
+
+        // Real category label for each supplier card. When no category filter is
+        // selected, items KEEP their own category (they are never relabeled "General").
+        // A card whose items span several categories shows them all, e.g. "Drill Bits / Pumps".
+        const categoryLabelFor = (supplierName) => {
+          const items = grouped[supplierName] || [];
+          const cats = Array.from(
+            new Set(items.map((i) => String(i.category || "").trim() || "General")),
+          ).sort();
+          return cats.length ? cats.join(" / ") : "General";
+        };
+
+        // Save the payloads (including the per-supplier deficit split) so the
+        // final submit/send functions know exactly which items each supplier gets.
+        window.lastRfqPayloads = {
+          supplierPayload: deficitItems,
+          bodegaPayload: bodegaItems,
+          bySupplier: grouped,
+          supplierNames: supplierNames,
+          orderId: order.id,
+          orderIds: order.orderIds || splitRfqRefIds_(order.id),
+          site: order.site,
+          category: displayCatName
+        };
+
+        const container = document.getElementById("rfqPreviewContainer");
+        let html = "";
+
+        if (deficitItems.length === 0 && bodegaItems.length === 0) {
+          container.innerHTML = `<div class="alert alert-info">No items found for the current selection.</div>`;
+          return;
+        }
+
+        if (deficitItems.length === 0 && bodegaItems.length > 0) {
+          container.innerHTML = `<div class="alert alert-success">${bodegaItems.length} item(s) can be fulfilled from internal stock (Bodega). No external supplier emails are required.</div>`;
+          return;
+        }
+
+        if (!quoteEmailEnabled) {
+          if (grouped["Unassigned"]) {
+            html += `<div class="alert alert-warning mb-4">
+            <strong>⚠️ Warning:</strong> ${grouped["Unassigned"].length} item(s) are not assigned to a supplier.
+          </div>`;
+          }
+
+          if (supplierNames.length > 0 && supplierNames.length < 3) {
+            html += `<div class="alert alert-warning mb-4">
+            <strong>💡 Tip:</strong> Only <strong>${supplierNames.length}</strong> supplier(s) selected. We suggest selecting at least <strong>3 suppliers</strong> for competitive quotes.
+
+          </div>`;
+          }
+
+          supplierNames.forEach((supplierName) => {
+            const catLabel = categoryLabelFor(supplierName);
+            const supplierInfo = suppliers.find((s) => s.name === supplierName);
+            const itemList = grouped[supplierName];
+
+            // Requester photos: conditional Images column so the preview shows
+            // exactly what ships in the RFQ email / quote PDF.
+            const showImagesCol = itemList.some(function (it) {
+              return window.reqImageUrlsOf_ ? window.reqImageUrlsOf_(it.images).length > 0 : false;
+            });
+            const imgCellHtml = function (it) {
+              return window.reqImagesTableCellHtml_ ? window.reqImagesTableCellHtml_(it, 40) : "&mdash;";
+            };
+
+            const tableHtml = `
+          <table style="width:100%; border-collapse:collapse; margin:10px 0; font-family: Arial, sans-serif; border: 1px solid #ddd;">
+            <thead>
+              <tr style="background:#f0f0f0;">
+                <th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">GEO Code</th>
+                <th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">P/N</th>
+                <th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">Descripción / Description</th>
+                <th style="padding:8px; border:1px solid #ddd; text-align:center; font-size:12px;">Cant.</th>
+                ${showImagesCol ? '<th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">Images</th>' : ''}
+              </tr>
+            </thead>
+            <tbody>
+              ${itemList
+                .map(
+                  (item) => `
+                <tr>
+                  <td style="padding:6px; border:1px solid #ddd; font-size:12px;">${item.geo}</td>
+                  <td style="padding:6px; border:1px solid #ddd; font-size:12px;"><strong>${item.pn || item.p || ""}</strong></td>
+                  <td style="padding:6px; border:1px solid #ddd;">
+                    <div style="font-weight:bold; color:#000; font-size:12px; margin-bottom: 1px;">${item.es || item.req_desc || "N/A"}</div>
+                    <div style="color:#666; font-size:10px; font-style: italic;">${item.en || ""}</div>
+                  </td>
+                  <td style="padding:6px; border:1px solid #ddd; text-align:center; font-size:12px;"><strong>${item.qty}</strong></td>
+                  ${showImagesCol ? '<td style="padding:6px; border:1px solid #ddd;">' + imgCellHtml(item) + '</td>' : ''}
+                </tr>`,
+                )
+                .join("")}
+            </tbody>
+          </table>`;
+
+            html += `
+          <div class="card shadow-sm border-0 mb-4 rfq-card" data-supplier="${supplierName}">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+              <h5 class="mb-0 small"><i class="bi bi-file-earmark-pdf"></i> Quote PDF: ${supplierName} (${catLabel})</h5>
+            </div>
+            <div class="card-body">
+              <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                  <div class="small fw-bold text-muted">Supplier Email</div>
+                  <div class="form-control form-control-sm bg-light">${supplierInfo ? supplierInfo.email : ""}</div>
+                </div>
+                <div class="col-md-6">
+                  <div class="small fw-bold text-muted">Status</div>
+                  <div class="form-control form-control-sm bg-light">Email disabled by Config - PDF only</div>
+                </div>
+              </div>
+              <div class="table-responsive p-2 border rounded bg-white mb-3">${tableHtml}</div>
+              <div id="pdf_link_${supplierName}" class="mb-3 small text-muted"></div>
+              <div class="d-flex gap-2 align-items-center flex-wrap mb-3 border rounded p-2 bg-light">
+                <label class="mb-0 small fw-semibold">${i18n("lbl_rfq_attachments", "Attachments (product reference)")}</label>
+                <input type="file" id="rfq_doc_file_${supplierName}" accept=".pdf,.png,.jpg,.jpeg,.webp" class="d-none" onchange="window.handleRfqDocFile(this, '${escapeJsArg_(supplierName)}')">
+                <button type="button" class="btn btn-outline-success btn-sm" onclick="window.pickRfqDoc('${escapeJsArg_(supplierName)}')"><i class="bi bi-paperclip me-1"></i>Attach</button>
+                <span id="rfq_doc_status_${supplierName}" class="text-muted small"></span>
+              </div>
+              <button id="btn_pdf_${supplierName}" class="btn btn-danger btn-sm px-4" onclick="window.generateQuotePdfOnly('${escapeJsArg_(supplierName)}', '${order.id}')">
+                <i class="bi bi-file-earmark-pdf me-1"></i> Generate PDF
+              </button>
+            </div>
+          </div>`;
+          });
+
+          container.innerHTML = html;
+
+          // Restore any already-uploaded attachment statuses (PDF-only branch).
+          try {
+            supplierNames.forEach(function (nm) {
+              const st = document.getElementById("rfq_doc_status_" + nm);
+              const att = window.rfqAttachments[nm];
+              if (st && att) {
+                st.innerHTML = '<span class="text-success"><i class="bi bi-check2"></i> ' + att.fileName + '</span>' +
+                  ' <a href="javascript:void(0)" onclick="window.removeRfqDoc(\'' + escapeJsArg_(nm) + '\')" class="ms-1 small text-danger">×</a>';
+              }
+            });
+          } catch (e) { /* ignore */ }
+
+          return;
+        }
+
+        // --- SEND ALL BUTTON ---
+        if (supplierNames.length > 1) {
+          html += `
+        <div class="d-flex justify-content-end mb-4">
+          <button class="btn btn-secondary shadow-sm" disabled title="Bulk send is temporarily disabled">
+            <i class="bi bi-send-check-fill me-2"></i> Send All ${supplierNames.length} RFQs (Disabled)
+          </button>
+        </div>`;
+        }
+
+        if (supplierNames.length > 0 && supplierNames.length < 3) {
+          html += `<div class="alert alert-warning mb-4">
+        <strong>💡 Tip:</strong> Only <strong>${supplierNames.length}</strong> supplier(s) selected. We suggest selecting at least <strong>3 suppliers</strong> for competitive quotes.
+
+        
+      </div>`;
+        }
+
+        if (grouped["Unassigned"]) {
+          html += `<div class="alert alert-warning mb-4">
+        <strong>⚠️ Warning:</strong> ${grouped["Unassigned"].length} item(s) are not assigned to a supplier.
+      </div>`;
+        }
+
+        supplierNames.forEach((supplierName) => {
+          const catLabel = categoryLabelFor(supplierName);
+          const supplierInfo = suppliers.find((s) => s.name === supplierName);
+          const itemList = grouped[supplierName];
+
+          // Requester photos: conditional Images column so the preview shows
+          // exactly what ships in the supplier RFQ email.
+          const showImagesCol = itemList.some(function (it) {
+            return window.reqImageUrlsOf_ ? window.reqImageUrlsOf_(it.images).length > 0 : false;
+          });
+          const imgCellHtml = function (it) {
+            return window.reqImagesTableCellHtml_ ? window.reqImagesTableCellHtml_(it, 40) : "&mdash;";
+          };
+
+          const tableHtml = `
+        <table style="width:100%; border-collapse:collapse; margin:10px 0; font-family: Arial, sans-serif; border: 1px solid #ddd;">
+          <thead>
+            <tr style="background:#f0f0f0;">
+              <th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">GEO Code</th>
+              <th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">P/N</th>
+              <th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">Descripción / Description</th>
+              <th style="padding:8px; border:1px solid #ddd; text-align:center; font-size:12px;">Cant.</th>
+              ${showImagesCol ? '<th style="padding:8px; border:1px solid #ddd; text-align:left; font-size:12px;">Images</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${itemList
+              .map(
+                (item) => `
+              <tr>
+                <td style="padding:6px; border:1px solid #ddd; font-size:12px;">${item.geo}</td>
+                <td style="padding:6px; border:1px solid #ddd; font-size:12px;"><strong>${item.pn || item.p || ""}</strong></td>
+                <td style="padding:6px; border:1px solid #ddd;">
+                  <div style="font-weight:bold; color:#000; font-size:12px; margin-bottom: 1px;">${item.es || item.req_desc || "N/A"}</div>
+                  <div style="color:#666; font-size:10px; font-style: italic;">${item.en || ""}</div>
+                </td>
+                <td style="padding:6px; border:1px solid #ddd; text-align:center; font-size:12px;"><strong>${item.qty}</strong></td>
+                ${showImagesCol ? '<td style="padding:6px; border:1px solid #ddd;">' + imgCellHtml(item) + '</td>' : ''}
+              </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>`;
+
+          html += `
+        <div class="card shadow-sm border-0 mb-4 rfq-card" data-supplier="${supplierName}">
+          <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 small"><i class="bi bi-envelope"></i> RFQ to: ${supplierName} (${catLabel})</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label class="small fw-bold">To Email:</label>
+                <div id="email_to_${supplierName}" class="email-chip-field" data-initial="${window.escAttr ? window.escAttr(supplierInfo ? supplierInfo.email : '') : (supplierInfo ? supplierInfo.email : '')}"></div>
+                <div class="form-text" style="font-size:0.7rem;">Type/paste emails (comma, space or Enter) — × removes, double-click edits.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="small fw-bold">CC (Internal):</label>
+                <div id="email_cc_${supplierName}" class="email-chip-field" data-initial="${window.escAttr ? window.escAttr(categoryEmails) : categoryEmails}"></div>
+              </div>
+            </div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-12">
+                <label class="small fw-bold">Subject:</label>
+                <input type="text" id="email_sub_${supplierName}" class="form-control form-control-sm" 
+                       value="RFQ - ${catLabel} - Orden #${cleanOrderRef}${siteTag ? ` - ${siteTag}` : ""}">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="small fw-bold">Message (formatting preserved):</label>
+              <div class="btn-group btn-group-sm mb-1" role="group">
+                <button type="button" class="btn btn-outline-secondary" onclick="window.rfqBodyCmd(this,'bold')"><b>B</b></button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.rfqBodyCmd(this,'italic')"><i>I</i></button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.rfqBodyCmd(this,'underline')"><u>U</u></button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.rfqBodyCmd(this,'insertUnorderedList')">• List</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.rfqBodyCmd(this,'insertOrderedList')">1. List</button>
+              </div>
+              <div id="email_body_${supplierName}" class="form-control form-control-sm edit-body-rich rfq-body-rich" contenteditable="true" style="min-height:90px;"><div>Estimado ${supplierName},</div><div><br></div><div>Por favor cotizar los siguientes artículos (${catLabel}) para ${order.site}:</div></div>
+            </div>
+            <div class="table-responsive p-2 border rounded bg-white mb-3">${tableHtml}</div>
+            <div style="background:#f8f9fa; padding:10px; border-left:3px solid #0d6efd; margin-bottom:15px; font-size:11px;">
+              ${signature}
+            </div>
+            <div class="d-flex gap-2 align-items-center flex-wrap mb-3 border rounded p-2 bg-light">
+              <label class="mb-0 small fw-semibold">${i18n("lbl_rfq_attachments", "Attachments (product reference)")}</label>
+              <input type="file" id="rfq_doc_file_${supplierName}" accept=".pdf,.png,.jpg,.jpeg,.webp" class="d-none" onchange="window.handleRfqDocFile(this, '${escapeJsArg_(supplierName)}')">
+              <button type="button" class="btn btn-outline-success btn-sm" onclick="window.pickRfqDoc('${escapeJsArg_(supplierName)}')"><i class="bi bi-paperclip me-1"></i>Attach</button>
+              <span id="rfq_doc_status_${supplierName}" class="text-muted small"></span>
+            </div>
+            <button id="btn_send_${supplierName}" class="btn btn-primary btn-sm px-4" onclick="window.loadEmailSuggestionPool();
+
+window.sendIndividualRFQ('${escapeJsArg_(supplierName)}', '${order.id}')">
+              <i class="bi bi-send-fill me-1"></i> Send RFQ Email
+            </button>
+          </div>
+        </div>`;
+        });
+
+        container.innerHTML = html;
+
+        // Restore any already-uploaded attachment statuses (previews may be
+        // re-rendered when suppliers change; the attachment map persists).
+        try {
+          supplierNames.forEach(function (nm) {
+            const st = document.getElementById("rfq_doc_status_" + nm);
+            const att = window.rfqAttachments[nm];
+            if (st && att) {
+              st.innerHTML = '<span class="text-success"><i class="bi bi-check2"></i> ' + att.fileName + '</span>' +
+                ' <a href="javascript:void(0)" onclick="window.removeRfqDoc(\'' + escapeJsArg_(nm) + '\')" class="ms-1 small text-danger">×</a>';
+            }
+          });
+        } catch (e) { /* ignore */ }
+
+        // Fix #1: hydrate Gmail-style chip fields (To/CC) from data-initial.
+        // Tolerant parser splits on comma/semicolon/space/newline so a missing
+        // comma no longer glues two addresses into one invalid block.
+        try {
+          supplierNames.forEach(function (nm) {
+            const toBox = document.getElementById("email_to_" + nm);
+            const ccBox = document.getElementById("email_cc_" + nm);
+            if (toBox && typeof window.createEmailChipField === "function") {
+              window.createEmailChipField(toBox, toBox.getAttribute("data-initial") || "");
+            }
+            if (ccBox && typeof window.createEmailChipField === "function") {
+              window.createEmailChipField(ccBox, ccBox.getAttribute("data-initial") || "");
+            }
+          });
+                // Setup email autocomplete on To/CC inputs
+        const toInputRFQ = toBox.querySelector('.email-chip-input');
+        const ccInputRFQ = ccBox.querySelector('.email-chip-input');
+        if (toInputRFQ && typeof window.setupEmailAutocomplete === 'function') {
+          window.setupEmailAutocomplete(toInputRFQ);
+        }
+        if (ccInputRFQ && typeof window.setupEmailAutocomplete === 'function') {
+          window.setupEmailAutocomplete(ccInputRFQ);
+        }
+} catch (e) { console.warn("RFQ chip hydration:", e); }
+
+      } finally {
+        // Always re-enable the button, even on early returns or unexpected errors.
+        setRfqPreviewLoadingState(false);
+      }
+    };
+
+    // Fetch category routing emails first, then signature in sequence
+    google.script.run
+      .withSuccessHandler(function (routing) {
+        const categoryEmails = (routing && routing.emails && routing.emails !== "procurement@yourcompany.com")
+          ? routing.emails
+          : "";
+
+        google.script.run
+          .withSuccessHandler(function (signature) {
+            renderPreview(categoryEmails, signature);
+          })
+          .withFailureHandler(function (err) {
+            console.warn("Failed to load user signature for preview:", err);
+            renderPreview(categoryEmails, "");
+          })
+          .getUserSignature(currentUserEmail);
+      })
+      .withFailureHandler(function (err) {
+        // If routing fails, still render previews with an empty CC field.
+        console.warn("Failed to load category routing emails; CC will be empty.", err);
+        google.script.run
+          .withSuccessHandler(function (signature) {
+            renderPreview("", signature);
+          })
+          .withFailureHandler(function (err2) {
+            console.warn("Failed to load user signature for preview:", err2);
+            renderPreview("", "");
+          })
+          .getUserSignature(currentUserEmail);
+      })
+      .getRequirementRouting(order.site || "", routingCats, subArea);
+  };
+
+  window.generateQuotePdfOnly = function (supplierName, orderId, onComplete) {
+    const finish = function (success) {
+      if (typeof onComplete === "function") onComplete(!!success);
+    };
+    console.log("only pdf generate step 1");
+    const currentCategory = document.getElementById("rfqCategoryFilter").value;
+    const order = resolveRfqOrder_(orderId);
+
+    if (!order || !order.items || order.error) {
+      Swal.fire(i18n("msg_error"), i18n("msg_no_items"), "error");
+      finish(false);
+      return;
+    }
+
+    const supplierItems = order.items
+      .filter((i) => {
+        // Multi-select aware: an item belongs to this supplier if it appears in its
+        // item.suppliers array (legacy single-supplier string is still supported).
+        const isSameSupplier = getItemSuppliers_(i).indexOf(supplierName) !== -1;
+        const isSameCategory =
+          currentCategory === "" || (i.category || "").toUpperCase() === currentCategory.toUpperCase();
+        return isSameSupplier && isSameCategory;
+      })
+      .map((i) => Object.assign({}, i, { supplier: supplierName }));
+
+    // When previews were generated, prefer the per-supplier deficit list so the
+    // PDF only contains the deficit qty assigned to THIS supplier.
+    const perSupplierDeficit = (window.lastRfqPayloads && window.lastRfqPayloads.bySupplier && window.lastRfqPayloads.bySupplier[supplierName]) || null;
+    if (perSupplierDeficit && perSupplierDeficit.length > 0) {
+      const deficitByGeo = {};
+      perSupplierDeficit.forEach((d) => { deficitByGeo[d.geo] = d; });
+      supplierItems.forEach((si) => {
+        const def = deficitByGeo[si.geo];
+        if (def) {
+          si.qty = def.qty;
+          si.originalQty = def.originalQty;
+        }
+      });
+    }
+
+    console.log("only pdf generate step 2 ", supplierItems);
+
+    if (supplierItems.length === 0) {
+      Swal.fire(i18n("msg_error"), i18n("msg_no_items"), "error");
+      finish(false);
+      return;
+    }
+
+    const btn = document.getElementById(`btn_pdf_${supplierName}`);
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML =
+        '<span class="spinner-border spinner-border-sm me-2"></span>Generating...';
+    }
+
+    // Real categories of the items going to THIS supplier (never forced to
+    // "General" when the category filter is empty).
+    const subjectCategory = (() => {
+      const cats = Array.from(
+        new Set(supplierItems.map((i) => String(i.category || "").trim() || "General")),
+      ).sort();
+      return cats.length ? cats.join(" / ") : (currentCategory || "General");
+    })();
+
+    const payload = {
+      to: "",
+      subject: (() => {
+        const siteSuffix = sitesWithSuffix[order.site] || "";
+        const cleanOrderRef = getCleanRfqOrderRef(order.id, siteSuffix, currentCategory || "General");
+        const siteLabel = String(order.site || "").trim();
+        const siteTag = siteLabel
+          ? `${siteLabel}${siteSuffix ? ` (${siteSuffix})` : ""}`
+          : (siteSuffix || "");
+        return `RFQ - ${subjectCategory} - Orden #${cleanOrderRef}${siteTag ? ` - ${siteTag}` : ""}`;
+      })(),
+      body: `RFQ PDF generation for ${supplierName}`,
+      type: "RFQ",
+      orderId: orderId || `RFQ-${supplierName}`,
+      // Consolidated RFQ: all source requirement IDs (single-req RFQs have one)
+      orderIds: (order && order.orderIds) || splitRfqRefIds_(orderId) || [orderId],
+      replyTo: window.currentUser ? window.currentUser.email : "",
+      category: currentCategory || "General",
+      supplier: supplierName,
+      itemGeos: supplierItems.map((item) => item.geo),
+      items: supplierItems,
+      site: order.site || "",
+      subArea: (document.getElementById("rfqSubAreaFilter") || {}).value || "",
+      userName: window.currentUser ? window.currentUser.name : "",
+      currency: "CLP",
+      comments: "",
+      condicionPago: "",
+      ivaInc: "Neto",
+      mode: "PDF_ONLY",
+      // 🛎️ FIX (PDF_ONLY): the backend classifies items from deficitItems /
+      // bodegaItems and only falls back to details.items when it can. These were
+      // never sent on this path, so every PDF_ONLY send failed with
+      // "No supplier items were provided for this RFQ". Mirror the EMAIL payload.
+      deficitItems: supplierItems,
+      bodegaItems: (window.lastRfqPayloads && window.lastRfqPayloads.bodegaPayload) || [],
+      hasInStockItems: ((window.lastRfqPayloads && window.lastRfqPayloads.bodegaPayload) || []).length > 0,
+      // Pre-uploaded quote document from the RFQ preview card (if any).
+      attachmentUrl: (window.rfqAttachments[supplierName] || {}).url || "",
+      attachmentName: (window.rfqAttachments[supplierName] || {}).fileName || "",
+    };
+
+    google.script.run
+      .withSuccessHandler(function (response) {
+        if (response.success) {
+          const linkEl = document.getElementById(`pdf_link_${supplierName}`);
+          if (linkEl && response.pdfUrl) {
+            linkEl.innerHTML = `<a href="${response.pdfUrl}" target="_blank" class="btn btn-sm btn-outline-danger"><i class="bi bi-file-earmark-pdf me-1"></i> Open PDF</a>`;
+          }
+          if (btn) {
+            btn.style.display = "none";
+          }
+
+          // Attachment consumed — clear it for this supplier.
+          delete window.rfqAttachments[supplierName];
+          const attStatus = document.getElementById("rfq_doc_status_" + supplierName);
+          if (attStatus) attStatus.innerHTML = "";
+
+          Swal.fire(
+            i18n("msg_success"),
+            response.message || "PDF generated successfully.",
+            "success",
+          );
+
+          const itemGeos = supplierItems.map(item => item.geo);
+          window.removeItemsFromTable(itemGeos);
+          finish(true);
+
+        } else {
+          Swal.fire(
+            "❌ Dispatch Error",
+            response.message || response.error || "Unknown error",
+            "error",
+          );
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML =
+              '<i class="bi bi-file-earmark-pdf me-1"></i> Generate PDF';
+          }
+          finish(false);
+        }
+      })
+      .withFailureHandler(function (err) {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-file-earmark-pdf me-1"></i> Generate PDF';
+        }
+        Swal.fire("❌ Dispatch Error", "Backend Crash: " + String(err), "error");
+        finish(false);
+      })
+      .sendFinalRFQ(payload);
+  };
+
+  // ============================================
+  // SEND INDIVIDUAL RFQ EMAIL
+  // ============================================
+  window.sendIndividualRFQ = function (supplierName, orderId, onComplete) {
+
+    let bulkSendCompleted = false;
+    const finishBulkSend = function (success) {
+      if (bulkSendCompleted) return;
+      bulkSendCompleted = true;
+      if (typeof onComplete === "function") onComplete(!!success);
+    };
+
+    console.log("send individual RFQ");
+    const sendBtn = document.getElementById(`btn_send_${supplierName}`);
+    const originalBtnHtml = sendBtn ? sendBtn.innerHTML : "";
+
+    const setSendingState = (isSending) => {
+      if (!sendBtn) return;
+      sendBtn.disabled = isSending;
+      sendBtn.innerHTML = isSending
+        ? '<span class="spinner-border spinner-border-sm me-1"></span> Sending...'
+        : originalBtnHtml;
+    };
+
+    if (!window.isQuoteEmailEnabled()) {
+      
+        console.log("send individual RFQ with email");
+          window.generateQuotePdfOnly(supplierName, orderId, finishBulkSend);
+          return;
+    }
+    setSendingState(true);
+    console.log("send individual RFQ with email");
+    // Fix #1/#2: read To/CC from Gmail-style chip fields (tolerant parser, no
+    // missing-comma gluing) + validate before sending so one typo can't silently
+    // kill the whole Graph send. Falls back to raw value for legacy DOM.
+    const getRfqChipValue_ = function (id) {
+      const box = document.getElementById(id);
+      if (!box) return "";
+      // Prefer the element's own chip API: ids are built from supplier names
+      // (may contain spaces/dots/&), so querySelector("#" + id) can throw or
+      // silently mismatch, returning "" even when chips are visible.
+      if (box._chipApi && typeof box._chipApi.getValue === "function") {
+        try { return String(box._chipApi.getValue() || "").trim(); } catch (e) { /* ignore */ }
+      }
+      if (box.dataset && box.dataset.value) {
+        return String(box.dataset.value || "").trim();
+      }
+      if (typeof window.getChipFieldValue === "function") {
+        try {
+          const card = box.closest ? (box.closest(".rfq-card") || document) : document;
+          return String(window.getChipFieldValue(card, "#" + (window.CSS && CSS.escape ? CSS.escape(id) : id)) || "").trim();
+        } catch (e) { /* fall through */ }
+      }
+      return String((box.value != null ? box.value : "")).trim();
+    };
+    const toEmail = getRfqChipValue_(`email_to_${supplierName}`);
+    const ccEmail = getRfqChipValue_(`email_cc_${supplierName}`);
+    const subjectEl = document.getElementById(`email_sub_${supplierName}`);
+    const subject = subjectEl ? subjectEl.value : "";
+    // Fix #3: rich-text body (contenteditable) -> sanitized HTML for Graph.
+    const bodyEl = document.getElementById(`email_body_${supplierName}`);
+    const bodyHtmlRaw = bodyEl
+      ? (bodyEl.innerHTML != null && bodyEl.isContentEditable ? bodyEl.innerHTML : (bodyEl.value != null ? bodyEl.value : bodyEl.innerText || ""))
+      : "";
+    const bodyText = bodyEl
+      ? String(bodyEl.isContentEditable ? (bodyEl.innerText || "") : (bodyEl.value || ""))
+      : "";
+    const categorySel = document.getElementById("rfqCategoryFilter");
+    const currentCategory = categorySel ? categorySel.value : "";
+
+    const parseLoose_ = (typeof window.parseEmailsLoose === "function")
+      ? window.parseEmailsLoose
+      : function (raw) { return String(raw || "").split(/[,;\s]+/).map(function (s) { return String(s || "").trim(); }).filter(Boolean); };
+    const emailRe_ = window.EMAIL_RE || /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]{2,}$/;
+    const toList = parseLoose_(toEmail);
+    const ccList = parseLoose_(ccEmail);
+    const badTo = toList.filter(function (e) { return !emailRe_.test(e); });
+    const badCc = ccList.filter(function (e) { return !emailRe_.test(e); });
+    if (!toList.length) {
+      setSendingState(false);
+      Swal.fire(i18n("msg_error"), "To is empty — add at least one recipient email.", "error");
+      finishBulkSend(false);
+      return;
+    }
+    if (badTo.length || badCc.length) {
+      setSendingState(false);
+      Swal.fire(i18n("msg_error"),
+        "Invalid email(s): " + badTo.concat(badCc).join(", ") + " — double-click the red block to fix.",
+        "error");
+      finishBulkSend(false);
+      return;
+    }
+
+    const order = resolveRfqOrder_(orderId);
+    if (!order || !order.items || order.error) {
+      setSendingState(false);
+      Swal.fire(i18n("msg_error"), i18n("msg_no_items"), "error");
+      finishBulkSend(false);
+      return;
+    }
+
+    const supplierItems = order.items
+      .filter((i) => {
+        // Multi-select aware: an item belongs to this supplier if it appears in its
+        // item.suppliers array (legacy single-supplier string is still supported).
+        const isSameSupplier = getItemSuppliers_(i).indexOf(supplierName) !== -1;
+        const isSameCategory =
+          currentCategory === "" || (i.category || "").toUpperCase() === currentCategory.toUpperCase();
+        return isSameSupplier && isSameCategory;
+      })
+      .map((i) => Object.assign({}, i, { supplier: supplierName }));
+
+    // When previews were generated, use the per-supplier deficit list (adjusted
+    // qty) so THIS supplier only receives the items assigned to them.
+    const perSupplierDeficit = (window.lastRfqPayloads && window.lastRfqPayloads.bySupplier && window.lastRfqPayloads.bySupplier[supplierName]) || null;
+    if (perSupplierDeficit && perSupplierDeficit.length > 0) {
+      const deficitByGeo = {};
+      perSupplierDeficit.forEach((d) => { deficitByGeo[d.geo] = d; });
+      supplierItems.forEach((si) => {
+        const def = deficitByGeo[si.geo];
+        if (def) {
+          si.qty = def.qty;
+          si.originalQty = def.originalQty;
+        }
+      });
+    }
+
+    if (supplierItems.length === 0) {
+      setSendingState(false);
+      Swal.fire("❌ No items found. Check your category filter.");
+      finishBulkSend(false);
+      return;
+    }
+
+    const geoCodes = supplierItems.map((item) => item.geo);
+
+    // NOTE: Do NOT build table here - backend will render appropriate tables
+    // just pass clean text body
+
+    // ============================================
+    // PHASE 1: PAYLOAD WITH SPLIT ITEMS
+    // ============================================
+    // Extract deficit and bodega items from lastRfqPayloads if available.
+    // The per-supplier items (assigned to THIS supplier) are preferred so each
+    // supplier email only carries the items assigned to that supplier.
+    const deficitItems = perSupplierDeficit && perSupplierDeficit.length > 0
+      ? perSupplierDeficit.map((i) => Object.assign({}, i, { supplier: supplierName }))
+      : supplierItems;
+
+    const bodegaItems = window.lastRfqPayloads?.bodegaPayload || [];
+    const hasInStockItems = bodegaItems.length > 0;
+
+    // FIX: Match the object keys exactly to what SmartDispatcher needs
+    // Fix #3: formatted HTML body (backend appends tables + signature).
+    const bodyForEmail_ = (typeof window.formatBodyForEmail === "function")
+      ? window.formatBodyForEmail(bodyHtmlRaw)
+      : String(bodyHtmlRaw || "").replace(/\n/g, "<br>");
+    const emailPayload = {
+      to: toEmail,
+      cc: ccEmail,
+      subject: subject,
+      body: bodyForEmail_,
+      type: "RFQ", // Added: Crucial for Decision Engine
+      orderId: orderId || `RFQ-${supplierName}`, // Added: Req ID for quote sheet ref and order history update
+      // Consolidated RFQ: all source requirement IDs (single-req RFQs have one)
+      orderIds: (order && order.orderIds) || splitRfqRefIds_(orderId) || [orderId],
+      replyTo: window.currentUser ? window.currentUser.email : "", // Added: For Brevo/Google Headers
+      currentUserEmail: window.currentUser ? window.currentUser.email : "",
+      // Supplier email is passed separately so it can be used for sending but
+      // excluded from the "Emails" column in the Quotes sheet (only CC + routing emails are saved).
+      supplierEmail: supplierName ? ((window.CachedDataVal?.suppliers || []).find((s) => s.name === supplierName)?.email || "") : "",
+      initialRecipientEmails: ccEmail, // Only CC emails are saved to sheet (supplier email excluded)
+      category: currentCategory || "General",
+      supplier: supplierName,
+      itemGeos: geoCodes,
+      items: supplierItems,
+      site: order.site || "",
+      subArea: (document.getElementById("rfqSubAreaFilter") || {}).value || "",
+      userName: window.currentUser ? window.currentUser.name : "",
+      currency: "CLP",
+      comments: bodyText,
+      condicionPago: "",
+      ivaInc: "Neto",
+      mode: "EMAIL_AND_PDF",
+      // ============================================
+      // NEW: Split payload data for backend logic
+      // ============================================
+      deficitItems: deficitItems,
+      bodegaItems: bodegaItems,
+      hasInStockItems: hasInStockItems,
+      // Pre-uploaded quote document from the RFQ preview card (if any).
+      attachmentUrl: (window.rfqAttachments[supplierName] || {}).url || "",
+      attachmentName: (window.rfqAttachments[supplierName] || {}).fileName || "",
+    };
+
+    google.script.run
+      .withSuccessHandler(function (response) {
+        if (response && response.requiresFallbackChoice && response.dispatchDraft) {
+          Swal.fire({
+            icon: "warning",
+            title: "Graph Email Failed",
+            text: "Graph send failed. Send via another provider?",
+            showCancelButton: true,
+            confirmButtonText: "Use Google",
+            denyButtonText: "Use Brevo",
+            showDenyButton: true,
+          }).then((choice) => {
+            if (choice.isConfirmed || choice.isDenied) {
+              const provider = choice.isConfirmed ? "Google" : "Brevo";
+              google.script.run
+                .withSuccessHandler(function (retryRes) {
+                  if (retryRes && retryRes.success) {
+                    Swal.fire("Sent", "RFQ sent via " + provider, "success");
+                    finishBulkSend(true);
+                  } else {
+                    setSendingState(false);
+                    Swal.fire(i18n("msg_error"), i18n("msg_sys_error"), "error");
+                    finishBulkSend(false);
+                  }
+                })
+                .withFailureHandler(function (err) {
+                  setSendingState(false);
+                  Swal.fire(i18n("msg_error"), i18n("msg_sys_error") + ": " + String(err), "error");
+                  finishBulkSend(false);
+                })
+                .dispatchEmailWithProvider(response.dispatchDraft, provider);
+            } else {
+              setSendingState(false);
+              finishBulkSend(false);
+            }
+          });
+          return;
+        }
+
+        if (response.success) {
+          console.log(
+            `Success: ${response.message || "RFQ processed"} via ${response.service || "Saved"}`,
+          );
+
+          // ===============================================
+          // 🔴 FIX: Dynamically remove this supplier's card
+          // ===============================================
+          const supplierName = emailPayload.supplier || ""; 
+          const supplierCard = document.getElementById(`email_to_${supplierName}`)?.closest(".card");
+          
+          if (supplierCard) {
+            supplierCard.remove();
+          }
+
+          // ===============================================
+          // 🔴 FIX: Remove the quoted items from the main table
+          // ===============================================
+          if (emailPayload.items && Array.isArray(emailPayload.items)) {
+            const itemGeos = emailPayload.items.map(function(item) {
+              return item.geo;
+            });
+            
+            if (window.removeItemsFromTable) {
+              window.removeItemsFromTable(itemGeos);
+            }
+          }
+
+          // Attachment consumed — clear it for this supplier.
+          delete window.rfqAttachments[supplierName];
+
+          // Check if everything is completely done
+          if (window.checkRFQCompletion) {
+            window.checkRFQCompletion();
+          }
+          finishBulkSend(true);
+        } else {
+          setSendingState(false);
+          // Changed .message to .error to match your dispatcher's catch block return
+          Swal.fire(
+            "❌ Dispatch Error",
+            response.message || response.error,
+            "error",
+          );
+          finishBulkSend(false);
+        }
+      })
+      .withFailureHandler(function (err) {
+        setSendingState(false);
+        Swal.fire("❌ Dispatch Error", "Backend Crash: " + String(err), "error");
+        finishBulkSend(false);
+      })
+      .sendFinalRFQ(emailPayload); // Use the unified payload
+  };
+
+  window.sendAllRFQs = function () {
+    // Security Check: Ensure only Admins can trigger this
+    const isAdmin =
+      window.currentUser && window.currentUser.role.toLowerCase() === "admin";
+    if (!isAdmin) {
+      Swal.fire(
+        "Access Denied",
+        "Bulk sending is restricted to Administrators.",
+        "error",
+      );
+      return;
+    }
+
+    const cards = document.querySelectorAll(".rfq-card");
+    if (cards.length === 0) return;
+
+    Swal.fire({
+      title: "Send All RFQs?",
+      text: `You are about to send ${cards.length} emails. We will process them one by one to ensure delivery.`,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonColor: "#198754",
+      cancelButtonColor: "#d33",
+      confirmButtonText: "Yes, Send All!",
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({
+          title: "Processing Queue...",
+          html: "Please do not close the window until finished.",
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          },
+        });
+
+        const supplierNames = (window.lastRfqPayloads && window.lastRfqPayloads.supplierNames) || [];
+        const orderId = window.lastRfqPayloads && window.lastRfqPayloads.orderId;
+        if (!supplierNames.length || !orderId) {
+          Swal.fire(i18n("msg_error"), "RFQ queue data is missing. Regenerate the previews and try again.", "error");
+          return;
+        }
+
+        let index = 0;
+        let failed = 0;
+        function processNext() {
+          if (index >= supplierNames.length) {
+            Swal.fire(
+              failed ? "RFQ Queue Finished with Errors" : "RFQ Queue Finished",
+              failed
+                ? `${failed} supplier send(s) failed. Review the error messages and retry those suppliers.`
+                : `All ${supplierNames.length} supplier send(s) completed.`,
+              failed ? "warning" : "success",
+            );
+            return;
+          }
+
+          const supplierName = supplierNames[index];
+          if (typeof window.loadEmailSuggestionPool === "function") {
+            window.loadEmailSuggestionPool();
+          }
+          window.sendIndividualRFQ(supplierName, orderId, function (success) {
+            if (!success) failed++;
+            index++;
+            processNext();
+          });
+        }
+
+        processNext();
+      }
+    });
+  };
+
+
+  window.removeItemsFromTable = function(itemGeos) {
+  try {
+    console.log("🧹 Removing items from table:", itemGeos);
+
+    const table = document.querySelector("#rfqTableCard table");
+    if (!table) return;
+
+    const rows = table.querySelectorAll("tbody tr");
+
+    rows.forEach(row => {
+      const geoCell = row.children[0]; // GEO is first column
+      if (!geoCell) return;
+
+      const geo = geoCell.innerText.trim();
+
+      if (itemGeos.includes(geo)) {
+        row.remove();
+      }
+    });
+
+    console.log("✅ Items removed from table");
+
+    // check if table is empty now
+    window.checkRFQCompletion();
+
+  } catch (e) {
+    console.error("❌ removeItemsFromTable error:", e);
+  }
+};
+
+
+window.checkRFQCompletion = function() {
+  const table = document.querySelector("#rfqTableCard table");
+  if (!table) return;
+
+  const remainingRows = table.querySelectorAll("tbody tr");
+
+  if (remainingRows.length === 0) {
+    console.log("🎉 All RFQs completed");
+
+    const container = document.getElementById("rfqPreviewContainer");
+
+    const doneHtml = `
+      <div class="alert alert-success text-center mt-4">
+        <h5 class="mb-3">✔ All RFQs Completed</h5>
+        <button class="btn btn-primary" onclick="resetRFQUI()">
+          Start New RFQ
+        </button>
+      </div>
+    `;
+
+    container.insertAdjacentHTML("beforeend", doneHtml);
+  }
+};
+
+
+window.resetRFQUI = function () {
+  try {
+    console.log("🧹 FULL RFQ UI RESET");
+
+    // ===============================
+    // 1. CLEAR PREVIEW CARDS & DONE ALERTS
+    // ===============================
+    const preview = document.getElementById("rfqPreviewContainer");
+    if (preview) {
+      preview.innerHTML = "";
+    }
+    document.querySelectorAll(".rfq-card").forEach(card => card.remove());
+
+    // ===============================
+    // 2. HIDE & CLEAR ITEMS TABLE BODY
+    // ===============================
+    const tableCard = document.getElementById("rfqTableCard");
+    if (tableCard) {
+      tableCard.classList.add("d-none");
+    }
+    
+    const tbody = document.getElementById("rfqItemsBody");
+    if (tbody) {
+      tbody.innerHTML = "";
+    }
+
+    // ===============================
+    // 3. RESET & REFRESH DROPDOWNS
+    // ===============================
+    const rfqSelector = document.getElementById("rfqSelector");
+    if (rfqSelector) {
+      // Works for both single- and multi-select: deselect everything
+      Array.from(rfqSelector.options || []).forEach((o) => { o.selected = false; });
+      rfqSelector.value = "";
+    }
+
+    const categoryFilter = document.getElementById("rfqCategoryFilter");
+    if (categoryFilter) {
+      categoryFilter.value = "";
+    }
+
+    // Refresh dropdown options (removes the fulfilled requirement if it's no longer pending)
+    if (typeof window.refreshRFQList === "function") {
+      window.refreshRFQList();
+    }
+
+    console.log("✅ RFQ UI fully reset");
+
+  } catch (err) {
+    console.error("❌ resetRFQUI error:", err);
+  }
+};
+
+
+
+  // ============================================
+  // RFQ PREVIEW CARD: QUOTE DOCUMENT ATTACHMENT
+  // Reuses the same rules as the QuoteMgmt edit modal: images are client-side
+  // compressed (downscaled + JPEG) before upload; PDFs are stored as-is.
+  // The uploaded file's URL is kept in window.rfqAttachments[supplierName] and
+  // stamped onto the newly created quote rows when the RFQ/PDF is sent.
+  // ============================================
+  const RFQ_DOC_MAX_BYTES = 10 * 1024 * 1024; // 10 MB raw file cap
+
+  window.pickRfqDoc = function (supplierName) {
+    const input = document.getElementById("rfq_doc_file_" + supplierName);
+    if (input) input.click();
+  };
+
+  // Read an image file, downscale to a sane max dimension and re-encode as JPEG.
+  function rfqCompressImageToJpeg_(file, maxDim, quality) {
+    maxDim = maxDim || 1600;
+    quality = quality || 0.75;
+    return new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = function () {
+          try {
+            const img = new Image();
+            img.onload = function () {
+              try {
+                const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+                const w = Math.max(1, Math.round((img.naturalWidth || 1) * scale));
+                const h = Math.max(1, Math.round((img.naturalHeight || 1) * scale));
+                const canvas = document.createElement("canvas");
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL("image/jpeg", quality));
+              } catch (e) { reject(e); }
+            };
+            img.onerror = () => reject(new Error("image decode failed"));
+            img.src = reader.result;
+          } catch (e) { reject(e); }
+        };
+        reader.onerror = () => reject(new Error("file read failed"));
+        reader.readAsDataURL(file);
+      } catch (e) { reject(e); }
+    });
+  }
+
+  // Read a PDF file as a base64 data URL and store it as-is (no rasterization).
+  function rfqReadPdfAsDataUrl_(file) {
+    return new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = function () { resolve(reader.result); };
+        reader.onerror = () => reject(new Error("file read failed"));
+        reader.readAsDataURL(file);
+      } catch (e) { reject(e); }
+    });
+  }
+
+  window.handleRfqDocFile = function (input, supplierName) {
+    const file = input && input.files && input.files[0];
+    if (!file) { if (input) input.value = ""; return; }
+    supplierName = String(supplierName || "").trim();
+    if (!supplierName) { if (input) input.value = ""; return; }
+
+    const isPdf = /\.pdf$/i.test(file.name);
+    const isImage = /\.(png|jpe?g|webp)$/i.test(file.name);
+    if (!isPdf && !isImage) {
+      Swal.fire(i18n("msg_warning"), i18n("msg_doc_type_invalid"), "warning");
+      if (input) input.value = "";
+      return;
+    }
+    if (file.size > RFQ_DOC_MAX_BYTES) {
+      Swal.fire(i18n("msg_warning"), i18n("msg_doc_too_large").replace("{max}", "10 MB"), "warning");
+      if (input) input.value = "";
+      return;
+    }
+
+    // Context for the Drive folder structure (site/supplier). Consolidation-aware.
+    const orderSel = document.getElementById("rfqSelector");
+    const order = orderSel ? resolveRfqOrder_(orderSel.value) : null;
+
+    const statusEl = document.getElementById("rfq_doc_status_" + supplierName);
+    if (statusEl) statusEl.innerHTML = `<span class="text-primary">${i18n("msg_doc_processing")}</span>`;
+
+    const finish = (pages) => {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.success) {
+            window.rfqAttachments[supplierName] = { url: res.url, fileName: res.fileName };
+            if (statusEl) {
+              statusEl.innerHTML =
+                `<span class="text-success"><i class="bi bi-check2"></i> ${i18n("msg_doc_uploaded").replace("{file}", res.fileName)}</span> ` +
+                `<a href="javascript:void(0)" onclick="window.removeRfqDoc('${escapeJsArg_(supplierName)}')" class="ms-1 small text-danger">${i18n("btn_remove_doc")}</a>`;
+            }
+          } else {
+            if (statusEl) statusEl.innerHTML = "";
+            Swal.fire(i18n("btn_error"), i18n("msg_doc_upload_failed") + (res && res.error ? " (" + res.error + ")" : ""), "error");
+          }
+        })
+        .withFailureHandler(function (err) {
+          if (statusEl) statusEl.innerHTML = "";
+          console.error("RFQ doc upload failed:", err);
+          Swal.fire(i18n("btn_error"), String(err), "error");
+        })
+        .uploadQuoteAttachment({
+          orderId: (order && order.id) || "",
+          quoteId: "",
+          supplier: supplierName,
+          site: (order && order.site) || "",
+          fileName: file.name,
+          files: pages,
+        });
+    };
+
+    const onError = (err) => {
+      if (statusEl) statusEl.innerHTML = "";
+      console.error("RFQ doc compression failed:", err);
+      Swal.fire(i18n("btn_error"), i18n("msg_doc_read_failed") + " " + err, "error");
+      if (input) input.value = "";
+    };
+
+    if (isPdf) {
+      rfqReadPdfAsDataUrl_(file).then((dataUrl) => {
+        finish([{ name: file.name, mimeType: file.type || "application/pdf", base64: (dataUrl.split(",")[1] || "") }]);
+      }).catch(onError);
+    } else {
+      rfqCompressImageToJpeg_(file).then((dataUrl) => {
+        finish([{ name: file.name, mimeType: "image/jpeg", base64: (dataUrl.split(",")[1] || "") }]);
+      }).catch(onError);
+    }
+    if (input) input.value = "";
+  };
+
+  window.removeRfqDoc = function (supplierName) {
+    delete window.rfqAttachments[supplierName];
+    const statusEl = document.getElementById("rfq_doc_status_" + supplierName);
+    if (statusEl) statusEl.innerHTML = `<span class="text-danger">${i18n("msg_doc_removed")}</span>`;
+  };
+
+function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
+  let html = `<p>Quote generated and processed for Quote ID: <strong>${escapeHtml_(quoteId)}</strong></p>`;
+  
+  // Table 1: Products Quoted to Supplier
+  html += `<h3>Products Quoted to Supplier</h3>`;
+  html += `<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse; width:100%; font-family:Arial, sans-serif;">`;
+  html += `<tr style="background-color:#f2f2f2;"><th>Geo</th><th>Description</th><th>Qty Quoted</th><th>Supplier</th></tr>`;
+  
+  if (quotedItems && quotedItems.length > 0) {
+    quotedItems.forEach(i => {
+      html += `<tr><td>${escapeHtml_(i.geo)}</td><td>${escapeHtml_(i.desc || i.es || '')}</td><td>${i.qty}</td><td>${escapeHtml_(i.supplier || '')}</td></tr>`;
+    });
+  } else {
+    html += `<tr><td colspan="4">No items sent to external suppliers.</td></tr>`;
+  }
+  html += `</table>`;
+
+  // Table 2: Products Covered from Bodega
+  html += `<h3 style="margin-top: 20px;">Products Covered from Bodega (Internal Fulfillment)</h3>`;
+  html += `<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse; width:100%; font-family:Arial, sans-serif;">`;
+  html += `<tr style="background-color:#e6f2ff;"><th>Geo</th><th>Description</th><th>Qty Allocated</th></tr>`;
+
+  if (bodegaItems && bodegaItems.length > 0) {
+    bodegaItems.forEach(bi => {
+      html += `<tr><td>${escapeHtml_(bi.geo)}</td><td>${escapeHtml_(bi.desc || bi.es || '')}</td><td>${bi.qty}</td></tr>`;
+    });
+  } else {
+    html += `<tr><td colspan="3">No items fulfilled from internal warehouse stock.</td></tr>`;
+  }
+  html += `</table>`;
+
+  return html;
+}
+
+
+
+// INJECT DRAG-AND-DROP CSS FOR EMAIL CHIPS
+// ============================================
+(function injectEmailChipDragCss() {
+  if (document.getElementById('email-chip-drag-css')) return;
+  const style = document.createElement('style');
+  style.id = 'email-chip-drag-css';
+  style.textContent = `
+    .email-chip[draggable="true"] { cursor: grab; transition: opacity 0.15s, transform 0.15s; }
+    .email-chip[draggable="true"]:active { cursor: grabbing; }
+    .email-chip.email-chip-dragging { opacity: 0.4; transform: scale(0.95); }
+    .email-chip-field.drag-over { outline: 2px dashed #0d6efd; outline-offset: 2px; background-color: #e7f1ff; border-radius: 4px; }
+    .email-chip-field { transition: outline 0.15s, background-color 0.15s; }
+    .email-suggest-dropdown { position: absolute; z-index: 1050; max-height: 260px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 6px; box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15); background: #fff; min-width: 280px; }
+    .email-suggest-item { padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background-color 0.1s; }
+    .email-suggest-item:last-child { border-bottom: none; }
+    .email-suggest-item:hover, .email-suggest-item.highlighted { background-color: #0d6efd; color: #fff; }
+    .email-suggest-item .suggest-name { font-weight: 600; }
+    .email-suggest-item .suggest-email { font-size: 12px; color: #6c757d; margin-left: 8px; }
+    .email-suggest-item .suggest-source { display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+    .email-suggest-item .suggest-source.source-graph { background-color: #cfe2ff; color: #084298; }
+    .email-suggest-item .suggest-source.source-people { background-color: #d1e7dd; color: #0f5132; }
+    .email-suggest-item .suggest-source.source-supplier { background-color: #fff3cd; color: #664d03; }
+    .email-suggest-item:hover .suggest-email, .email-suggest-item.highlighted .suggest-email { color: #cfe5ff; }
+    .email-suggest-item:hover .suggest-source, .email-suggest-item.highlighted .suggest-source { color: #fff; }
+    .email-suggest-no-results { padding: 10px 12px; color: #6c757d; font-size: 13px; text-align: center; }
+  `;
+  document.head.appendChild(style);
+})();
+
+// ============================================
+
+window.getChipFieldValue = function(card, selector) {
+  const box = card ? card.querySelector(selector) : null;
+  if (!box) return '';
+  if (box._chipApi) return box._chipApi.getValue();
+  const input = box.querySelector ? box.querySelector('input.edit-to,input.edit-cc,.email-chip-input') : null;
+  if (input) return input.value || '';
+  return box.dataset ? (box.dataset.value || '') : '';
+};
+
+// EMAIL AUTOCOMPLETE (suggestions dropdown for chip inputs)
+// ============================================
+
+// NOTE: initialised with `||` so this file never wipes the suggestion pool /
+// recent-recipient list that CreateReqJS.html (loaded first) already populated.
+window.emailSuggestionPool = window.emailSuggestionPool || [];
+window.recentEmails = window.recentEmails || [];
+window.graphSuggestionsCache = window.graphSuggestionsCache || {};
+
+function debounce(fn, delay) {
+  let timer = null;
+  return function() {
+    const ctx = this;
+    const args = arguments;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function() { fn.apply(ctx, args); }, delay);
+  };
+}
+
+window.loadEmailSuggestionPool = window.loadEmailSuggestionPool || function() {
+  window.emailSuggestionPool = [];
+  try {
+    const suppliers = (window.CachedDataVal && window.CachedDataVal.suppliers) || [];
+    suppliers.forEach(function(s) {
+      if (!s || !s.email) return;
+      const email = String(s.email).toLowerCase().trim();
+      if (!email) return;
+      const name = String(s.name || '').trim();
+      if (!name) return;
+      window.emailSuggestionPool.push({ name: name, email: email, source: 'supplier' });
+    });
+  } catch (e) { /* ignore */ }
+  google.script.run
+    .withSuccessHandler(function(people) {
+      try {
+        (people || []).forEach(function(p) {
+          if (!p || !p.email) return;
+          const email = String(p.email).toLowerCase().trim();
+          if (!email) return;
+          const domains = ['recondrilling.com'];
+          const hasCompanyDomain = domains.some(function(d) { return email.endsWith('@' + d); });
+          if (!hasCompanyDomain) return;
+          const name = String(p.name || '').trim();
+          if (!name) return;
+          window.emailSuggestionPool.push({ name: name, email: email, source: 'people' });
+        });
+      } catch (e) { /* ignore */ }
+    })
+    .withFailureHandler(function() { /* ignore */ })
+    .getPeople();
+  try {
+    const stored = JSON.parse(localStorage.getItem('recon_recent_emails') || '[]');
+    window.recentEmails = Array.isArray(stored) ? stored.slice(0, 20) : [];
+  } catch (e) { window.recentEmails = []; }
+};
+
+window.addRecentEmail = window.addRecentEmail || function(email, name) {
+  if (!email || !String(email).trim()) return;
+  const e = String(email).toLowerCase().trim();
+  if (!window.EMAIL_RE.test(e)) return;
+  window.recentEmails = window.recentEmails.filter(function(x) { return x.email !== e; });
+  window.recentEmails.unshift({ email: e, name: String(name || '').trim() });
+  if (window.recentEmails.length > 20) window.recentEmails.length = 20;
+  try { localStorage.setItem('recon_recent_emails', JSON.stringify(window.recentEmails)); } catch (ex) { /* ignore */ }
+};
+  
+window.getChipFieldValue = window.getChipFieldValue || function(card, selector) {
+  const box = card ? card.querySelector(selector) : null;
+  if (!box) return '';
+  if (box._chipApi) return box._chipApi.getValue();
+  const input = box.querySelector ? box.querySelector('input.edit-to,input.edit-cc,.email-chip-input') : null;
+  if (input) return input.value || '';
+  return box.dataset ? (box.dataset.value || '') : '';
+};
+
+window.setupEmailAutocomplete = window.setupEmailAutocomplete || function(inputEl) {
+  if (!inputEl) return;
+  if (inputEl._emailAutocompleteSetup) return;
+  inputEl._emailAutocompleteSetup = true;
+  const dd = document.createElement('div');
+  dd.className = 'email-suggest-dropdown';
+  dd.style.display = 'none';
+  dd.setAttribute('role', 'listbox');
+  dd.setAttribute('aria-label', 'Email suggestions');
+  const p = inputEl.parentNode;
+  p.style.position = p.style.position || 'relative';
+  p.appendChild(dd);
+  let hi = -1, cur = [], gt = null, fa = null;
+  const f = inputEl.closest('.email-chip-field');
+  if (f && f._chipApi) fa = f._chipApi;
+  function pos() {
+    dd.style.position = 'absolute';
+    dd.style.top = (inputEl.offsetHeight + 2) + 'px';
+    dd.style.left = '0';
+    dd.style.width = Math.max(280, inputEl.offsetWidth) + 'px';
+    dd.style.display = 'block';
+  }
+  function hide() {
+    dd.style.display = 'none';
+    dd.innerHTML = '';
+    hi = -1; cur = [];
+    if (gt) { clearTimeout(gt); gt = null; }
+  }
+  function hl() {
+    const items = dd.querySelectorAll('.email-suggest-item');
+    items.forEach(function(el, i) {
+      el.classList.toggle('highlighted', i === hi);
+      el.setAttribute('aria-selected', i === hi ? 'true' : 'false');
+    });
+    if (items[hi]) items[hi].scrollIntoView({ block: 'nearest' });
+  }
+  function render(suggestions, idx) {
+    dd.innerHTML = '';
+    if (!suggestions || !suggestions.length) {
+      const e = document.createElement('div');
+      e.className = 'email-suggest-no-results';
+      e.textContent = 'No suggestions found';
+      dd.appendChild(e);
+      pos();
+      return;
+    }
+    cur = suggestions; hi = idx || 0;
+    suggestions.forEach(function(s, i) {
+      const item = document.createElement('div');
+      item.className = 'email-suggest-item' + (i === hi ? ' highlighted' : '');
+      item.setAttribute('role', 'option');
+      const ns = document.createElement('span');
+      ns.className = 'suggest-name';
+      ns.textContent = (String(s.label || s.value || '').split('<')[0] || s.value || '').trim();
+      const es = document.createElement('span');
+      es.className = 'suggest-email';
+      es.textContent = s.value;
+      const ss = document.createElement('span');
+      ss.className = 'suggest-source source-' + (s.source || 'people');
+      ss.textContent = (s.source || 'people') === 'graph' ? 'Azure AD' : (s.source || 'people') === 'supplier' ? 'Supplier' : 'Company';
+      item.appendChild(ns);
+      item.appendChild(es);
+      item.appendChild(ss);
+      item.addEventListener('mouseenter', function() { hi = i; hl(); });
+      item.addEventListener('click', function() { pick(s); });
+      dd.appendChild(item);
+    });
+    pos();
+  }
+  function pick(s) {
+    if (!s || !s.value || !fa) return;
+    const cur = fa.getEmails();
+    if (cur.map(function(e) { return e.toLowerCase(); }).indexOf(s.value.toLowerCase()) === -1)
+      fa.setValue(cur.concat(s.value).join(', '));
+    window.addRecentEmail(s.value, (s.label || '').split('<')[0].trim());
+    inputEl.value = '';
+    hide();
+    inputEl.focus();
+  }
+  const search = debounce(function() {
+    const q = inputEl.value.trim();
+    if (!q) { hide(); return; }
+    if (window.EMAIL_RE && window.EMAIL_RE.test(q)) { hide(); return; }
+    const ql = q.toLowerCase();
+    let merged = window.emailSuggestionPool.filter(function(s) {
+      return s.name.toLowerCase().indexOf(ql) !== -1 || s.email.toLowerCase().indexOf(ql) !== -1;
+    }).slice(0, 10);
+    const rec = window.recentEmails.filter(function(s) {
+      return s.email.toLowerCase().indexOf(ql) !== -1;
+    }).slice(0, 5).map(function(s) {
+      return { label: (s.name ? s.name + ' <' : '') + s.email + (s.name ? '>' : ''),
+               value: s.email, source: 'recent' };
+    });
+    merged = merged.concat(rec);
+    const seen = {};
+    merged = merged.filter(function(s) {
+      const k = s.value.toLowerCase();
+      if (seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+    if (merged.length < 8 && q.length >= 2) {
+      if (gt) clearTimeout(gt);
+      gt = setTimeout(function() {
+        try {
+          google.script.run
+            .withSuccessHandler(function(gr) {
+              if (!gr || !Array.isArray(gr)) return;
+              const ex = {};
+              merged.forEach(function(s) { ex[s.value.toLowerCase()] = true; });
+              gr.forEach(function(r) {
+                const k = r.value.toLowerCase();
+                if (!ex[k]) { merged.push(r); ex[k] = true; }
+              });
+              merged = merged.slice(0, 10);
+              render(merged, 0);
+            })
+            .withFailureHandler(function() { })
+            .getEmailSuggestions(q);
+        } catch (e) { }
+      }, 300);
+    }
+    render(merged, 0);
+  }, 150);
+  inputEl.addEventListener('input', function() { search(); });
+  inputEl.addEventListener('keydown', function(e) {
+    const items = dd.querySelectorAll('.email-suggest-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!items.length) return;
+      hi = (hi + 1) % items.length;
+      hl();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!items.length) return;
+      hi = (hi - 1 + items.length) % items.length;
+      hl();
+    } else if (e.key === 'Enter') {
+      if (hi >= 0 && hi < cur.length) {
+        e.preventDefault();
+        pick(cur[hi]);
+      }
+    } else if (e.key === 'Escape') {
+      hide();
+    }
+  });
+  inputEl.addEventListener('blur', function() { setTimeout(hide, 200); });
+  inputEl.addEventListener('focus', function() { if (inputEl.value.trim()) search(); });
+};
+;
+
+window.escAttr = window.escAttr || function(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
+// ---- Rich-text body helpers (contenteditable -> sanitized HTML sent via Graph HTML) ----
+window.escapeHtml = window.escapeHtml || function(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+};
+window.formatBodyForEmail = window.formatBodyForEmail || function(html) {
+  // Body editor is contenteditable: keep user's bold/italic/underline/lists/line-breaks.
+  // Sanitize: strip scripts, event handlers, and dangerous tags; keep basic formatting.
+  const s = window.sanitizeNotesHtml(html);
+  if (!s) return '';
+  return '<div style="font-family: Arial, sans-serif; line-height: 1.6;">' + s + '</div>';
+};
+// Same sanitizer, WITHOUT the email wrapper: used when the notes are rendered
+// back inside the app (draft preview) and by View/Edit Requirement.
+window.sanitizeNotesHtml = window.sanitizeNotesHtml || function(html) {
+  let s = String(html == null ? '' : html);
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  s = s.replace(/javascript\s*:/gi, '');
+  // Remove tags outside allowlist but keep their inner text
+  s = s.replace(/<\/?([a-zA-Z0-9]+)(\s[^<>]*)?>/g, function(m, tag) {
+    const t = String(tag).toLowerCase();
+    if (['b','strong','i','em','u','br','p','div','ul','ol','li','span','font'].indexOf(t) !== -1) return m;
+    return '';
+  });
+  return s.trim();
+};
+
+// Notes typed in the preview "Additional Message (Body)" editor(s).
+// Kept in window.draftNotes so "Save Draft" (which lives in the cart, behind
+// the modal) never loses them, and so the notes can be prefilled again when a
+// draft is re-opened.
+window.collectPreviewNotes = window.collectPreviewNotes || function() {
+  let html = '';
+  document.querySelectorAll('#emailPreview .edit-body-rich').forEach(function(el) {
+    const chunk = String(el.innerHTML || '').trim();
+    if (!chunk) return;
+    html += (html ? '<br>' : '') + chunk;
+  });
+  if (!html) html = String(window.draftNotes || '');
+  window.draftNotes = html;
+  return html;
+};
+window.execBodyCmd = window.execBodyCmd || function(btn, cmd) {
+  const card = btn ? btn.closest('.shipment-group') : null;
+  const ed = card ? card.querySelector('.edit-body-rich') : null;
+  if (!ed) return;
+  ed.focus();
+  try { document.execCommand(cmd, false, null); } catch (e) {}
+};
+
+// Global map to hold live stock quantities fetched from the backend
+window.liveStockMap = window.liveStockMap || {};
+
+// Per-site Min/Max overlay: { geo: { min, max } } (includes global fallback)
+window.siteMinMaxMap = window.siteMinMaxMap || {};
+
+window.getMinMaxForProduct = window.getMinMaxForProduct || function(geo) {
+  const key = String(geo || "").trim();
+  if (window.siteMinMaxMap && Object.prototype.hasOwnProperty.call(window.siteMinMaxMap, key)) {
+    return window.siteMinMaxMap[key] || { min: 0, max: 0 };
+  }
+  // Fallback to the product's global min/max from the inventory cache
+  const prod = (window.fullInventory || []).find(function(p) { return String(p.geo) === key; });
+  return { min: (prod && Number(prod.min)) || 0, max: (prod && Number(prod.max)) || 0 };
+};
+
+// Suggested qty so that site stock + qty reaches Max (falls back to Min if no Max defined)
+window.suggestedQtyFor = window.suggestedQtyFor || function(geo) {
+  const mm = window.getMinMaxForProduct(geo);
+  const min = Number(mm.min) || 0;
+  const max = Number(mm.max) || 0;
+  const stock = Number(window.liveStockMap && window.liveStockMap[geo]) || 0;
+  let base = 1;
+  if (max > 0) {
+    base = Math.max(1, max - stock);
+  } else if (min > 0) {
+    base = Math.max(1, min - stock);
+  }
+  return base;
+};
+
+// True if the resulting site stock after requisition would be below the site Min
+window.isBelowMin = window.isBelowMin || function(geo, qty) {
+  const mm = window.getMinMaxForProduct(geo);
+  const min = Number(mm.min) || 0;
+  if (min <= 0) return false;
+  const req = Number(qty) || 0;
+  const stock = Number(window.liveStockMap && window.liveStockMap[geo]) || 0;
+  return (stock + req) < min;
+};
+
+// True if the resulting site stock after requisition would exceed the site Max
+window.isBeyondMax = window.isBeyondMax || function(geo, qty) {
+  const mm = window.getMinMaxForProduct(geo);
+  const max = Number(mm.max) || 0;
+  if (max <= 0) return false;
+  const req = Number(qty) || 0;
+  const stock = Number(window.liveStockMap && window.liveStockMap[geo]) || 0;
+  return (stock + req) > max;
+};
+
+window.processSearch = window.processSearch || function() {
+  const query = document.getElementById('itemSearch').value.toLowerCase().trim();
+  const tbody = document.getElementById('searchResults');
+  
+  if (!tbody) return;
+  if (!query || query.length < 2) { tbody.innerHTML = ''; return; }
+
+  // Split into individual terms (ignore empty parts from extra spaces)
+  const terms = query.split(/\s+/).filter(t => t.length > 0);
+
+  // Search the global background-synced inventory
+  const matches = (window.fullInventory || []).filter(i => {
+    const haystack = (String(i.geo) + " " + String(i.pn) + " " + String(i.en || "") + " " + String(i.es || "")).toLowerCase();
+    // Every search term must appear somewhere in the item text
+    return terms.every(term => haystack.includes(term));
+  }).slice(0, 15);
+
+  if (matches.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">${getI18nText('no_items_found')}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = matches.map(i => {
+    // RESTORED: Live stock lookup integration
+    const liveStock = (window.liveStockMap && Object.prototype.hasOwnProperty.call(window.liveStockMap, i.geo)) ? window.liveStockMap[i.geo] : 0;
+    const mm = window.getMinMaxForProduct(i.geo);
+    const suggest = window.suggestedQtyFor(i.geo);
+    const minTxt = mm && Number(mm.min) > 0 ? `Min ${mm.min}` : '';
+    const maxTxt = mm && Number(mm.max) > 0 ? `Max ${mm.max}` : '';
+    const mmLine = (minTxt || maxTxt)
+      ? `<div class="small text-muted">${minTxt}${minTxt && maxTxt ? ' / ' : ''}${maxTxt} Â· Sugg ${suggest}</div>`
+      : '';
+
+    return `
+    <tr>
+      <td class="fw-bold text-primary">${i.geo}</td>
+      <td>${i.pn}</td>
+      <td><small>${i.es || i.en}</small>${mmLine ? mmLine : ''}</td>
+      <td id="stock_${i.geo}" class="${liveStock > 0 ? 'text-success' : 'text-danger'} fw-bold">${liveStock}</td>
+      <td><input type="number" id="q_${i.id}" value="${suggest}" class="form-control form-control-sm" style="width:60px"></td>
+      <td><button class="btn btn-sm btn-primary" onclick="window.addItemToCart('${i.id}')"><i class="bi bi-plus"></i></button></td>
+    </tr>`;
+  }).join('');
+};
+
+window.refreshLiveStock = window.refreshLiveStock || function() {
+  const siteSelect = document.getElementById('siteSelect');
+  const selectedSite = siteSelect ? siteSelect.value : '';
+
+  // Keep the SubArea selector in sync with the chosen site
+  if (typeof window.updateSubAreaDropdown === 'function') window.updateSubAreaDropdown();
+
+  // Re-render the cart so the Workshop-only Item Notes column appears/disappears
+  if (typeof window.updateCartUI === 'function') {
+    try { window.updateCartUI(); } catch (e) {}
+  }
+
+  if (!selectedSite) {
+    window.liveStockMap = {};
+
+    const searchBox = document.getElementById('itemSearch');
+    if (searchBox && searchBox.value.trim().length >= 2) {
+      window.processSearch();
+    }
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(function(liveData) {
+      // Always replace the stock map
+      window.liveStockMap = liveData || {};
+
+      // Also fetch the per-site min/max overlay for suggestion + warnings
+      google.script.run
+        .withSuccessHandler(function(mm) {
+          window.siteMinMaxMap = mm || {};
+          const searchBox = document.getElementById('itemSearch');
+          if (searchBox && searchBox.value.trim().length >= 2) {
+            window.processSearch();
+          }
+        })
+        .withFailureHandler(function(err) {
+          console.warn("Failed to load site Min/Max:", err);
+        })
+        .getSiteMinMaxMap(selectedSite);
+
+      // Re-render search results so all stock values refresh
+      const searchBox = document.getElementById('itemSearch');
+      if (searchBox && searchBox.value.trim().length >= 2) {
+        window.processSearch();
+      }
+
+      console.log("ðŸ”„ Live stock map updated for site:", selectedSite);
+    })
+    .withFailureHandler(function(err) {
+      console.error("Failed to refresh live stock:", err);
+    })
+    .getLiveStockMap(selectedSite);
+};
+
+// ============================================
+// SUB AREA SELECTOR (visible only for "Workshop" site)
+// Data source: getValidationData() -> Validation sheet Col V (SubArea) /
+// Col W (Emails SubArea). SubAreas belong to the Workshop site.
+// ============================================
+window.updateSubAreaDropdown = window.updateSubAreaDropdown || function() {
+  const wrap = document.getElementById('subAreaWrap');
+  const sel = document.getElementById('subAreaSelect');
+  const siteSelect = document.getElementById('siteSelect');
+  if (!wrap || !sel) return;
+
+  const site = siteSelect ? String(siteSelect.value || '').trim() : '';
+
+  // Only expose the SubArea selector when the Workshop site is selected
+  if (site.toLowerCase() !== 'workshop') {
+    wrap.classList.add('d-none');
+    sel.value = '';
+    const numberInput = document.getElementById('subAreaNumberInput');
+    if (numberInput) numberInput.value = '';
+    return;
+  }
+
+  const populate = function(subAreas) {
+    const options = (subAreas || [])
+      .filter(function(sa) {
+        return sa && String(sa.site || '').trim().toLowerCase() === site.toLowerCase();
+      })
+      .map(function(sa) {
+        const name = String(sa.name || '').replace(/"/g, '&quot;');
+        const emailHidden = sa && sa.email
+          ? ` data-subarea-email="${String(sa.email).replace(/"/g, '&quot;')}"`
+          : '';
+        return `<option value="${name}"${emailHidden}>${name}</option>`;
+      })
+      .join('');
+    sel.innerHTML = `<option value="" data-i18n="sub_area_placeholder">-- Select Sub Area --</option>` + options;
+    wrap.classList.remove('d-none');
+    sel.value = '';
+    const numberInput = document.getElementById('subAreaNumberInput');
+    if (numberInput) numberInput.value = '';
+  };
+
+  if (window.CachedDataVal && Array.isArray(window.CachedDataVal.subAreas)) {
+    populate(window.CachedDataVal.subAreas);
+  } else {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        window.CachedDataVal = data || {};
+        populate((data && data.subAreas) || []);
+        if (typeof updateUI === 'function') updateUI();
+      })
+      .withFailureHandler(function(err) {
+        console.warn("Failed to load Sub Areas:", err);
+      })
+      .getValidationData();
+  }
+};
+
+
+// ============================================
+// SOLICITATED BY SELECTOR
+// Data source: People sheet via getPeople() (InvMovGS.js),
+// same pattern as loadPeopleCache() in InvMovJS.html.
+// Only active people are listed; defaults to the logged-in user.
+// ============================================
+window.loadSolicitedByOptions = window.loadSolicitedByOptions || function() {
+  const sel = document.getElementById('solicitedBySelect');
+  if (!sel) return;
+
+  const populate = function(people) {
+    const active = (people || []).filter(function(p) {
+      return p && p.name && (p.active === true || String(p.active).toUpperCase() === "TRUE");
+    });
+
+    // Rebuild options (destroy any previous Choices instance first, same
+    // pattern as buildPeopleSelect() in InvMovJS.html)
+    if (sel.choicesInstance) {
+      sel.choicesInstance.destroy();
+      sel.choicesInstance = null;
+    }
+    const options = active.map(function(p) {
+      const name = String(p.name).replace(/"/g, '&quot;');
+      return '<option value="' + name + '">' + name + '</option>';
+    }).join('');
+    sel.innerHTML = '<option value="">-- Select Solicitated By --</option>' + options;
+
+    // Enhance as searchable combobox.
+    // Choices' internal Fuse search is order-sensitive ("john smi" would NOT
+    // match "Smith, John"), so we neutralize it (threshold 1 = pass-through)
+    // and do our own filtering on the 'search' event: the typed text is split
+    // into tokens and EVERY token must appear ANYWHERE in the name, so
+    // "jo smi" finds both "John Smith" and "Smithson, John" (partial + in-between).
+    if (typeof Choices !== 'undefined') {
+      sel.choicesInstance = new Choices(sel, {
+        searchEnabled: true,
+        itemSelectText: '',
+        shouldSort: false,
+        placeholder: true,
+        searchPlaceholderValue: 'Search person...',
+        noResultsText: 'No person found',
+        fuseOptions: { includeScore: true, threshold: 1 } // pass-through; filtering done below
+      });
+
+      const setPeopleChoices = function(list) {
+        sel.choicesInstance.setChoices(
+          [{ value: '', label: '-- Select Solicitated By --', placeholder: true }].concat(
+            list.map(function(p) {
+              return { value: String(p.name), label: String(p.name) };
+            })
+          ),
+          'value', 'label', true
+        );
+      };
+
+      if (!sel._solicitedSearchBound) {
+        sel._solicitedSearchBound = true;
+        sel.addEventListener('search', function(e) {
+          if (!sel.choicesInstance) return;
+          const query = e && e.detail ? e.detail.value : '';
+          const tokens = String(query || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+          const filtered = !tokens.length ? active : active.filter(function(p) {
+            const hay = String(p.name || '').toLowerCase();
+            return tokens.every(function(t) { return hay.indexOf(t) !== -1; });
+          });
+          setPeopleChoices(filtered);
+        });
+      }
+    }
+
+    // Default to the current logged-in user when present in the list
+    const user = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure'));
+    if (user && user.name && active.some(function(p) { return String(p.name) === String(user.name); })) {
+      if (sel.choicesInstance) {
+        sel.choicesInstance.setChoiceByValue(user.name);
+      } else {
+        sel.value = user.name;
+      }
+    }
+  };
+
+  if (window.solicitedByPeople && window.solicitedByPeople.length) {
+    populate(window.solicitedByPeople);
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(function(people) {
+      window.solicitedByPeople = people || [];
+      populate(window.solicitedByPeople);
+    })
+    .withFailureHandler(function(err) {
+      console.warn("Failed to load People for Solicitated By:", err);
+    })
+    .getPeople();
+};
+
+// Resolves "Solicitated By" from the dropdown, falling back to the logged-in user
+window.getSolicitedBy = window.getSolicitedBy || function(user) {
+  const sel = document.getElementById('solicitedBySelect');
+  const chosen = sel ? String(sel.value || '').trim() : '';
+  if (chosen) return chosen;
+  return (user && user.name) ? user.name : "User";
+};
+
+// Per-item notes are entered in the cart for every site.
+//   Item Notes     -> internal
+//   Supplier Notes -> printed in the supplier RFQ (quote request) email.
+window.isWorkshopSite = window.isWorkshopSite || function() {
+  const siteSelect = document.getElementById('siteSelect');
+  return siteSelect ? String(siteSelect.value || '').trim().toLowerCase() === 'workshop' : false;
+};
+
+// Updates one cart row's item note without re-rendering (keeps typing focus).
+window.setCartItemNotes = window.setCartItemNotes || function(idx, value) {
+  window.cart = window.cart || [];
+  if (window.cart[idx]) window.cart[idx].itemNotes = String(value == null ? '' : value);
+};
+
+window.setCartSupplierNotes = window.setCartSupplierNotes || function(idx, value) {
+  window.cart = window.cart || [];
+  if (window.cart[idx]) window.cart[idx].supplierNotes = String(value == null ? '' : value);
+};
+
+window.addItemToCart = window.addItemToCart || async function(id) {
+  const item = (window.fullInventory || []).find(i => i.id === id);
+  if (!item) return;
+
+  console.log("if bundle, then its category", item.category, id);
+  
+  // =========================
+  // BUNDLE HANDLING
+  // =========================
+  if (item.type === "bundle") {
+    google.script.run
+      .withSuccessHandler(async function(bundleItems) {
+        window.cart = window.cart || [];
+
+        // Check if any bundle item would exceed site Max
+        const overMaxItems = (bundleItems || []).filter(bItem => {
+          const existing = window.cart.find(c => c.geo === bItem.geo);
+          const newTotal = (existing ? existing.qty : 0) + bItem.qty;
+          return window.isBeyondMax(bItem.geo, newTotal);
+        });
+
+        if (overMaxItems.length > 0) {
+          const geoList = overMaxItems.map(b => b.geo).join(', ');
+          const proceed = await Swal.fire({
+            icon: 'warning',
+            title: `${getI18nText('minmax_beyond_max_title') || 'Exceeds Maximum'}`,
+            html: `<small>${getI18nText('minmax_beyond_max_bundle') || 'Some bundle items exceed Max'}: <strong>${geoList}</strong></small>`,
+            showCancelButton: true,
+            confirmButtonText: getI18nText('minmax_beyond_max_confirm') || 'Add Anyway',
+            cancelButtonText: getI18nText('btn_cancel') || 'Cancel'
+          }).then(r => r.isConfirmed);
+          if (!proceed) return;
+        }
+
+        bundleItems.forEach(bItem => {
+          const existing = window.cart.find(c => c.geo === bItem.geo);
+          console.log("Bundle item geo: ", bItem.geo);
+          if (existing) {
+            existing.qty += bItem.qty;
+          } else {
+            window.cart.push({
+              ...bItem,
+              qty: bItem.qty,
+              itemNotes: ""
+            });
+          }
+        });
+        console.log("BUNDLE ITEMS:", bundleItems);
+        window.updateCartUI();
+
+        Swal.fire(
+          "Bundle Added",
+          `${bundleItems.length} items added from bundle`,
+          "success"
+        );
+      })
+      .withFailureHandler(function(err) {
+        Swal.fire(i18n("msg_error"), String(err), "error");
+      })
+      .getBundleItems(item.bundleId);
+    
+    return;
+  }
+
+  // =========================
+  // NORMAL ITEM HANDLING
+  // =========================
+  const qtyInput = document.getElementById('q_' + id);
+  if (!qtyInput) return;
+
+  const qtyToAdd = parseInt(qtyInput.value);
+  if (qtyToAdd <= 0) return;
+
+  window.cart = window.cart || [];
+  const existing = window.cart.find(c => c.geo === item.geo);
+  const newTotalQty = (existing ? existing.qty : 0) + qtyToAdd;
+
+  // Blocking confirmation: if the requisition would exceed site Max, ask user to confirm
+  if (window.isBeyondMax(item.geo, newTotalQty)) {
+    const mm = window.getMinMaxForProduct(item.geo);
+    const stock = Number(window.liveStockMap && window.liveStockMap[item.geo]) || 0;
+    const proceed = await Swal.fire({
+      icon: 'warning',
+      title: `${item.geo}: ${getI18nText('minmax_beyond_max_title') || 'Exceeds Maximum'}`,
+      html: `<small>${getI18nText('minmax_beyond_max_text') || 'Projected stock'} <strong>${stock + newTotalQty}</strong> ${getI18nText('minmax_beyond_max_limit') || 'exceeds Max'} <strong>${mm.max}</strong>.</small>`,
+      showCancelButton: true,
+      confirmButtonText: getI18nText('minmax_beyond_max_confirm') || 'Add Anyway',
+      cancelButtonText: getI18nText('btn_cancel') || 'Cancel'
+    }).then(r => r.isConfirmed);
+    if (!proceed) return;
+  }
+
+  // Per-site Min/Max check (non-blocking warning): alert when the requisition
+  // will not bring the site up to its minimum stock level.
+  if (window.isBelowMin(item.geo, newTotalQty)) {
+    const mm = window.getMinMaxForProduct(item.geo);
+    const stock = Number(window.liveStockMap && window.liveStockMap[item.geo]) || 0;
+    const suggest = window.suggestedQtyFor(item.geo);
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'warning',
+      title: `${item.geo}: ${getI18nText('minmax_below_min_warn')}`.replace('{min}', mm.min).replace('{proj}', stock + newTotalQty).replace('{sugg}', suggest),
+      showConfirmButton: false,
+      timer: 5000
+    });
+  }
+
+  if (existing) {
+    existing.qty += qtyToAdd;
+  } else {
+    window.cart.push({
+      geo: item.geo,
+      pn: item.pn,
+      en: item.en,
+      es: item.es,
+      category: item.category,
+      qty: qtyToAdd,
+      id: item.id,
+      itemNotes: "",
+      supplierNotes: ""
+    });
+  }
+
+  qtyInput.value = 1;
+  window.updateCartUI();
+};
+
+
+window.updateCartUI = window.updateCartUI || function() {
+  const body = document.getElementById('cartBody');
+  const btn = document.getElementById('btnSubmit');
+  const btnDraft = document.getElementById('btnSaveDraft');
+  const btnDrafts = document.getElementById('btnDrafts');
+  const currentCart = window.cart || [];
+  
+  if (btn) btn.disabled = (currentCart.length === 0);
+  if (btnDraft) btnDraft.disabled = (currentCart.length === 0);
+  if (btnDrafts) btnDrafts.disabled = false; // Will be updated by updateDraftCount
+  if (!body) return;
+
+  // Per-item note columns are available for EVERY site:
+  //   Item Notes     -> internal only
+  //   Supplier Notes -> supplier RFQ email
+  ['cartNotesTh', 'cartSupplierNotesTh'].forEach(function(id) {
+    const th = document.getElementById(id);
+    if (th) th.style.display = '';
+  });
+
+  body.innerHTML = currentCart.map((c, idx) => {
+    const belowMin = window.isBelowMin ? window.isBelowMin(c.geo, c.qty) : false;
+    const beyondMax = window.isBeyondMax ? window.isBeyondMax(c.geo, c.qty) : false;
+    const rowClass = beyondMax ? 'table-danger' : (belowMin ? 'table-warning' : '');
+    const warningIcon = beyondMax
+      ? ' <i class="bi bi-exclamation-octagon-fill text-danger" title="' + (getI18nText('minmax_beyond_max_title') || 'Exceeds Maximum') + '"></i>'
+      : (belowMin ? ' <i class="bi bi-exclamation-triangle text-warning" title="' + getI18nText('minmax_below_min_warn') + '"></i>' : '');
+    const noteVal = String(c.itemNotes == null ? '' : c.itemNotes).replace(/"/g, '&quot;');
+    const supplierNoteVal = String(c.supplierNotes == null ? '' : c.supplierNotes).replace(/"/g, '&quot;');
+    return `
+    <tr${rowClass ? ' class="' + rowClass + '"' : ''}>
+      <td class="fw-bold">${c.geo}${warningIcon}</td>
+      <td>${c.pn}</td>
+      <td><small>${c.es || c.en}</small></td>
+      <td class="text-center"><strong>${c.qty}</strong>${beyondMax ? ' <span class="badge bg-danger ms-1" style="font-size:9px">OVER MAX</span>' : ''}</td>
+      <td><input type="text" class="form-control form-control-sm cart-item-notes" data-idx="${idx}" maxlength="500" placeholder="${getI18nText('item_notes_placeholder') || 'Notes for this item...'}" value="${noteVal}" oninput="window.setCartItemNotes(${idx}, this.value)"></td>
+      <td><input type="text" class="form-control form-control-sm cart-supplier-notes" data-idx="${idx}" maxlength="500" placeholder="${getI18nText('supplier_notes_placeholder') || 'Notes to send to the supplier...'}" value="${supplierNoteVal}" oninput="window.setCartSupplierNotes(${idx}, this.value)"></td>
+      <td class="text-end">
+        <button class="btn btn-sm text-danger" onclick="window.removeItemFromCart(${idx})">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+};
+
+window.removeItemFromCart = window.removeItemFromCart || function(idx) {
+  if (window.cart) {
+    window.cart.splice(idx, 1);
+    window.updateCartUI();
+  }
+};
+
+
+// =========================
+// DRAFT SYSTEM
+// =========================
+
+// Track if we're currently editing a draft
+window.currentDraftId = null;
+
+window.saveAsDraft = window.saveAsDraft || function() {
+  const currentCart = window.cart || [];
+  const user = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure'));
+  const siteSelect = document.getElementById('siteSelect');
+  const btn = document.getElementById('btnSaveDraft');
+
+  const finalSite = siteSelect ? siteSelect.value : '';
+  const subAreaSel = document.getElementById('subAreaSelect');
+  const finalSubArea = subAreaSel ? subAreaSel.value : '';
+  const subAreaNumberEl = document.getElementById('subAreaNumberInput');
+  const finalSubAreaNumber = subAreaNumberEl ? String(subAreaNumberEl.value || '').trim() : '';
+
+  if (!finalSite) return Swal.fire(i18n("msg_error"), i18n("select_person"), "error");
+  if (currentCart.length === 0) return Swal.fire(i18n("msg_error"), i18n("cart_empty"), "error");
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + getI18nText('draft_saving');
+  }
+
+  const grouped = currentCart.reduce((acc, item) => {
+    const cat = (item.category || "General").toUpperCase();
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {});
+
+  const categories = Object.keys(grouped);
+
+  const shipments = categories.map(cat => ({
+    to: "",
+    subject: getI18nText('email_preview_requirement_prefix') + cat,
+    // Notes typed in the preview "Additional Message (Body)" (kept in
+    // window.draftNotes because the modal can be closed before saving a draft)
+    body: (window.collectPreviewNotes ? window.collectPreviewNotes() : (window.draftNotes || "")) || "Internal Requirement Generated",
+    category: cat,
+    items: grouped[cat],
+    site: finalSite,
+    subArea: finalSubArea,
+    subAreaNumber: finalSubAreaNumber,
+    userName: window.getSolicitedBy(user),
+    currentUserEmail: user ? user.email : ''
+  }));
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-pencil-square me-1"></i> ' + getI18nText('btn_save_draft');
+      }
+      if (res.success) {
+        Swal.fire(getI18nText('draft_saved'), getI18nText('draft_saved_desc'), 'success');
+        window.updateDraftCount();
+      } else {
+        Swal.fire(getI18nText('msg_error'), res.message, 'error');
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-pencil-square me-1"></i> ' + getI18nText('btn_save_draft');
+      }
+      Swal.fire(getI18nText('msg_error'), String(err), 'error');
+    })
+    .saveDraft(shipments);
+};
+
+
+window.updateDraftCount = window.updateDraftCount || function() {
+  google.script.run
+    .withSuccessHandler(function(drafts) {
+      const badge = document.getElementById('draftCount');
+      const btnDrafts = document.getElementById('btnDrafts');
+      if (drafts && drafts.length > 0) {
+        if (badge) {
+          badge.textContent = drafts.length;
+          badge.style.display = 'inline';
+        }
+        if (btnDrafts) btnDrafts.disabled = false;
+      } else {
+        if (badge) badge.style.display = 'none';
+        if (btnDrafts) btnDrafts.disabled = true;
+      }
+    })
+    .getDrafts();
+};
+
+
+window.openDraftsModal = window.openDraftsModal || function() {
+  google.script.run
+    .withSuccessHandler(function(drafts) {
+      if (!drafts || drafts.length === 0) {
+        Swal.fire(getI18nText('drafts_none'), getI18nText('drafts_none_desc'), 'info');
+        return;
+      }
+
+      let html = '<div class="list-group text-start" style="max-height: 400px; overflow-y: auto;">';
+      drafts.forEach(function(draft) {
+        const date = new Date(draft.fecha).toLocaleString();
+        const itemCount = draft.items ? draft.items.length : 0;
+        html += `
+          <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+              <div class="fw-bold text-primary">${draft.draftId}</div>
+              <small class="text-muted">${draft.site} | ${draft.category} | ${itemCount} ${getI18nText('draft_items_label')} | ${date}</small>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-primary" onclick="window.loadDraft('${draft.draftId}')">
+                <i class="bi bi-pencil"></i> ${getI18nText('draft_load')}
+              </button>
+              <button class="btn btn-sm btn-outline-danger" onclick="window.deleteDraft('${draft.draftId}')">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+
+      Swal.fire({
+        title: getI18nText('drafts_title'),
+        html: html,
+        width: '600px',
+        showConfirmButton: true,
+        confirmButtonText: getI18nText('btn_close')
+      });
+    })
+    .getDrafts();
+};
+
+
+window.loadDraft = window.loadDraft || function(draftId) {
+  google.script.run
+    .withSuccessHandler(function(drafts) {
+      const draft = drafts.find(d => d.draftId === draftId);
+      if (!draft) {
+        Swal.fire(getI18nText('msg_error'), getI18nText('draft_not_found'), 'error');
+        return;
+      }
+
+      // Load items into cart
+      window.cart = draft.items.map(function(item) {
+        return {
+          geo: item.geo,
+          pn: item.pn,
+          es: item.es || item.desc,
+          en: item.es || item.desc,
+          qty: item.qty,
+          category: draft.category,
+          // Per-item notes (Workshop): restore what was typed before saving the draft
+          itemNotes: item.itemNotes || ""
+        };
+      });
+
+      // Keep the notes that were typed before the draft was saved so the
+      // preview editor can be re-hydrated with them (see continueFinalizeReq)
+      window.draftNotes = draft.notes || "";
+
+      // Set site
+      const siteSelect = document.getElementById('siteSelect');
+      if (siteSelect && draft.site) {
+        siteSelect.value = draft.site;
+        if (typeof window.refreshLiveStock === 'function') window.refreshLiveStock();
+      }
+
+      // Set subArea if present
+      if (draft.subArea) {
+        const subAreaSelect = document.getElementById('subAreaSelect');
+        if (subAreaSelect) {
+          subAreaSelect.value = draft.subArea;
+        }
+      }
+
+      // Update UI
+      if (window.updateCartUI) window.updateCartUI();
+
+      // Track that we're editing this draft
+      window.currentDraftId = draftId;
+
+      // Update button to indicate draft mode
+      const btnSubmit = document.getElementById('btnSubmit');
+      if (btnSubmit) {
+        btnSubmit.innerHTML = '<i class="bi bi-eye me-2"></i> ' + getI18nText('preview_email');
+      }
+
+      // Close the drafts modal if open
+      if (Swal.isVisible()) Swal.close();
+
+      Swal.fire(getI18nText('draft_loaded'), getI18nText('draft_loaded_desc'), 'success');
+    })
+    .getDrafts();
+};
+
+
+window.deleteDraft = window.deleteDraft || function(draftId) {
+  Swal.fire({
+    title: getI18nText('draft_delete_confirm'),
+    text: getI18nText('draft_delete_warning'),
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: getI18nText('btn_delete'),
+    cancelButtonText: getI18nText('btn_cancel')
+  }).then((result) => {
+    if (result.isConfirmed) {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.success) {
+            Swal.fire(getI18nText('msg_success'), getI18nText('draft_deleted'), 'success');
+            window.updateDraftCount();
+          } else {
+            Swal.fire(getI18nText('msg_error'), res.message, 'error');
+          }
+        })
+        .deleteDraftRows(draftId);
+    }
+  });
+};
+
+
+window.finalizeReq = window.finalizeReq || function() {
+  const currentCart = window.cart || [];
+  const user = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure'));
+  const siteSelect = document.getElementById('siteSelect');
+  const btn = document.getElementById('btnSubmit');
+
+  // Pulled strictly from the UI dropdown selection
+  const finalSite = siteSelect ? siteSelect.value : '';
+  const subAreaSel = document.getElementById('subAreaSelect');
+  const finalSubArea = subAreaSel ? subAreaSel.value : '';
+  const subAreaNumberEl = document.getElementById('subAreaNumberInput');
+  const finalSubAreaNumber = subAreaNumberEl ? String(subAreaNumberEl.value || '').trim() : '';
+
+  if (!finalSite) return Swal.fire(i18n("msg_error"), i18n("select_person"), "error");
+  if (currentCart.length === 0) return Swal.fire(i18n("msg_error"), i18n("cart_empty"), "error");
+
+  // Workshop + SubArea selected => the SubArea folio number is required
+  // (backend builds "SUFFIX-0000156" and hard-blocks duplicates)
+  if (finalSite.toLowerCase() === 'workshop' && finalSubArea && !/^\d{1,7}$/.test(finalSubAreaNumber)) {
+    return Swal.fire(i18n("msg_error"), i18n("sub_area_number_required"), "error");
+  }
+
+  // If editing a draft, delete the draft rows first then continue
+  if (window.currentDraftId) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + getI18nText('draft_finalizing');
+    
+    const draftIdToDelete = window.currentDraftId;
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          window.currentDraftId = null;
+          btn.innerHTML = '<i class="bi bi-eye me-2"></i> ' + getI18nText('preview_email');
+          window.updateDraftCount();
+          // Continue with normal flow after draft deletion
+          continueFinalizeReq(currentCart, user, finalSite, finalSubArea, finalSubAreaNumber, btn);
+        } else {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-eye me-2"></i> ' + getI18nText('preview_email');
+          Swal.fire(getI18nText('msg_error'), res.message, 'error');
+        }
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-eye me-2"></i> ' + getI18nText('preview_email');
+        Swal.fire(getI18nText('msg_error'), String(err), 'error');
+      })
+      .deleteDraftRows(draftIdToDelete);
+    return;
+  }
+
+  // Normal flow (not editing a draft)
+  continueFinalizeReq(currentCart, user, finalSite, finalSubArea, finalSubAreaNumber, btn);
+};
+
+
+// ============================================================
+// CATEGORY ASSIGNMENT (bulk dialog for uncategorized items)
+// Items with no category fall into "General" and generate a stray
+// General email. Instead we ask the user to assign them to a real
+// category (e.g. OPERACIONES / MANTENIMIENTO) with multi-select.
+// ============================================================
+window.GENERAL_TOKENS = window.GENERAL_TOKENS || ["", "general", "generica", "generico", "sin categoria", "sin cat", "uncategorized", "varios", "n/a", "na", "none", "-"];
+
+window.isGeneralCategory = window.isGeneralCategory || function(cat) {
+  return window.GENERAL_TOKENS.indexOf(String(cat || "").trim().toLowerCase()) !== -1;
+};
+
+window.getValidCategories = window.getValidCategories || function(extraCats) {
+  const names = [];
+  const push = function(n) {
+    const s = String(n || "").trim();
+    if (!s || window.isGeneralCategory(s)) return;
+    const up = s.toUpperCase();
+    if (names.indexOf(up) === -1) names.push(up);
+  };
+  const fromCache = (window.CachedDataVal && Array.isArray(window.CachedDataVal.categories))
+    ? window.CachedDataVal.categories : [];
+  fromCache.forEach(function(c) { push(c && (c.name || c)); });
+  (extraCats || []).forEach(push);
+  push("OPERACIONES");
+  push("MANTENIMIENTO");
+  return names.sort();
+};
+
+window.ensureCategoriesLoaded = window.ensureCategoriesLoaded || function() {
+  return new Promise(function(resolve) {
+    const cached = window.CachedDataVal && Array.isArray(window.CachedDataVal.categories)
+      ? window.CachedDataVal.categories : [];
+    if (cached.length) { resolve(window.getValidCategories()); return; }
+    try {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          try { window.CachedDataVal = data || {}; } catch (e) {}
+          resolve(window.getValidCategories());
+        })
+        .withFailureHandler(function() { resolve(window.getValidCategories()); })
+        .getValidationData();
+    } catch (e) { resolve(window.getValidCategories()); }
+  });
+};
+
+window.promptAssignCategories = window.promptAssignCategories || function(items, validCats) {
+  const escH = function(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  };
+  const options = validCats.map(function(c) {
+    return '<option value="' + escH(c) + '">' + escH(c) + '</option>';
+  }).join("");
+  const rows = items.map(function(it, i) {
+    const es = escH(it.es || "");
+    const en = escH(it.en || "");
+    const descCell = (es ? '<div class="fw-bold">' + es + '</div>' : '') +
+      (en ? '<div class="text-muted fst-italic" style="font-size:11px">' + en + '</div>' : '') +
+      ((!es && !en) ? '<span class="text-muted">â€”</span>' : '');
+    return '<tr data-row="' + i + '"><td class="text-center align-middle"><input type="checkbox" class="cat-check form-check-input" checked></td>' +
+      '<td class="fw-bold align-middle" style="white-space:nowrap">' + escH(it.geo || "") + '</td>' +
+      '<td class="align-middle" style="white-space:nowrap">' + escH(it.pn || "") + '</td>' +
+      '<td class="small align-middle" style="min-width:280px">' + descCell + '</td>' +
+      '<td class="text-center align-middle" style="white-space:nowrap"><strong>' + escH(it.qty) + '</strong></td>' +
+      '<td class="align-middle"><select class="form-select form-select-sm cat-sel"><option value="">--</option>' + options + '</select></td></tr>';
+  }).join("");
+  return Swal.fire({
+    title: "Asignar categoria (" + items.length + " sin categoria)",
+    html: '<div class="text-start"><p class="small text-muted mb-2">Estos productos generarian un email <b>General</b>. ' +
+      'Marca varios y asignales categoria antes de previsualizar.</p>' +
+      '<div class="d-flex gap-2 align-items-center mb-2 flex-wrap">' +
+      '<button type="button" id="catAll" class="btn btn-sm btn-outline-secondary">Todos</button>' +
+      '<button type="button" id="catNone" class="btn btn-sm btn-outline-secondary">Ninguno</button>' +
+      '<select id="catBulk" class="form-select form-select-sm" style="max-width:200px"><option value="">-- masiva --</option>' + options + '</select>' +
+      '<button type="button" id="catApply" class="btn btn-sm btn-primary">Aplicar a marcados</button></div>' +
+      '<div style="max-height:340px;overflow-y:auto;border:1px solid #dee2e6;border-radius:6px">' +
+      '<table class="table table-sm mb-0"><thead class="table-light" style="position:sticky;top:0;z-index:1"><tr>' +
+      '<th style="width:36px"><input type="checkbox" id="catCheckAll" class="form-check-input" checked></th>' +
+      '<th>Geo</th><th>P/N</th><th style="min-width:280px">Descripcion (ES / EN)</th><th>Cant.</th><th style="width:200px">Categoria</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div id="catWarn" class="text-danger small mt-2" style="display:none">Falta categoria en algun producto.</div></div>',
+    width: "1000px",
+    showCancelButton: true,
+    confirmButtonText: "Asignar y continuar",
+    cancelButtonText: "Cancelar",
+    focusConfirm: false,
+    didOpen: function() {
+      const root = Swal.getHtmlContainer();
+      if (!root) return;
+      const all = function(s) { return root.querySelectorAll(s); };
+      const checkAll = root.querySelector("#catCheckAll");
+      const setAll = function(v) { all(".cat-check").forEach(function(c) { c.checked = v; }); if (checkAll) checkAll.checked = v; };
+      root.querySelector("#catAll").onclick = function() { setAll(true); };
+      root.querySelector("#catNone").onclick = function() { setAll(false); };
+      if (checkAll) checkAll.onchange = function() { setAll(checkAll.checked); };
+      root.querySelector("#catApply").onclick = function() {
+        const bulk = root.querySelector("#catBulk");
+        const v = bulk ? bulk.value : "";
+        if (!v) return;
+        all("tr[data-row]").forEach(function(tr) {
+          if (tr.querySelector(".cat-check").checked) tr.querySelector(".cat-sel").value = v;
+        });
+      };
+    },
+    preConfirm: function() {
+      const root = Swal.getHtmlContainer();
+      const out = [];
+      let missing = 0;
+      root.querySelectorAll("tr[data-row]").forEach(function(tr) {
+        const idx = Number(tr.getAttribute("data-row"));
+        const sel = tr.querySelector(".cat-sel");
+        const v = sel ? String(sel.value || "").trim().toUpperCase() : "";
+        if (!v || window.isGeneralCategory(v)) missing++;
+        else out.push({ index: idx, category: v });
+      });
+      if (!out.length || missing > 0) {
+        const w = root.querySelector("#catWarn");
+        if (w) w.style.display = "block";
+        Swal.showValidationMessage("Asigna una categoria valida a todos (no General).");
+        return false;
+      }
+      return out;
+    }
+  }).then(function(r) { return r.isConfirmed ? (r.value || []) : null; });
+};
+
+window.continueFinalizeReq = window.continueFinalizeReq || function continueFinalizeReq(currentCart, user, finalSite, finalSubArea, finalSubAreaNumber, btn) {
+  const enrichedCart = currentCart.map(item => {
+    const inv = window.inventory || window.fullInventory || [];
+    const product = inv.find(p => String(p.geo) === String(item.geo)) || {};
+    return {
+      ...item,
+      es: product.es || item.es || item.desc || "",
+      en: product.en || item.en || "",
+      // Per-item notes stay untouched through enrichment (spread already keeps
+      // them, but normalize here so every cart item always carries the field).
+      itemNotes: item.itemNotes || "",
+      category: (product.category && String(product.category).trim()) || item.category || ""
+    };
+  });
+
+  // --- 1b. Uncategorized gate (bulk multi-select dialog) ---
+  const uncategorized = enrichedCart
+    .map(function(it, idx) { return { it: it, idx: idx }; })
+    .filter(function(x) { return window.isGeneralCategory(x.it.category); });
+  const startGrouping = function(finalCart) {
+  // --- 2. Group by Category ---
+  const grouped = finalCart.reduce((acc, item) => {
+    const raw = String(item.category || "").trim();
+    const cat = (window.isGeneralCategory(raw) ? "General" : raw).toUpperCase();
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {});
+
+  const categories = Object.keys(grouped);
+  
+  // --- 3. Check Configuration ---
+  const configArray = window.globalConfig || [];
+  const isEnabled = (val) => val === true || val === "TRUE" || val === 1 || val === "1";
+
+  const getFlag = (featureName) => {
+    const item = configArray.find(obj => obj.feature === featureName);
+    const val = item ? item.status : "FALSE";
+    return isEnabled(val);
+  };
+
+  const flags = {
+    reqEmail: getFlag('reqEmailEnabled'),
+    reqPdf:   getFlag('reqPdfEnabled'),
+    quoEmail: getFlag('quoEmailEnabled'),
+    quoPdf:   getFlag('quoPdfEnabled')
+  };
+
+  // --- PATH A: Email is DISABLED (Direct Processing) ---
+  if (!flags.reqEmail) {
+    if (confirm(getI18nText('email_disabled_confirm'))) {
+      btn.innerText = getI18nText('email_processing');
+      btn.disabled = true;
+      
+      const shipments = categories.map(cat => ({
+        to: "", 
+        subject: getI18nText('email_preview_requirement_prefix') + cat, 
+        body: "Internal Requirement Generated", 
+        category: cat, 
+        items: grouped[cat], 
+        site: finalSite,
+        subArea: finalSubArea,
+        subAreaNumber: finalSubAreaNumber,
+        userName: window.getSolicitedBy(user),
+        currentUserEmail: user ? user.email : ''
+      }));
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.success) {
+            const modalEl = document.getElementById('emailModal');
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+            window.showDirectSuccessUI(res, btn); 
+          } else {
+            Swal.fire(getI18nText('msg_error'), res.message, "error");
+            btn.innerText = getI18nText('btn_preview_email');
+            btn.disabled = false;
+          }
+        })
+        .processMassOrders(shipments);
+    }
+    return;
+  }
+
+  // --- PATH B: Email is ENABLED (Show Preview Modal) ---
+  btn.innerText = getI18nText('email_preparing');
+  btn.disabled = true;
+
+  const routingPromises = categories.map(cat => {
+    return new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(res => resolve({ 
+          category: cat, 
+          items: grouped[cat], 
+          ...res 
+        }))
+        .getRoutingPreview(finalSite, cat, user ? user.email : "", finalSubArea);
+    });
+  });
+
+  Promise.all(routingPromises).then(results => {
+    const previewContainer = document.getElementById('emailPreview');
+    let fullHtml = `<div class="alert alert-info py-2 small mb-3" data-i18n="email_preview_title"></div>`;
+
+    results.forEach((res, index) => {
+      const showNotesCol = res.items.some(i => String(i.itemNotes || '').trim());
+      const showSupplierNotesCol = res.items.some(i => String(i.supplierNotes || '').trim());
+      const itemsHtml = res.items.map(i => {
+        const noteCell = showNotesCol
+          ? `<td>${(window.notesToHtml ? window.notesToHtml(i.itemNotes || '') : (window.escapeHtml ? window.escapeHtml(i.itemNotes || '') : (i.itemNotes || ''))) || '—'}</td>`
+          : '';
+        const supplierNoteCell = showSupplierNotesCol
+          ? `<td>${(window.notesToHtml ? window.notesToHtml(i.supplierNotes || '') : (window.escapeHtml ? window.escapeHtml(i.supplierNotes || '') : (i.supplierNotes || ''))) || '—'}</td>`
+          : '';
+        return `
+        <tr>
+          <td>${i.geo}</td>
+          <td>${i.pn}</td>
+          <td>
+            <div class="fw-bold">${i.es}</div>
+            <div class="text-muted small" style="font-size:10px; font-style: italic;">${i.en}</div>
+          </td>
+          <td>${i.qty}</td>
+          ${noteCell}
+          ${supplierNoteCell}
+        </tr>
+      `; }).join('');
+      const notesTh = showNotesCol ? `<th data-i18n="email_preview_table_notes">Notes</th>` : '';
+      const supplierNotesTh = showSupplierNotesCol ? `<th data-i18n="email_preview_table_supplier_notes">Supplier Notes</th>` : '';
+
+      fullHtml += `
+        <div class="card mb-4 border-primary shipment-group" data-index="${index}">
+          <div class="card-header bg-primary text-white d-flex justify-content-between py-1">
+            <span class="small fw-bold"><span data-i18n="email_preview_email_label">EMAIL</span> ${index + 1}: ${res.category.toUpperCase()}</span>
+          </div>
+          <div class="card-body p-3 bg-light">
+            <div class="mb-2">
+              <label class="small fw-bold text-muted" data-i18n="email_preview_to_label">To:</label>
+              <div class="edit-to" data-emails="${escAttr(res.routing ? res.routing.emails : '')}"></div>
+              <small class="text-muted">Type or paste emails â€” comma, space or Enter creates a block. <b>Ã—</b> removes, <b>double-click</b> edits.</small>
+            </div>
+            <div class="mb-2">
+              <label class="small fw-bold text-muted">Cc:</label>
+              <div class="edit-cc" data-emails=""></div>
+            </div>
+            <div class="mb-2">
+              <label class="small fw-bold text-muted" data-i18n="email_preview_subject_label">Subject:</label>
+              <input type="text" class="form-control form-control-sm edit-subject" value="${getI18nText('email_preview_requirement_prefix')}${res.category.toUpperCase()} - ${res.routing ? res.routing.suffix : ''}" data-i18n-placeholder="email_preview_subject_placeholder">
+            </div>
+            <div class="mb-3">
+              <label class="small fw-bold text-muted" data-i18n="email_preview_body_label">Additional Message (Body):</label>
+              <div class="btn-group btn-group-sm mb-1" role="toolbar" aria-label="Format body">
+                <button type="button" class="btn btn-outline-secondary" onclick="window.execBodyCmd(this,'bold')"><b>B</b></button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.execBodyCmd(this,'italic')"><i>I</i></button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.execBodyCmd(this,'underline')"><u>U</u></button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.execBodyCmd(this,'insertUnorderedList')">â€¢ List</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.execBodyCmd(this,'insertOrderedList')">1. List</button>
+              </div>
+              <div class="form-control form-control-sm edit-body-rich" contenteditable="true" style="min-height:70px; background:#fff;" data-i18n-placeholder="email_preview_body_placeholder"></div>
+            </div>
+
+            <div class="table-container" style="border: 1px solid #ddd; border-radius: 4px;">
+              <table class="table table-sm table-bordered bg-white mb-0" style="font-size:11px;">
+                <thead class="table-secondary">
+                  <tr>
+                    <th style="width: 15%" data-i18n="email_preview_table_geo">Geo</th>
+                    <th style="width: 20%" data-i18n="email_preview_table_pn">P/N</th>
+                    <th data-i18n="email_preview_table_desc">Description</th>
+                    <th style="width: 10%" data-i18n="email_preview_table_qty">Qty</th>
+                    ${notesTh}
+                    ${supplierNotesTh}
+                  </tr>
+                </thead>
+                <tbody>${itemsHtml}</tbody>
+              </table>
+            </div>
+
+            <div class="mt-2">
+              <label class="small fw-bold text-muted" data-i18n="email_preview_signature_label">Signature:</label>
+              <div class="border p-2 bg-white edit-signature" contenteditable="true" style="min-height:60px; font-size:11px;">
+                ${res.signature || ""}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    window.currentShipments = results;
+    previewContainer.innerHTML = fullHtml;
+
+    // Hydrate Gmail-style chip fields (To + Cc) for each shipment card
+    previewContainer.querySelectorAll('.shipment-group').forEach(function(card) {
+      const toBox = card.querySelector('.edit-to');
+      if (toBox && !toBox._chipApi && typeof window.createEmailChipField === 'function') {
+        window.createEmailChipField(toBox, toBox.getAttribute('data-emails') || '');
+      }
+      const ccBox = card.querySelector('.edit-cc');
+      if (ccBox && !ccBox._chipApi && typeof window.createEmailChipField === 'function') {
+        window.createEmailChipField(ccBox, ccBox.getAttribute('data-emails') || '');
+      }
+
+            // Setup email autocomplete on To/CC inputs
+      const toInput = toBox.querySelector('.email-chip-input');
+      const ccInput = ccBox.querySelector('.email-chip-input');
+      if (toInput && typeof window.setupEmailAutocomplete === 'function') {
+        window.setupEmailAutocomplete(toInput);
+      }
+      if (ccInput && typeof window.setupEmailAutocomplete === 'function') {
+        window.setupEmailAutocomplete(ccInput);
+      }
+
+// Re-hydrate the notes ("Additional Message (Body)") typed before the
+      // draft was saved, and keep window.draftNotes in sync while typing so
+      // Save Draft / a re-generated preview never lose them.
+      const bodyBox = card.querySelector('.edit-body-rich');
+      if (bodyBox) {
+        const prefill = String(window.draftNotes || '').trim();
+        if (prefill && !bodyBox.innerHTML.trim()) {
+          bodyBox.innerHTML = window.sanitizeNotesHtml ? window.sanitizeNotesHtml(prefill) : prefill;
+        }
+        bodyBox.addEventListener('input', function() {
+          if (typeof window.collectPreviewNotes === 'function') window.collectPreviewNotes();
+        });
+      }
+    });
+    
+    // Apply translations to dynamically generated content
+    if (typeof updateUI === 'function') {
+      updateUI();
+    }
+    
+    const emailModal = new bootstrap.Modal(document.getElementById('emailModal'));
+    emailModal.show();
+    
+    btn.innerText = getI18nText('btn_preview_email');
+    btn.disabled = false;
+  });
+  }; // end startGrouping
+
+  if (!uncategorized.length) { startGrouping(enrichedCart); return; }
+  window.ensureCategoriesLoaded().then(function(validCats) {
+    const dialogItems = uncategorized.map(function(x) {
+      return { geo: x.it.geo, pn: x.it.pn, es: x.it.es, en: x.it.en, qty: x.it.qty };
+    });
+    window.promptAssignCategories(dialogItems, validCats).then(function(assign) {
+      if (!assign) return; // user cancelled -> stay on cart, no preview
+      assign.forEach(function(a) {
+        const target = uncategorized[a.index];
+        if (target) enrichedCart[target.idx].category = a.category;
+      });
+      // Also persist choice back to the live cart so a second preview keeps it
+      try {
+        assign.forEach(function(a) {
+          const target = uncategorized[a.index];
+          if (!target) return;
+          const c = (currentCart || []).find(function(ci) { return String(ci.geo) === String(target.it.geo); });
+          if (c) c.category = a.category;
+        });
+        if (window.updateCartUI) window.updateCartUI();
+      } catch (e) {}
+      startGrouping(enrichedCart);
+    });
+  });
+};
+
+window.showDirectSuccessUI = window.showDirectSuccessUI || function(res, mainBtn) {
+  const modalBody = document.querySelector('#emailModal .modal-body');
+  const btnFinal = document.getElementById('btnConfirmSend') || document.getElementById('btnFinalConfirm');
+
+  modalBody.innerHTML = `
+    <div class="text-center p-3">
+      <div class="mb-3">
+          <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+      </div>
+      <h4 class="fw-bold mt-2" data-i18n="email_direct_success">Requirements Generated!</h4>
+      <p class="text-muted small" data-i18n="email_direct_subtitle">Documents have been saved to Drive.</p>
+      <hr>
+      <div id="pdfDownloadList" class="text-start"></div>
+    </div>`;
+
+  // Apply translations to dynamically generated content
+  if (typeof updateUI === 'function') {
+    updateUI();
+  }
+
+  const downloadList = document.getElementById('pdfDownloadList');
+  if (res.data && Array.isArray(res.data)) {
+    res.data.forEach(order => {
+      const div = document.createElement('div');
+      div.className = "d-flex justify-content-between align-items-center border rounded p-2 mb-2 bg-light";
+      div.innerHTML = `
+        <span class="small fw-bold">${order.orderId}</span>
+        <a href="${order.pdfUrl}" target="_blank" class="btn btn-danger btn-sm" data-i18n="email_pdf_download">
+          <i class="bi bi-file-pdf"></i> Download
+        </a>
+      `;
+      downloadList.appendChild(div);
+    });
+  }
+
+  if (btnFinal) {
+    btnFinal.innerText = getI18nText('btn_done_close');
+    btnFinal.className = "btn btn-primary px-4";
+    btnFinal.onclick = () => {
+      const modalEl = document.getElementById('emailModal');
+      const modal = bootstrap.Modal.getInstance(modalEl);
+      if (modal) modal.hide();
+
+      document.getElementById('searchResults').innerHTML = "";
+      document.getElementById('itemSearch').value = "";
+      document.getElementById('itemSearch').focus();
+
+      if (window.refreshHistory) window.refreshHistory();
+    };
+  }
+  
+  if (mainBtn) {
+    mainBtn.innerText = getI18nText('btn_preview_email');
+    mainBtn.disabled = false;
+  }
+  
+  const subAreaNumberInput = document.getElementById('subAreaNumberInput');
+  if (subAreaNumberInput) subAreaNumberInput.value = '';
+  window.cart = [];
+  window.draftNotes = '';
+  if (window.updateCartUI) window.updateCartUI();
+};
+
+
+window.confirmAndSend = window.confirmAndSend || function() {
+  const btn =  document.getElementById('btnFinalConfirm');
+  const shipmentCards = document.querySelectorAll('.shipment-group');
+  const modalBody = document.querySelector('#emailModal .modal-body');
+  const modalFooter = document.querySelector('#emailModal .modal-footer');
+  
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + getI18nText('email_processing');
+  }
+
+  const user = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure'));
+  const siteSelect = document.getElementById('siteSelect');
+  
+  // Straight from the UI dropdown element
+  const finalSite = siteSelect ? siteSelect.value : '';
+  const subAreaSel = document.getElementById('subAreaSelect');
+  const finalSubArea = subAreaSel ? subAreaSel.value : '';
+  const subAreaNumberEl = document.getElementById('subAreaNumberInput');
+  const finalSubAreaNumber = subAreaNumberEl ? String(subAreaNumberEl.value || '').trim() : '';
+
+  const finalShipments = Array.from(shipmentCards).map(card => {
+    const idx = card.getAttribute('data-index');
+    const originalData = window.currentShipments[idx];
+    const signatureEl = card.querySelector('.edit-signature');
+    const signatureContent = signatureEl ? signatureEl.innerHTML : "";
+    const subjEl = card.querySelector('.edit-subject');
+    const bodyRichEl = card.querySelector('.edit-body-rich');
+    const bodyLegacyEl = card.querySelector('.edit-body');
+    // Chips: tolerant parse (comma/space/semicolon/newline) -> clean comma string
+    const toVal = window.getChipFieldValue(card, '.edit-to');
+    const ccVal = window.getChipFieldValue(card, '.edit-cc');
+    const toEmails = window.parseEmailsLoose(toVal);
+    const ccEmails = window.parseEmailsLoose(ccVal);
+    const badTo = toEmails.filter(function(e) { return !window.EMAIL_RE.test(e); });
+    const badCc = ccEmails.filter(function(e) { return !window.EMAIL_RE.test(e); });
+
+    return {
+      to: toEmails.join(', '),
+      cc: ccEmails.join(', '),
+      _badTo: badTo,
+      _badCc: badCc,
+      subject: subjEl ? subjEl.value : '',
+      // FIX #3: send user's formatted message as sanitized HTML (Graph contentType HTML)
+      body: window.formatBodyForEmail(bodyRichEl ? bodyRichEl.innerHTML : (bodyLegacyEl ? bodyLegacyEl.value : '')),
+      signature: signatureContent,
+      initialRecipientEmails: toEmails.join(', '),
+      category: originalData.category,
+      items: originalData.items,
+      site: finalSite,
+      subArea: finalSubArea,
+      subAreaNumber: finalSubAreaNumber,
+      userName: window.getSolicitedBy(user),
+      currentUserEmail: user ? user.email : ''
+    };
+  });
+
+  // FIX #2 (client guard): block send when To is empty or a chip is invalid.
+  // Server also re-sanitizes per-recipient, but we stop here with a clear message
+  // so one typo no longer silently kills the whole Graph send.
+  const badCards = [];
+  finalShipments.forEach(function(s, i) {
+    if (!s.to || !window.parseEmailsLoose(s.to).length) badCards.push({ i: i, reason: 'empty' });
+    else if ((s._badTo && s._badTo.length) || (s._badCc && s._badCc.length)) {
+      badCards.push({ i: i, reason: 'invalid',
+        detail: [].concat(s._badTo || [], s._badCc || []).join(', ') });
+    }
+    delete s._badTo; delete s._badCc;
+  });
+  if (badCards.length) {
+    if (btn) { btn.disabled = false; btn.innerText = getI18nText('btn_try_again'); }
+    const first = badCards[0];
+    const msg = first.reason === 'empty'
+      ? ('Email ' + (first.i + 1) + ': "To" is empty â€” add at least one recipient.')
+      : ('Email ' + (first.i + 1) + ': invalid email(s): ' + first.detail + ' â€” double-click the red block to fix.');
+    Swal.fire(getI18nText('msg_error'), msg, 'error');
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success && Array.isArray(res.data)) {
+        const pendingFallback = res.data.find(order => order && order.requiresFallbackChoice && order.dispatchDraft);
+        if (pendingFallback) {
+          Swal.fire({
+            icon: 'warning',
+            title: getI18nText('email_fallback_warning'),
+            text: getI18nText('email_fallback_text').replace('{orderId}', pendingFallback.orderId),
+            showCancelButton: true,
+            confirmButtonText: getI18nText('email_fallback_google'),
+            denyButtonText: getI18nText('email_fallback_brevo'),
+            showDenyButton: true
+          }).then((choice) => {
+            if (choice.isConfirmed || choice.isDenied) {
+              const provider = choice.isConfirmed ? 'Google' : 'Brevo';
+              google.script.run
+                .withSuccessHandler(function(retryRes) {
+                  if (retryRes && retryRes.success) {
+                    Swal.fire(getI18nText('msg_success'), getI18nText('email_fallback_sent').replace('{provider}', provider), 'success');
+                  } else {
+                    Swal.fire(getI18nText('msg_warning'), getI18nText('email_fallback_failed'), 'warning');
+                  }
+                })
+                .withFailureHandler(function(err) {
+                  Swal.fire(getI18nText('msg_warning'), getI18nText('email_fallback_dispatch_failed').replace('{error}', String(err)), 'warning');
+                })
+                .dispatchEmailWithProvider(pendingFallback.dispatchDraft, provider);
+            }
+          });
+        }
+      }
+
+      if (res.success) {
+        modalBody.innerHTML = `
+          <div class="text-center p-3">
+            <div class="mb-3">
+                <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+            </div>
+            <h4 class="fw-bold" data-i18n="email_sent_success">Requirements Generated!</h4>
+            <p class="text-muted small" data-i18n="email_sent_subtitle">Documents have been saved to Drive and emails sent.</p>
+            <hr>
+            <div id="pdfDownloadList" class="text-start"></div>
+          </div>
+        `;
+
+        // Apply translations to dynamically generated content
+        if (typeof updateUI === 'function') {
+          updateUI();
+        }
+
+        const downloadList = document.getElementById('pdfDownloadList');
+        res.data.forEach(order => {
+          const div = document.createElement('div');
+          div.className = "d-flex justify-content-between align-items-center border rounded p-2 mb-2 bg-light";
+          const emailStatus = order.emailSent 
+            ? `<span class="badge bg-success ms-2"><i class="bi bi-envelope-check"></i> ${getI18nText('email_status_sent').replace('{service}', order.emailService)}</span>`
+            : `<span class="badge bg-warning ms-2"><i class="bi bi-envelope-slash"></i> ${getI18nText('email_status_disabled')}</span>`;
+          div.innerHTML = `
+            <div style="flex: 1;">
+              <span class="small fw-bold">${order.orderId}</span>
+              ${emailStatus}
+            </div>
+            <a href="${order.pdfUrl}" target="_blank" class="btn btn-danger btn-sm ms-2" data-i18n="email_pdf_download">
+              <i class="bi bi-file-pdf"></i> Download
+            </a>
+          `;
+          downloadList.appendChild(div);
+        });
+
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = getI18nText('btn_done_close');
+          btn.className = "btn btn-primary px-4";
+          btn.onclick = () => {
+             const modalEl = document.getElementById('emailModal');
+             document.getElementById('searchResults').innerHTML="";
+             document.getElementById('itemSearch').value="";
+             document.getElementById('itemSearch').focus();
+             const modal = bootstrap.Modal.getInstance(modalEl);
+             if (modal) modal.hide();
+             if(window.refreshHistory) window.refreshHistory();
+          };
+        }
+        
+        const cancelBtn = modalFooter ? modalFooter.querySelector('.btn-secondary') : null;
+        if (cancelBtn) cancelBtn.style.display = 'none';
+
+        window.cart = [];
+        window.draftNotes = '';
+        window.currentDraftId = null;
+        if (window.updateCartUI) window.updateCartUI();
+
+      } else {
+        Swal.fire(getI18nText('msg_error'), res.message, "error");
+        if(btn) {
+            btn.disabled = false;
+            btn.innerText = getI18nText('btn_try_again');
+        }
+      }
+    })
+    .withFailureHandler(function(err) {
+      Swal.fire(getI18nText('msg_error'), String(err), "error");
+      if(btn) {
+        btn.disabled = false;
+        btn.innerText = getI18nText('btn_try_again');
+      }
+    })
+    .processMassOrders(finalShipments);
+};
+
+function resetButton(btn) {
+  if (btn) {
+    btn.disabled = false;
+    btn.innerText = "Send & Save Order";
+  }
+}
+
+// Auto-locking script block
+(function() {
+  const user = JSON.parse(localStorage.getItem('recon_user_secure'));
+  const siteSelect = document.getElementById('siteSelect');
+
+  if (!siteSelect || !user || !user.role) return;
+
+  const roleLower = user.role.toLowerCase();
+  
+  // RESTORED / UPDATED: Added complete exemption criteria for managers, admins, and office staff
+  if (roleLower === 'admin' || roleLower === 'office' || roleLower === 'manager') {
+    // Bind site selection changes to trigger fresh live stock data updates for privileged routing profiles
+    siteSelect.addEventListener('change', () => {
+      if (typeof window.refreshLiveStock === 'function') window.refreshLiveStock();
+    });
+    return;
+  }
+
+  const observer = new MutationObserver(function(mutations, obs) {
+    if (siteSelect.options.length > 1) {
+      siteSelect.value = user.site;
+      siteSelect.disabled = true;
+      siteSelect.style.backgroundColor = "#e9ecef";
+      
+      console.log("ðŸ”’ Site selection locked via Observer: " + user.site);
+      
+      // Trigger standard initial live stock loading once locked to their exact site assignment
+      if (typeof window.refreshLiveStock === 'function') window.refreshLiveStock();
+      obs.disconnect();
+    }
+  });
+
+  observer.observe(siteSelect, { childList: true });
+
+  setTimeout(() => {
+    if (siteSelect.disabled === false) {
+       siteSelect.value = user.site;
+       siteSelect.disabled = true;
+       if (typeof window.refreshLiveStock === 'function') window.refreshLiveStock();
+    }
+    if (typeof window.applyCategoryLock === 'function') {
+       window.applyCategoryLock('categorySelect');
+    }
+  }, 2000);
+})();

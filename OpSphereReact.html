@@ -1,0 +1,148 @@
+<div class="container-fluid p-0 position-relative" style="min-height: calc(100vh - 100px); width: 100%; overflow: hidden; background-color: #0b0f19;">
+
+  <!-- Embedded Styling for HUD Reticle, Tooltip, Glassmorphism Panels, and Modal -->
+  <style>
+    /* Reticle Base Container */
+    .opsphere-marker {
+      position: relative;
+      width: 24px;
+      height: 24px;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      pointer-events: none; /* Critical: Allows raycasts to pass to 3D point underneath */
+      transition: width 0.2s ease, height 0.2s ease;
+    }
+
+    /* Larger size for country markers */
+    .opsphere-marker.type-country {
+      width: 48px;
+      height: 48px;
+    }
+
+    /* Medium size for site markers */
+    .opsphere-marker.type-site {
+      width: 32px;
+      height: 32px;
+    }
+
+    /* Standard size for rig markers */
+    .opsphere-marker.type-rig {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* 4-Corner Shooter Reticle Corners */
+    .reticle-corner {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-color: currentColor;
+      border-style: solid;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .corner-tl { top: 0; left: 0; border-width: 2px 0 0 2px; }
+    .corner-tr { top: 0; right: 0; border-width: 2px 2px 0 0; }
+    .corner-bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+    .corner-br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+    /* Center Target Dot */
+    .reticle-center {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    /* Tactical HUD Tooltip */
+    .opsphere-hud-tooltip {
+      position: absolute;
+      left: 40px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(11, 15, 25, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: #f3f4f6;
+      font-family: monospace;
+      white-space: nowrap;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      z-index: 99;
+    }
+
+    /* Panel Glassmorphism Base */
+    .opsphere-panel {
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      color: #f3f4f6;
+      font-family: monospace;
+    }
+
+    /* Toggle Buttons */
+    .toggle-btn {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .toggle-btn.active {
+      background: #1e293b;
+      color: #ffffff;
+      font-weight: bold;
+    }
+
+    /* Camera Feed Cards */
+    .cam-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .cam-card:hover {
+      border-color: #60a5fa;
+      transform: translateY(-2px);
+    }
+
+    /* Custom Scrollbar */
+    .opsphere-scrollbar::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    .opsphere-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 2px;
+    }
+  </style>
+
+  <!-- Status / Fallback Notice -->
+  <div id="opSphereStatus" class="p-3 font-monospace text-secondary small" style="display: none;">
+    <i class="bi bi-cpu me-2"></i> Initializing OpSphere Module...
+  </div>
+
+  <!-- React Mount Root -->
+  <div id="opSphereRoot" style="width: 100%; height: calc(100vh - 100px); position: relative; overflow: hidden;"></div>
+
+  <script>
+      // Suppress Tailwind CDN warning in production
+     // window.tailwind = { suppressWarning: true };
+       window.tailwind = {
+        important: '#opSphereRoot'
+      };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</div>

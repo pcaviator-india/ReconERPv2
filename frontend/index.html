@@ -1,0 +1,3685 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#212529" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="RECON ERP" />
+    <title>RECON ERP — Inventory & Operations</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <base target="_top" />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
+    />
+
+    <style>
+  :root {
+    --sidebar-expanded-width: 240px;
+    --sidebar-collapsed-width: 76px;
+    --company-logo: none;
+    --company-logo-opacity: 0.5;
+    --company-logo-size: min(62vw, 560px);
+    --transition-speed: 0.25s;
+  }
+
+  /* Full-width quote modals (Edit Quote + Quote Details) so all columns are visible */
+  .modal-dialog.modal-quote-full {
+    max-width: 99vw;
+    width: 99vw;
+    margin: 0.5rem auto;
+  }
+  /* Gmail-style email chips (CreateReq To/Cc) */
+  .email-chip-field{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#fff;border:1px solid #ced4da;border-radius:.375rem;padding:6px 8px;min-height:38px;cursor:text}
+  .email-chip-field:focus-within{border-color:#86b7fe;box-shadow:0 0 0 .25rem rgba(13,110,253,.25)}
+  .email-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .email-chip{display:inline-flex;align-items:center;gap:6px;background:#e8f0fe;border:1px solid #c6dafc;color:#1a40c1;border-radius:16px;padding:2px 6px 2px 10px;font-size:12px;font-weight:500;cursor:default;user-select:none}
+  .email-chip-invalid{background:#fdecea;border-color:#f5c6cb;color:#b02a37}
+  .email-chip-field.has-invalid{border-color:#dc3545}
+  .email-chip-x{border:0;background:transparent;color:inherit;font-size:14px;line-height:1;padding:0 2px;cursor:pointer;border-radius:50%}
+  .email-chip-x:hover{background:rgba(0,0,0,.12)}
+  .email-chip-input{border:0;outline:0;flex:1;min-width:140px;font-size:13px;padding:4px 2px;background:transparent}
+  @media (min-width: 1400px) {
+    .modal-dialog.modal-quote-full { max-width: 99vw; width: 99vw; }
+  }
+
+  body {
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+    overflow-x: hidden;
+  }
+
+  /* --- SIDEBAR CORE --- */
+  .sidebar {
+    width: var(--sidebar-expanded-width);
+    height: 100vh;
+    background: #212529;
+    color: white;
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 1030;
+    display: flex;
+    flex-direction: column; /* This is what locks header/footer */
+    transition: width var(--transition-speed) ease, transform var(--transition-speed) ease;
+  }
+
+  /* --- SCROLLABLE MID-SECTION --- */
+  .sidebar-nav-container {
+    flex-grow: 1; /* Takes up all available space between header and footer */
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+  }
+
+  .sidebar-nav-container::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+
+  /* --- HEADER & FOOTER FIXED BLOCKS --- */
+  .sidebar-header, .sidebar-footer {
+    flex-shrink: 0; /* Prevents header/footer from squishing */
+    z-index: 10;
+  }
+
+  .sidebar-header {
+    position: relative;
+  }
+
+  /* --- NAV LINKS --- */
+   .nav-link {
+    color: #adb5bd;
+    cursor: pointer;
+    transition: 0.3s;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%; 
+    box-sizing: border-box;
+  }
+
+  .nav-link i {
+    flex: 0 0 auto;
+    width: 1.25rem;
+    text-align: center;
+    font-size: 1.1rem;
+  }
+
+  .nav-link:hover {
+    background: #343a40;
+    color: white;
+  }
+
+  .nav-link.active {
+    background: #0d6efd;
+    color: white;
+    font-weight: bold;
+  }
+
+  .nav-link.disabled {
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+  }
+
+  /* --- MAIN CONTENT WRAPPER --- */
+  .main-wrapper {
+    margin-left: var(--sidebar-expanded-width);
+    padding: clamp(0.85rem, 1.6vw, 1.5rem);
+    min-height: 100vh;
+    position: relative;
+    transition: margin-left var(--transition-speed) ease;
+  }
+
+  .appLoader {
+  transition: opacity 0.4s ease;
+  }
+
+  /* --- COLLAPSED STATE LOGIC --- */
+  .sidebar-collapsed .sidebar {
+    width: var(--sidebar-collapsed-width);
+  }
+
+  .sidebar-collapsed .main-wrapper {
+    margin-left: var(--sidebar-collapsed-width);
+  }
+
+  /* Hide specific elements in collapsed mode */
+  .sidebar-collapsed #sidebarTitle,
+  .sidebar-collapsed #sidebarUserInfo,
+  .sidebar-collapsed .sidebar-label,
+  .sidebar-collapsed .sidebar-chevron,
+  .sidebar-collapsed .sidebar-action-label {
+    display: none !important;
+  }
+
+  .sidebar-collapsed .sidebar .nav-link {
+    justify-content: center;
+    padding: 12px 0;
+  }
+
+  .sidebar-collapsed .sidebar .nav-item {
+    position: relative;
+  }
+
+  /* --- TOGGLE BUTTONS --- */
+  .sidebar-toggle-btn {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 1045;
+    border-radius: 0.75rem;
+    width: 2.2rem;
+    height: 2.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* --- TOOLTIP HOVER (For Collapsed Mode) --- */
+  .sidebar-collapsed .sidebar .nav-link[title]:hover::after {
+    content: attr(title);
+    position: absolute;
+    left: calc(var(--sidebar-collapsed-width) + 5px);
+    background: #111827;
+    color: #fff;
+    padding: 0.4rem 0.8rem;
+    border-radius: 0.4rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    z-index: 2000;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  }
+
+  /* --- SIDEBAR OVERLAY FOR MOBILE --- */
+  .sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 1029;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+  }
+  .sidebar-overlay.show {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .btn-install-pwa {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .btn-install-pwa:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(13, 202, 240, 0.3);
+  }
+
+  /* --- MOBILE RESPONSIVENESS --- */
+  @media (max-width: 991.98px) {
+    .sidebar {
+      transform: translateX(-100%);
+      width: min(85vw, 280px) !important;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+    }
+    .sidebar.sidebar-mobile-open {
+      transform: translateX(0) !important;
+    }
+    .main-wrapper {
+      margin-left: 0 !important;
+      padding: 4.5rem 0.85rem 1.5rem 0.85rem !important;
+      width: 100% !important;
+      max-width: 100vw !important;
+      box-sizing: border-box;
+    }
+    .sidebar-mobile-toggle-btn {
+      display: inline-flex !important;
+      position: fixed;
+      top: 0.75rem;
+      left: 0.75rem;
+      z-index: 1040;
+      border-radius: 0.5rem;
+      width: 2.75rem;
+      height: 2.75rem;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+    }
+    .table-responsive {
+      -webkit-overflow-scrolling: touch;
+      margin-bottom: 1rem;
+    }
+    .table th, .table td {
+      white-space: nowrap;
+      font-size: 0.85rem;
+      padding: 0.5rem 0.4rem;
+    }
+    .modal-dialog {
+      margin: 0.5rem auto;
+      max-width: calc(100vw - 1rem) !important;
+    }
+    .modal-dialog.modal-quote-full {
+      max-width: 100vw !important;
+      width: 100vw !important;
+      margin: 0 !important;
+    }
+    .modal-dialog.modal-quote-full .modal-content {
+      border-radius: 0;
+      min-height: 100vh;
+    }
+    .form-control, .form-select, .btn {
+      min-height: 40px;
+    }
+  }
+
+  /* Top Status Bar */
+    #appStatusBar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #0d6efd;
+      color: white;
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      z-index: 1050;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    #appStatusBar.show {
+      display: flex;
+    }
+
+    #statusMessage {
+      flex-grow: 1;
+    }
+
+    .status-spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+  /* UTILITY */
+  .cursor-pointer { cursor: pointer; }
+  .admin-only { display: none !important; } /* Controlled by JS */
+    </style>
+
+    <script>
+      // --- GLOBAL STATE ---
+      var cachedSites = [];
+      var inventoryCache = [];
+      var localCart = [];
+      var autoSelectedSite = "";
+      var isDataLoaded = true;
+      var currentPayload = {};
+      var currentLang = localStorage.getItem('recon_lang') || "es"; // ✅ RESTORE FROM STORAGE OR DEFAULT
+      let selectedOrders = new Set();
+      window.CachedDataVal = null; // ✅ DECLARE GLOBALLY
+      // GLOBAL STORE: This stays in memory as long as the tab is open
+      var fullInventory = [];
+      var isSyncing = false;
+      // ──── I18N GLOBAL (exposed by i18n.html) ─────────────
+      window.getI18nText = function(key, fallbackKey) {
+        if (!window.translations || !window.t) {
+          console.warn("⚠️ getI18nText: translations not loaded. Returning key as-is.");
+          return fallbackKey || key;
+        }
+        const lang = document.documentElement.lang || window.localStorage.getItem("lang") || "en";
+        let trans = window.translations[lang]?.[key] ?? window.translations.en?.[key];
+        if (!trans) {
+          // Capitalized fallback: "PendingRequirements" → "Pending Requirements"
+          const camelKey = key.replace(/([A-Z])/g, " $1");
+          trans = window.t(camelKey);
+          return trans;
+        }
+        return trans;
+      };
+
+      window.peopleData = [];
+      window.appInitialized = false;
+
+      // Non-blocking helper: fire a slow server fn without freezing the UI.
+      // Creates the bubble job entry first (fast, <1s), then launches the slow
+      // call on a SEPARATE google.script.run channel so poll traffic + the next
+      // approve never queue behind the running PDF/email/stock work.
+      window.bgFireAndForget = function (opts) {
+        opts = opts || {};
+        var jobId = opts.jobId;
+        return new Promise(function (resolve) {
+          try {
+            google.script.run.withSuccessHandler(function (enq) {
+              jobId = (enq && enq.jobId) || jobId;
+              if (window.BgJobs) window.BgJobs.push({
+                jobId: jobId, title: opts.title, refId: opts.refId,
+                kind: opts.kind, onDone: opts.onDone || null
+              });
+              try {
+                var __call = google.script.run
+                  .withSuccessHandler(function (res) { resolve({ ok: true, jobId: jobId, res: res }); })
+                  .withFailureHandler(function (err) {
+                    try {
+                      google.script.run.withSuccessHandler(function () {}).bgFinishJob(
+                        jobId, false, { step: "Failed", error: String((err && err.message) || err) });
+                    } catch (e) {}
+                    resolve({ ok: false, jobId: jobId, err: err });
+                  })[opts.fn];
+                // Server fns take jobId as LAST arg (req: 5th, quote: 2nd).
+                // Attach _jobId on the payload object too for backward compat.
+                var __args = (opts.args || []).slice();
+                try {
+                  if (__args.length && typeof __args[0] === "object" && __args[0] !== null) __args[0]._jobId = jobId;
+                  else if (__args.length > 1 && typeof __args[1] === "object" && __args[1] !== null) __args[1]._jobId = jobId;
+                } catch (e) {}
+                __args.push(jobId);
+                __call.apply(null, __args);
+                // Resolve IMMEDIATELY now that the slow call is launched: the
+                // callers use .then to close the modal and free the UI without
+                // waiting for the PDF/email/stock work to finish. Completion is
+                // reported by the bubble polling bgGetJobs() instead.
+                resolve({ ok: true, jobId: jobId, started: true });
+              } catch (e) { resolve({ ok: false, jobId: jobId, err: e }); }
+            }).withFailureHandler(function (err) {
+              resolve({ ok: false, jobId: null, err: err });
+            }).bgEnqueueJob(opts.kind, String(opts.refId || ""), opts.title, opts.userEmail || "");
+          } catch (e) { resolve({ ok: false, jobId: null, err: e }); }
+        });
+      };
+
+      // Status Bar Helpers
+      window.showStatus = function(message) {
+        const bar = document.getElementById("appStatusBar");
+        const msg = document.getElementById("statusMessage");
+        if (bar && msg) {
+          msg.innerHTML = message;
+          bar.classList.add("show");
+        }
+      };
+
+      window.hideStatus = function() {
+        const bar = document.getElementById("appStatusBar");
+        if (bar) bar.classList.remove("show");
+      };
+
+      // --- SYSTEM INITIALIZATION (auto-logout DISABLED: sessions persist indefinitely) ---
+      window.onload = function () {
+        const data = localStorage.getItem("recon_user_secure");
+
+        if (data) {
+          try {
+            const user = JSON.parse(data);
+            if (user) {
+              initializeUserSession();
+              // SESSION VALID: Load the app (no expiry check)
+              console.log("✅ Welcome back,", user.name, user.email);
+              document
+                .getElementById("reconLoginOverlay")
+                .classList.add("d-none");
+              startReconApp();
+              return;
+            }
+          } catch (e) {
+            console.warn("⚠️ Could not restore saved session:", e);
+          }
+        }
+
+        // NO SAVED SESSION: redirect to the single login page
+        window.location.href = 'login.html';
+      };
+
+      function logoutUser() {
+        localStorage.removeItem("recon_user_secure");
+        if (window.RECON_API && RECON_API.clearToken) RECON_API.clearToken();
+        localStorage.removeItem("recon_auth_token");
+        // Redirect to the single source-of-truth login page instead of the
+        // legacy overlay form that was previously embedded in this page.
+        window.location.href = 'login.html';
+      }
+
+
+    function disableSidebarNavigation() {
+      document.querySelectorAll('.nav-link').forEach(link => {
+        link.style.pointerEvents = 'none';
+        link.style.opacity = '0.6';
+      });
+    }
+
+    function enableSidebarNavigation() {
+      document.querySelectorAll('.nav-link').forEach(link => {
+        link.style.pointerEvents = 'auto';
+        link.style.opacity = '1';
+      });
+    }
+
+
+
+      // ✅ NEW: Load validation cache synchronously before other modules
+      function loadValidationCacheSync() {
+        google.script.run
+          .withSuccessHandler(function (data) {
+            window.CachedDataVal = data;
+            console.log("✅ Validation Cache Loaded");
+          })
+          .withFailureHandler(function (err) {
+            console.error("❌ Failed to load validation cache:", err);
+          })
+          .getValidationData();
+      }
+
+      // Track current module for refresh
+      window.currentModule = 'Dashboard';
+
+      // Global refresh function that reloads the current module
+      window.refreshCurrentModule = function() {
+        console.log("🔄 Refreshing module:", window.currentModule);
+        if (window.currentModule) {
+          // Special handling: Products needs to clear fullInventory to trigger full re-sync
+          if (window.currentModule === "Products") {
+            window.fullInventory = [];
+            window.isSyncing = false;
+          }
+          loadModule(window.currentModule);
+        }
+      };
+
+      // --- MODULE LOADING & NAVIGATION ---
+      function loadModule(name) {
+        window.currentModule = name;
+
+        if (!window.appInitialized) {
+          console.warn(`⏳ App still initializing. Cannot load "${name}" yet.`);
+          
+          // Optional: Show a nice toast
+          if (typeof Swal !== "undefined") {
+            Swal.fire({
+              title: "Please wait",
+              text: "System is still loading caches...",
+              icon: "info",
+              timer: 1500,
+              showConfirmButton: false
+            });
+          }
+          return; // ← BLOCK early navigation
+        }
+
+        console.log("MODULE CLICKED:", name);
+
+        google.script.run
+          .withSuccessHandler(function (html) {
+            const mainContent = document.getElementById("mainContent");
+            mainContent.innerHTML = html;
+            
+            // Apply current language to all data-i18n elements in the newly loaded module
+            if (typeof updateUI === "function") {
+              setTimeout(updateUI, 50);
+            }
+
+            if (typeof window.closeSidebarOnMobile === "function") {
+              window.closeSidebarOnMobile();
+            }
+
+            const user = JSON.parse(localStorage.getItem("recon_user_secure"));
+
+            // 1. CREATE REQUIREMENT MODULE
+            if (name === "CreateReq") {
+              const siteSelect = document.getElementById("siteSelect");
+              if (siteSelect && cachedSites.length > 0) {
+                siteSelect.innerHTML = cachedSites
+                  .map((s) => `<option value="${s.name}">${s.name}</option>`)
+                  .join("");
+
+                if (user) {
+                  if (user.role.toLowerCase() === "admin" || user.role.toLowerCase() === "office" || user.role.toLowerCase() === "manager") {
+                    siteSelect.disabled = false;
+                    if (window.autoSelectedSite)
+                      siteSelect.value = window.autoSelectedSite;
+                  } else {
+                    siteSelect.value = user.site;
+                    siteSelect.disabled = true;
+                    siteSelect.style.backgroundColor = "#e9ecef";
+                  }
+                }
+              }
+
+              if (typeof window.updateCartUI === "function")
+                window.updateCartUI();
+
+              if (typeof window.loadSolicitedByOptions === "function")
+                window.loadSolicitedByOptions();
+
+              const searchInput = document.getElementById("itemSearch");
+              if (searchInput && typeof window.processSearch === "function") {
+                searchInput.addEventListener("input", window.processSearch);
+              }
+
+              window.refreshLiveStock();
+            }
+
+            // 2. DASHBOARD MODULE
+            if (name === "Dashboard") {
+              setTimeout(() => {
+                if (typeof window.initDashboard === "function")
+                  window.initDashboard();
+              }, 100);
+            }
+
+            // 3. HISTORY MODULE
+            if (name === "ViewReq") {
+
+               const siteSelect = document.getElementById("filterFaena");
+              if (siteSelect && cachedSites.length > 0) {
+                siteSelect.innerHTML = cachedSites
+                  .map((s) => `<option value="${s.name}">${s.name}</option>`)
+                  .join("");
+
+                if (user) {
+                  if (user.role.toLowerCase() === "admin" || user.role.toLowerCase() === "office" || user.role.toLowerCase() === "manager") {
+                    siteSelect.disabled = false;
+                    if (window.autoSelectedSite)
+                      siteSelect.value = window.autoSelectedSite;
+                  } else {
+                    siteSelect.value = user.site;
+                    siteSelect.disabled = true;
+                    siteSelect.style.backgroundColor = "#e9ecef";
+                  }
+                }
+              }
+              if (typeof window.initViewReqModule === "function") {
+                window.initViewReqModule();
+                window.applyCategoryLock("filterCategory");
+                window.applyRolePermissions();
+              }
+            }
+
+            // 4. PRODUCTS MODULE
+            if (name === "Products") {
+              if (typeof window.initProductsModule === "function") {
+                window.initProductsModule();
+               // window.applyCategoryLock("filterCategory");
+                window.applyRolePermissions();
+              }
+            }
+
+            // 4B. MIN/MAX MODULE
+            if (name === "MinMax") {
+              setTimeout(() => {
+                if (typeof window.initMinMaxModule === "function") {
+                  window.initMinMaxModule();
+                  window.applyRolePermissions();
+                } else {
+                  console.warn("⚠️ initMinMaxModule function not found!");
+                }
+              }, 100);
+            }
+
+            // 5. RFQ / QUOTE MODULE
+            if (name === "RFQ") {
+              if (typeof window.initRFQModule === "function") {
+                window.initRFQModule();
+                window.applyCategoryLock("rfqCategoryFilter");
+              }
+            }
+
+            if (name === "QuoteMgmt") {
+              if (typeof window.initQuoteMgmtModule === "function") {
+                window.initQuoteMgmtModule();
+                // If you have category filters or permissions for quotes:
+                if (window.applyCategoryLock)
+                  window.applyCategoryLock("filterQuoteCat");
+                if (window.applyRolePermissions) window.applyRolePermissions();
+              } else {
+                console.warn("⚠️ initQuoteMgmtModule function not found!");
+              }
+            }
+
+            if (name === "QuoteReport") {
+              if (typeof window.initQuoteReportModule === "function") {
+                window.initQuoteReportModule();
+                if (window.applyRolePermissions) window.applyRolePermissions();
+              } else {
+                console.warn("⚠️ initQuoteReportModule function not found!");
+              }
+            }
+
+            if (name === "LifecycleReport") {
+              if (typeof window.initLifecycleReportModule === "function") {
+                window.initLifecycleReportModule();
+                if (window.applyRolePermissions) window.applyRolePermissions();
+              } else {
+                console.warn("⚠️ initLifecycleReportModule function not found!");
+              }
+            }
+
+            // 6. VALIDATION/ADMIN MODULES
+            // --- Updated Load Logic ---
+            // Original logic: If name is 'ValUsers', valType becomes 'Users'
+            if (name.startsWith("Val")) {
+              // This allows you to call 'ValUsers', 'ValBrands', etc.
+              const valType = name.replace("Val", "");
+
+              // REDIRECT: Load 'AdminVal' HTML instead of 'ValUsers' HTML
+              google.script.run
+                .withSuccessHandler(function (html) {
+                  document.getElementById("mainContent").innerHTML = html;
+
+                  // Wait for the script to settle before initializing
+                  setTimeout(() => {
+                    if (typeof window.initValidationModule === "function") {
+                      console.log("Initializing Admin Table for:", valType);
+                      window.initValidationModule(valType);
+                    }
+                  }, 200);
+                })
+                .getModuleHtml("AdminVal"); // Always load AdminVal for these types
+
+              return; // Stop the rest of the function so it doesn't try to load again
+            }
+
+
+            // 7. SCANNER / STOCK COUNT MODULE
+            if (name === "Scanner") {
+              // Wait a moment for HTML to inject
+              setTimeout(() => {
+                // FIX: Call the init function inside your ScannerModule
+                if (typeof ScannerModule !== "undefined" && typeof ScannerModule.init === "function") {
+                  console.log("Initializing Scanner Data...");
+                  ScannerModule.init();
+                }
+                
+                if (window.applyRolePermissions) window.applyRolePermissions();
+              }, 300); // Increased slightly to 300ms to ensure DOM stability
+            }
+
+            if (name === "Bundles") {
+              setTimeout(() => {
+                if (typeof window.initBundles === "function")
+                  window.initBundles();
+              }, 100);
+            }
+
+            // ===============================
+            // INVENTORY MOVEMENT MODULE
+            // ===============================
+            if (name === "InvMov") {
+              setTimeout(() => {
+                if (typeof window.initInvMovModule === "function") {
+                  window.initInvMovModule();
+                }
+
+                if (window.applyRolePermissions) {
+                  window.applyRolePermissions();
+                }
+              }, 100);
+            }
+
+            // ===============================
+            // Import Invoice MODULE
+            // ===============================
+            if (name === "ImportInv") {
+              setTimeout(() => {
+                if (typeof window.initImportInvModule === "function") {
+                  window.initImportInvModule();
+                }
+
+                if (window.applyRolePermissions) {
+                  window.applyRolePermissions();
+                }
+              }, 100);
+            }
+
+
+            // ===============================
+            // STOCK MODULE
+            // ===============================
+            if (name === "Stock") {
+              setTimeout(() => {
+                if (typeof window.StockModule !== "undefined" && 
+                    typeof window.StockModule.init === "function") {
+                  window.StockModule.init();
+                }
+
+                if (window.applyRolePermissions) {
+                  window.applyRolePermissions();
+                }
+              }, 100);
+            }
+
+            
+            // ===============================
+            // Location Map MODULE
+            // ===============================
+            if (name === "LocationMap") {
+              setTimeout(() => {
+               if (typeof window.initRackLocationModule === 'function') {
+                  window.initRackLocationModule();
+              }
+                
+                if (window.applyRolePermissions) {
+                  window.applyRolePermissions();
+                }
+              }, 100);
+            }
+
+
+            // ===============================
+            // AZURE TEST MODULE
+            // ===============================
+            if (name === "AzureTest") {
+              setTimeout(() => {
+                if (typeof window.initAzureTestModule === "function") {
+                  window.initAzureTestModule();
+                }
+                
+                if (window.applyRolePermissions) {
+                  window.applyRolePermissions();
+                }
+              }, 100);
+            }
+
+            // ===============================
+            // SHEETS SYNC MODULE
+            // ===============================
+            if (name === "SheetsSync") {
+              setTimeout(() => {
+                if (typeof window.initSheetsSync === "function") {
+                  window.initSheetsSync();
+                }
+                if (window.applyRolePermissions) {
+                  window.applyRolePermissions();
+                }
+              }, 100);
+            }
+
+            // ===============================
+            // MAC macro file creation MODULE
+            // ===============================
+            if (name === "CreateBulkPOMAC") {
+              setTimeout(() => {
+                if (typeof window.initCreateBulkPOMACModule === "function") {
+                  window.initCreateBulkPOMACModule();
+                }
+                
+                if (window.applyRolePermissions) {
+                  window.applyRolePermissions();
+                }
+              }, 100);
+            }
+
+
+            // ===============================
+            // Control Combustible MODULE
+            // ===============================
+           // Inside your loadModule switch/if logic in Index.html
+            if (name === "ControlCombustible") {
+              // Wait for the animation/DOM injection to finish
+              setTimeout(() => {
+                if (typeof window.initControlCombustible === "function") {
+                  window.initControlCombustible();
+                }
+                // Call the refresh directly after init
+                if (typeof window.refreshFuelHistory === "function") {
+                  window.refreshFuelHistory();
+                }
+              }, 200); 
+            }
+
+
+
+            // ===============================
+            // OpSphereReact MODULE
+            // ===============================
+           // Inside your loadModule switch/if logic in Index.html
+            if (name === "OpSphereReact") {
+              // Wait for the animation/DOM injection to finish
+              setTimeout(() => {
+                if (typeof window.initOpSphereReact === "function") {
+                  window.initOpSphereReact();
+                }
+               
+              }, 200); 
+            }
+
+
+             // ===============================
+            // CHange Pin MODULE
+            // ===============================
+           // Inside your loadModule switch/if logic in Index.html
+            if (name === "EditPin") {
+              // Wait for the animation/DOM injection to finish
+              setTimeout(() => {
+                if (typeof window.initEditPinModule === "function") {
+                  window.initEditPinModule();
+                }
+               
+              }, 200); 
+            }
+
+
+             // ===============================
+            // Asset management MODULE
+            // ===============================
+           // Inside your loadModule switch/if logic in Index.html
+            if (name === "GestionActivos") {
+              // Wait for the animation/DOM injection to finish
+              setTimeout(() => {
+                if (typeof window.initGestionActivos === "function") {
+                  window.initGestionActivos();
+                }
+               
+              }, 200); 
+            }
+
+            // ===============================
+            // LABELS MODULE
+            // ===============================
+            if (name === "Labels") {
+              // Wait for the animation/DOM injection to finish
+              setTimeout(() => {
+                if (typeof window.initLabelsModule === "function") {
+                  window.initLabelsModule();
+                }
+              }, 200); 
+            }
+
+
+          if (typeof updateUI === "function") updateUI();
+
+            document
+              .querySelectorAll(".nav-link")
+              .forEach((link) => link.classList.remove("active"));
+            const activeLink = document.getElementById("nav-" + name);
+            if (activeLink) activeLink.classList.add("active");
+
+            // ENSURE THIS IS HERE:
+            if (typeof hideLoading === "function") hideLoading();
+          })
+          .getModuleHtml(name);
+      }
+
+      // Global variable for Validation Data
+      window.CachedDataVal = null;
+
+      function loadValidationCache() {
+        google.script.run
+          .withSuccessHandler(function (data) {
+            window.CachedDataVal = data;
+            console.log("Validation Cache Loaded");
+
+            // THIS IS THE KEY: Refresh RFQ dropdowns if the user is already on that tab
+            if (typeof window.initRFQModule === "function" && document.getElementById("rfqSelector")) {
+              window.initRFQModule();
+            }
+
+            if (typeof populateAllValidationDropdowns === "function") {
+              populateAllValidationDropdowns();
+            }
+          })
+          .getValidationData();
+      }
+
+      // Call this inside your window.onload or DOMContentLoaded
+      document.addEventListener("DOMContentLoaded", function () {
+        loadValidationCache();
+        
+        // Load Dashboard by default
+        if (!window.currentModule || window.currentModule === 'Dashboard') {
+          loadModule('Dashboard');
+        }
+      });
+
+      window.initDashboard = function () {
+        const checkEl = document.getElementById("dash-req-count");
+
+        if (!checkEl) {
+          // If the dashboard isn't ready yet, retry in 100ms
+          console.warn("⏳ Dashboard HTML not found, retrying init...");
+          setTimeout(window.initDashboard, 100);
+          return;
+        }
+
+        google.script.run
+          .withSuccessHandler(function (history) {
+            const data = history || [];
+            // Wrap these in a try/catch so one failure doesn't break the whole app
+            try {
+              DashboardUI.renderCounters(data);
+              DashboardUI.renderCategoryCards(data);
+              DashboardUI.renderTables(data);
+              DashboardUI.renderSpending(data);
+              DashboardUI.renderTopSuppliers(data);
+              if (typeof updateUI === "function") updateUI();
+
+              // --- NEW: Apply Role Permissions ---
+              applyRolePermissions();
+            } catch (err) {
+              console.error("❌ Rendering Error:", err);
+            }
+          })
+          .getRequirementsHistory();
+      };
+
+      // Behavior C: Click Outside
+      // Action: Clear selection when clicking the white space of the container
+      document.addEventListener("click", function (event) {
+        if (window.viewReqIgnoreClearOnce) {
+          window.viewReqIgnoreClearOnce = false;
+          return;
+        }
+
+        if (window.viewReqEditModalOpen) {
+          return;
+        }
+
+        if (event.target.closest("#editBtn") || event.target.closest("#editReqModal") || event.target.closest(".modal-backdrop")) {
+          return;
+        }
+
+        const tableContainer = document.querySelector("#reqTableWrap");
+        const cardsContainer = document.getElementById("reqCardsContainer");
+        const insideTable = tableContainer && tableContainer.contains(event.target);
+        const insideCards = cardsContainer && !cardsContainer.classList.contains("d-none") && cardsContainer.contains(event.target);
+        if (!insideTable && !insideCards) {
+          if (selectedOrders.size > 0) {
+            selectedOrders.clear();
+            // Keep the visual selection in sync: the icon/highlight reads selectedReqOrderId
+            if (window.selectedReqOrderId) window.selectedReqOrderId = null;
+            window.renderHistoryTable(window.getFilteredData());
+          }
+        }
+
+      });
+
+      function getStatusClass(status) {
+        const s = status ? status.toString().toLowerCase().trim() : "";
+
+        // Logic: Check if the string STARTS with or CONTAINS the keyword
+        if (s.includes("pend")) return "bg-warning text-dark";
+
+        // This will match "Quoted: 09/04 17:45"
+        if (s.includes("quot") || s.includes("creat"))
+          return "bg-success text-white";
+
+        if (s.includes("appr")) return "bg-info text-white";
+
+        return "bg-secondary text-white";
+      }
+
+      ////////////Sorting
+      let currentSortCol = -1;
+      let sortAsc = true;
+
+      window.sortTable = function (colIndex) {
+        if (currentSortCol === colIndex) {
+          sortAsc = !sortAsc;
+        } else {
+          currentSortCol = colIndex;
+          sortAsc = true;
+        }
+
+        const data = window.getFilteredData();
+        const keys = [
+          "order",
+          "fecha",
+          "faena",
+          "geo",
+          "pn",
+          "desc",
+          "cant",
+          "estado",
+        ];
+        const key = keys[colIndex];
+
+        data.sort((a, b) => {
+          let valA = a[key] || "";
+          let valB = b[key] || "";
+
+          // Numeric sort for Order and Qty
+          if (key === "order" || key === "cant") {
+            return sortAsc ? valA - valB : valB - valA;
+          }
+
+          // String sort for others
+          return sortAsc
+            ? valA.toString().localeCompare(valB.toString())
+            : valB.toString().localeCompare(valA.toString());
+        });
+
+        window.renderHistoryTable(data);
+      };
+/*
+      ///////////////////////////////////////////////////////////
+      ////Dashboard data
+
+      // --- DASHBOARD MODULES ---
+      const DashboardUI = {
+        // 1. Main Counters (Orders + Items)
+        renderCounters: function (data) {
+          const el = document.getElementById("dash-req-count-container");
+          if (!el || !data) return;
+
+          // --- 1. ROLE FILTER ---
+          const user = JSON.parse(localStorage.getItem("recon_user_secure"));
+          const isManagement = user.role === "Admin" || user.role === "Office";
+
+          // If not Admin/Office, filter data to only show the user's specific site (faena)
+          const displayData = isManagement
+            ? data
+            : data.filter((r) => r.faena === user.site);
+
+          // --- 2. LOGIC (Using displayData instead of data) ---
+          const pending = displayData.filter((r) =>
+            r.estado.toLowerCase().includes("pend"),
+          );
+          const uniqueOrders = [...new Set(pending.map((item) => item.order))]
+            .length;
+
+          el.innerHTML = `
+            <div class="d-flex justify-content-between">
+              <div>
+                <h3 class="text-primary mb-0">${uniqueOrders} <small class="fs-6 text-muted">${getI18nText('dash_orders')}</small></h3>
+                <div class="fw-bold text-primary small">${pending.length} ${getI18nText('dash_items_pending')}</div>
+                      <p class="mb-0 mt-2 fw-bold text-muted small" data-i18n="d_pending_req">Pending Requirements</p>
+              </div>
+              <i class="bi bi-list-task text-primary fs-1 opacity-25"></i>
+            </div>`;
+              },
+
+        // 2. Category Cards
+        renderCategoryCards: function (data) {
+          const container = document.getElementById("category-cards-row");
+          if (!container) return;
+
+          const pending = data.filter((r) =>
+            r.estado.toLowerCase().includes("pend"),
+          );
+          const categories = [
+            ...new Set(pending.map((i) => i.category)),
+          ].filter(Boolean);
+
+          container.innerHTML = categories
+            .map((cat) => {
+              const items = pending.filter((i) => i.category === cat);
+              return `
+        <div class="col-6 col-md-3">
+          <div class="card border-0 shadow-sm border-top border-3 border-info h-100">
+            <div class="card-body p-2 px-3">
+              <div class="text-muted small fw-bold text-uppercase" style="font-size:0.65rem;">${cat}</div>
+              <div class="d-flex justify-content-between align-items-center mt-1">
+                <span class="h5 mb-0">${items.length}</span>
+                <span class="text-muted small">Items</span>
+              </div>
+            </div>
+          </div>
+        </div>`;
+            })
+            .join("");
+        },
+
+        // 3. Tables Rendering
+        renderTables: function (data) {
+          const activityBody = document.getElementById("recent-activity-body");
+          const quotesBody = document.getElementById("recent-quotes-body");
+
+          const pending = data
+            .filter((r) => r.estado.toLowerCase().includes("pend"))
+            .slice(0, 5);
+          const quotes = data
+            .filter((r) => r.estado.toLowerCase().includes("quot"))
+            .slice(0, 5);
+
+          if (activityBody)
+            activityBody.innerHTML = pending.length
+              ? pending.map((r) => this.rowTemplate(r)).join("")
+              : '<tr><td colspan="3" class="text-center">No pending</td></tr>';
+          if (quotesBody)
+            quotesBody.innerHTML = quotes.length
+              ? quotes.map((r) => this.rowTemplate(r)).join("")
+              : '<tr><td colspan="3" class="text-center">No quotes</td></tr>';
+        },
+
+        // 4. Monthly Spend Calculation
+        renderSpending: function (data) {
+          const spendEl = document.getElementById("dash-spend-amount");
+          if (!spendEl) return;
+
+          const currentMonth = new Date().getMonth();
+          const currentYear = new Date().getFullYear();
+
+          const monthlyTotal = data.reduce((sum, r) => {
+            const itemDate = new Date(r.fecha);
+            if (
+              r.estado.toLowerCase().includes("quot") &&
+              itemDate.getMonth() === currentMonth &&
+              itemDate.getFullYear() === currentYear
+            ) {
+              return sum + r.cant * r.price;
+            }
+            return sum;
+          }, 0);
+
+          spendEl.innerText = `$ ${monthlyTotal.toLocaleString("es-CL")}`;
+        },
+
+        // 5. Top Suppliers Cards
+        renderTopSuppliers: function (data) {
+          const container = document.getElementById("top-suppliers-row");
+          if (!container) return;
+
+          const supplierStats = {};
+          data
+            .filter((r) => r.estado.toLowerCase().includes("quot"))
+            .forEach((r) => {
+              if (!supplierStats[r.supplier])
+                supplierStats[r.supplier] = { items: 0, total: 0 };
+              supplierStats[r.supplier].items++;
+              supplierStats[r.supplier].total += r.cant * r.price;
+            });
+
+          const sorted = Object.entries(supplierStats)
+            .sort((a, b) => b[1].total - a[1].total)
+            .slice(0, 4);
+
+          container.innerHTML = sorted
+            .map(
+              ([name, stats]) => `
+      <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-light">
+          <div class="card-body p-3">
+            <div class="text-truncate fw-bold small text-secondary">${name}</div>
+            <div class="h5 mb-1 text-success">$${stats.total.toLocaleString("es-CL")}</div>
+            <div class="text-muted" style="font-size:0.7rem;">${stats.items} Items Quoted</div>
+          </div>
+        </div>
+      </div>
+    `,
+            )
+            .join("");
+        },
+
+        rowTemplate: function (r) {
+          const isQuoted = r.estado.toLowerCase().includes("quot");
+          return `
+      <tr>
+        <td class="fw-bold">#${r.order}</td>
+        <td>
+          <div class="fw-bold" style="font-size:0.8rem;">${r.pn || "N/A"}</div>
+          <div class="text-muted small">${r.desc || ""}</div>
+        </td>
+        <td><span class="badge ${isQuoted ? "bg-success" : "bg-warning text-dark"}" style="font-size:0.7rem;">${r.estado}</span></td>
+      </tr>`;
+        },
+      };
+*/
+      //////////////////////////////////////////////////////////////////////////////
+      //// Roles
+
+      window.applyRolePermissions = function () {
+        const data = localStorage.getItem("recon_user_secure");
+        if (!data) return;
+
+        const user = JSON.parse(data);
+        const role = (user && user.role) ? String(user.role).toLowerCase() : "";
+        console.log("👤 User:", user && user.name, "| Role:", user && user.role);
+        const usersMenu = document.getElementById("menuItemUsers");
+
+        if (usersMenu) {
+          // Show users menu for any admin variant (case-insensitive)
+          if (role === "admin") {
+            usersMenu.style.display = "block";
+          } else {
+            usersMenu.style.display = "none";
+          }
+        }
+        // Reveal elements for Admin or Office roles (case-insensitive)
+        if (role === "admin" || role === "office" || role === "manager") {
+          document.querySelectorAll(".admin-only").forEach((el) => {
+            let displayValue = "block"; // Default for divs
+
+            // Check the tag type to keep the layout pretty
+            if (el.tagName === "LI") {
+              displayValue = "list-item";
+            } else if (el.tagName === "BUTTON" || el.tagName === "SPAN") {
+              displayValue = "inline-block";
+            }
+
+            // Force the reveal using the correct type
+            try {
+              el.style.setProperty("display", displayValue, "important");
+            } catch (e) {
+              // Fallback to direct assignment
+              el.style.display = displayValue;
+            }
+          });
+          console.log("🔓 Admin: Diverse elements revealed correctly.");
+
+          // --- NEW: SITE SELECTOR LOCK ---
+          const siteSelect = document.getElementById("filterFaena");
+          if (siteSelect) {
+            if (role === "admin" || role === "office" || role === "manager") {
+              // Admins and Office can change the site freely
+              siteSelect.disabled = false;
+            } else {
+              // Site users are locked to their assigned site
+              siteSelect.value = user.site;
+              siteSelect.disabled = true;
+
+              // Optional: Add a CSS class to show it's locked/read-only
+              siteSelect.classList.add("bg-light");
+            }
+          }
+        }
+
+        // Display the Site name for everyone
+        if (user.site) {
+          const siteBadge = document.getElementById("user-site-display");
+          if (siteBadge) {
+            siteBadge.innerText = user.site;
+            siteBadge.classList.remove("d-none");
+          }
+        }
+      };
+
+      //////////////////////////////////////////////////////////////////////////////////
+      // --- LOGIN HANDLING ---
+      // --- BULLETPROOF LOGIN HANDLING ---
+      // Change the (function() { ... })(); to this:
+      window.initReconLogin = function () {
+        const userIdEl = document.getElementById("inputUserId");
+        const pinEl = document.getElementById("inputPin");
+        const logoImg = document.getElementById("loginLogo");
+
+        if (!userIdEl || !pinEl) {
+          setTimeout(window.initReconLogin, 100);
+          return;
+        }
+
+        // --- Fixed Logo Loading Logic ---
+        if (logoImg && (!logoImg.src || logoImg.src === window.location.href)) {
+          google.script.run
+            .withSuccessHandler(function (base64Data) {
+              if (base64Data) {
+                const shield = document.getElementById("logoPlaceholder");
+                const sideLogo = document.getElementById("sideLogo");
+                logoImg.src = base64Data;
+                logoImg.style.display = "inline-block";
+                document.documentElement.style.setProperty(
+                  "--company-logo",
+                  `url("${base64Data}")`,
+                );
+                if (shield) shield.style.marginTop = "15px";
+                // Update Sidebar Logo (Using the same data)
+                if (sideLogo) {
+                  sideLogo.src = base64Data;
+                  sideLogo.style.display = "block";
+                }
+              }
+            })
+            .getCompanyLogo(); // Correctly closed now
+        }
+
+        // Your original Focus/Render logic
+        setTimeout(() => {
+          userIdEl.value = "";
+          pinEl.value = "";
+          userIdEl.focus();
+          userIdEl.click();
+          console.log("🎯 Login system ready. Focus on User ID.");
+        }, 400);
+
+        // Re-attach listeners
+        userIdEl.oninput = function () {
+          if (this.value.length === 4) pinEl.focus();
+        };
+
+        pinEl.oninput = function () {
+          if (this.value.length === 4) {
+            setTimeout(() => window.attemptReconLogin(), 150);
+          }
+        };
+      };
+
+      // Start looking for the elements immediately
+      window.initReconLogin();
+
+      function initializeUserSession(userOverride) {
+        // Use the provided user object OR fetch from localStorage
+        const savedUser = userOverride || JSON.parse(localStorage.getItem("recon_user_secure"));
+        
+        if (savedUser) {
+          // 1. Set the global variable
+          window.currentUser = savedUser;
+          
+          // 2. Update the visible name
+          const nameEl = document.getElementById("sidebarUserName");
+            if (nameEl) {
+              // Wrap name in the translated welcome string
+              nameEl.innerHTML = `<small class="text-muted d-block" data-i18n="sb_welcome">Welcome back</small> 
+                        ${window.currentUser.name || getI18nText('unknown_user')}`;
+            }
+          // 3. Update the Tooltip (Site and Email)
+          const infoIcon = document.getElementById("user-info-trigger");
+          if (infoIcon) {
+            const site = window.currentUser.site || window.currentUser.position || "General Site";
+            const email = window.currentUser.email || "No email provided";
+            
+            // Construct the HTML for inside the tooltip
+            const tooltipContent = `
+              <div class="text-start">
+                <strong>${getI18nText('lbl_site_assigned')}</strong> ${site}<br>
+                <strong>${getI18nText('lbl_email_assigned')}</strong> ${email}
+              </div>
+            `;
+
+            // Update the title attribute and re-initialize Bootstrap Tooltip
+            infoIcon.setAttribute("data-bs-original-title", tooltipContent);
+            
+            // Ensure Bootstrap handles the hover popup
+            if (window.bootstrap && bootstrap.Tooltip) {
+              new bootstrap.Tooltip(infoIcon);
+            }
+          }
+
+          console.log("Session active for:", window.currentUser.name);
+        }
+      }
+
+      window.isMobileSidebarView = function () {
+        return window.matchMedia("(max-width: 991.98px)").matches;
+      };
+
+      window.updateSidebarToggleButton = function () {
+        const btn = document.getElementById("sidebarToggleBtn");
+        const icon = btn ? btn.querySelector("i") : null;
+        const sidebar = document.getElementById("sidebar");
+        const mobileBtn = document.getElementById("sidebarMobileToggleBtn");
+        if (!btn || !icon || !sidebar) return;
+
+        const mobile = window.isMobileSidebarView();
+        const mobileOpen = sidebar.classList.contains("sidebar-mobile-open");
+        const collapsed = document.body.classList.contains("sidebar-collapsed");
+
+        if (mobile) {
+          icon.className = mobileOpen ? "bi bi-x-lg" : "bi bi-list";
+          btn.title = mobileOpen ? getI18nText('sb_close_menu') : getI18nText('sb_open_menu');
+          btn.setAttribute("aria-label", btn.title);
+          if (mobileBtn) {
+            mobileBtn.style.display = mobileOpen ? "none" : "inline-flex";
+          }
+          return;
+        }
+
+        icon.className = collapsed
+          ? "bi bi-chevron-right"
+          : "bi bi-chevron-left";
+        btn.title = collapsed ? getI18nText('sb_expand') : getI18nText('sb_collapse');
+        btn.setAttribute("aria-label", btn.title);
+        if (mobileBtn) mobileBtn.style.display = "none";
+      };
+
+      window.syncSidebarLayout = function () {
+        const sidebar = document.getElementById("sidebar");
+        const overlay = document.getElementById("sidebarOverlay");
+        if (!sidebar) return;
+
+        if (window.isMobileSidebarView()) {
+          document.body.classList.remove("sidebar-collapsed");
+          sidebar.classList.remove("sidebar-mobile-open");
+          if (overlay) overlay.classList.remove("show");
+        } else {
+          sidebar.classList.remove("sidebar-mobile-open");
+          if (overlay) overlay.classList.remove("show");
+          const savedCollapsed =
+            localStorage.getItem("recon_sidebar_collapsed") === "1";
+          document.body.classList.toggle("sidebar-collapsed", savedCollapsed);
+        }
+
+        window.updateSidebarToggleButton();
+      };
+
+      window.toggleSidebar = function (forceCloseMobile = false) {
+        const sidebar = document.getElementById("sidebar");
+        const overlay = document.getElementById("sidebarOverlay");
+        const mobileBtn = document.getElementById("sidebarMobileToggleBtn");
+        if (!sidebar) return;
+
+        if (window.isMobileSidebarView()) {
+          if (forceCloseMobile) {
+            sidebar.classList.remove("sidebar-mobile-open");
+          } else {
+            sidebar.classList.toggle("sidebar-mobile-open");
+          }
+          if (overlay)
+            overlay.classList.toggle(
+              "show",
+              sidebar.classList.contains("sidebar-mobile-open"),
+            );
+        } else {
+          const collapsed = document.body.classList.toggle("sidebar-collapsed");
+          localStorage.setItem(
+            "recon_sidebar_collapsed",
+            collapsed ? "1" : "0",
+          );
+        }
+
+        if (mobileBtn) {
+          mobileBtn.style.display = sidebar.classList.contains(
+            "sidebar-mobile-open",
+          )
+            ? "none"
+            : "inline-flex";
+        }
+
+        window.updateSidebarToggleButton();
+      };
+
+      window.closeSidebarOnMobile = function () {
+        if (!window.isMobileSidebarView()) return;
+        const sidebar = document.getElementById("sidebar");
+        const overlay = document.getElementById("sidebarOverlay");
+        sidebar?.classList.remove("sidebar-mobile-open");
+        overlay?.classList.remove("show");
+        window.updateSidebarToggleButton();
+      };
+
+      window.initSidebarLayout = function () {
+        window.syncSidebarLayout();
+        if (!window._sidebarResizeBound) {
+          window._sidebarResizeBound = true;
+          window.addEventListener("resize", function () {
+            clearTimeout(window._sidebarResizeTimer);
+            window._sidebarResizeTimer = setTimeout(
+              window.syncSidebarLayout,
+              100,
+            );
+          });
+        }
+      };
+
+function startReconApp() {
+  console.log("🚀 startReconApp() started");
+
+  const loader = document.getElementById("appLoader");
+  const appUI = document.getElementById("app-wrapper");
+
+  if (loader) {
+    loader.innerHTML = `
+      <div class="spinner-border text-primary mb-3" role="status"></div>
+      <h5 class="text-primary">Loading Recon ERP...</h5>
+      <p class="text-muted small" id="loader-status">Loading inventory and system data...</p>
+    `;
+  }
+
+  initializeUserSession();
+  if (typeof window.initSidebarLayout === "function") window.initSidebarLayout();
+  if (typeof window.applyRolePermissions === "function") window.applyRolePermissions();
+  if (typeof updateUI === "function") updateUI();
+
+  loadValidationCacheSync();
+
+  // Show status bar for background work
+  window.showStatus("Loading inventory and system data...");
+
+  // Background Inventory Pre-load
+  console.log("🔄 Pre-loading Products / Inventory...");
+  if (typeof window.initProductsModule === "function") {
+    window.initProductsModule();
+  }
+
+  // Critical data
+  const promises = [];
+
+  promises.push(new Promise(r => google.script.run.withSuccessHandler(d => { cachedSites = d || []; r(); }).withFailureHandler(r).getSiteData()));
+  promises.push(new Promise(r => google.script.run.withSuccessHandler(s => { autoSelectedSite = s || ""; r(); }).withFailureHandler(r).getAutoSelectedSite()));
+  
+  promises.push(new Promise(r => {
+    google.script.run.withSuccessHandler(allData => {
+      window.globalConfig = [
+        { feature: "reqEmailEnabled", status: allData.reqEmailEnabled },
+        { feature: "reqPdfEnabled", status: allData.reqPdfEnabled },
+        { feature: "quoEmailEnabled", status: allData.quoEmailEnabled },
+        { feature: "quoPdfEnabled", status: allData.quoPdfEnabled },
+      ];
+      console.log("⚙️ System Config Synchronized");
+      r();
+    }).withFailureHandler(r).getAdminData();
+  }));
+
+  promises.push(new Promise(r => { google.script.run.withSuccessHandler(d => { window.peopleData = d || []; r(); }).withFailureHandler(r).getPeople(); }).catch(() => r()));
+  promises.push(new Promise(r => { google.script.run.withSuccessHandler(d => { window.activeAssignmentsData = d || []; r(); }).withFailureHandler(r).getAllActiveAssignments(); }).catch(() => r()));
+
+  Promise.all(promises).then(() => {
+    console.log("✅ All core promises resolved");
+
+    window.appInitialized = true;
+    enableSidebarNavigation();
+
+    
+
+    // AGGRESSIVE LOADER HIDE
+    if (loader) {
+      loader.style.display = "none";
+      loader.style.visibility = "hidden";
+      loader.style.opacity = "0";
+    }
+    if (appUI) {
+      appUI.style.display = "block";
+    }
+
+    // Load Dashboard with small delay
+    setTimeout(() => {
+      loadModule("Dashboard");
+    }, 300);
+
+  }).catch(err => {
+    console.error("Init error:", err);
+    if (loader) loader.style.display = "none";
+    if (appUI) appUI.style.display = "block";
+    loadModule("Dashboard");
+  });
+
+  // Ultimate safety net
+  setTimeout(() => {
+    if (loader && loader.style.display !== "none") {
+      console.warn("⏰ Safety net: Forcing loader to hide");
+      loader.style.display = "none";
+      if (appUI) appUI.style.display = "block";
+      loadModule("Dashboard");
+    }
+  }, 3000);
+}
+
+      // Global Function
+      window.attemptReconLogin = function () {
+        const userIdEl = document.getElementById("inputUserId");
+        const pinEl = document.getElementById("inputPin");
+        const feedback = document.getElementById("loginFeedback");
+        const loader = document.getElementById("loginLoader");
+
+        // Defensive Check: If inputs are missing, stop here
+        if (!userIdEl || !pinEl) {
+          console.error("Critical Error: Login inputs missing from HTML");
+          return;
+        }
+
+        console.log("🚀 Calling Backend for ID:", userIdEl.value);
+
+        // Use optional chaining (?.) so it won't crash if feedback/loader are null
+        feedback?.classList.add("d-none");
+        loader?.classList.remove("d-none");
+
+        google.script.run
+          .withSuccessHandler(function (response) {
+            loader?.classList.add("d-none");
+            console.log("📥 Backend Response:", response);
+
+            if (response && response.success) {
+              // 1. We create the "Badge" with the current time
+              const userData = {
+                ...response.user,
+                lastActivity: Date.now(),
+              };
+
+              // 2. Save user info to storage (local or session) for refresh persistence
+              try {
+                localStorage.setItem("recon_user_secure", JSON.stringify(userData));
+              } catch (e) {
+                try { sessionStorage.setItem("recon_user_secure", JSON.stringify(userData)); } catch(e) {}
+              }
+
+              // 3. Save the JWT token for API auth (gas-shim.js uses this)
+              if (response && response.data && response.data.token) {
+                const token = response.data.token;
+                try { sessionStorage.setItem("recon_auth_token", token); } catch(e) {}
+                try { localStorage.setItem("recon_auth_token", token); } catch(e) {}
+              }
+
+              // . SET GLOBALLY (Accessibility)
+              window.currentUser = userData;
+
+              // 3. Hide the login screen
+              document
+                .getElementById("reconLoginOverlay")
+                .classList.add("d-none");
+
+              // 4. START THE APP DATA LOADING
+              startReconApp();
+            } else {
+              feedback.innerText = response
+                ? response.message
+                : "Unknown Error";
+              feedback.classList.remove("d-none");
+              userIdEl.value = "";
+              pinEl.value = "";
+              userIdEl.focus();
+            }
+          })
+          .withFailureHandler(function (err) {
+            loader.classList.add("d-none");
+            console.error("❌ Script Run Error:", err);
+            alert("System Error: " + err.message);
+          })
+          .verifyUserLogin(userIdEl.value, pinEl.value);
+      };
+
+      // Helper to check role
+      window.checkAccess = function (requiredRole) {
+        const user = JSON.parse(sessionStorage.getItem("recon_user"));
+        if (!user) return false;
+        if (user.role.toLowerCase() === "admin") return true; // Admins see everything
+        return user.role === requiredRole;
+      };
+
+      // ── AUTO-LOGOUT DISABLED ──────────────────────────────────────
+      // Sessions now persist indefinitely (until manual logout via reconLogout).
+      // The block below is intentionally disabled; kept for reference so it
+      // can be re-enabled later if needed.
+      /*
+      const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+      function checkInactivity() {
+        const data = localStorage.getItem("recon_user_secure");
+        if (!data) return;
+
+        const user = JSON.parse(data);
+        const now = Date.now();
+
+        if (now - user.lastActivity > INACTIVITY_LIMIT) {
+          console.log("🕒 Session expired due to inactivity.");
+          logoutUser();
+        }
+      }
+
+      function updateActivity() {
+        const data = localStorage.getItem("recon_user_secure");
+        if (!data) return;
+
+        const user = JSON.parse(data);
+        user.lastActivity = Date.now();
+        localStorage.setItem("recon_user_secure", JSON.stringify(user));
+      }
+
+      // Listen for any interaction
+      window.addEventListener("mousemove", updateActivity);
+      window.addEventListener("keypress", updateActivity);
+      window.addEventListener("click", updateActivity);
+
+      // Check every 1 minute if they should be logged out
+      setInterval(checkInactivity, 60000);
+      */
+
+      //////////////////////////////////////////////////////
+      ///Logout function
+
+      window.reconLogout = function () {
+        const msg = window.getI18nMsg
+          ? window.getI18nMsg("msg_confirm_logout")
+          : "Are you sure?";
+
+        if (confirm(msg)) {
+          // 1. Clear the persistent data
+          localStorage.removeItem("recon_user_secure");
+          localStorage.removeItem("recon_auth_token");
+
+          // 2. Clear any active session variables in memory
+          if (typeof cachedSites !== "undefined") cachedSites = null;
+
+          // 3. Clear the main content area
+          const mainContent = document.getElementById("main-content"); // Adjust to your ID
+          if (mainContent) mainContent.innerHTML = "";
+
+          // 4. Go to the new single-source login page instead of the legacy overlay
+          window.location.href = 'login.html';
+
+          console.log("🚪 User logged out successfully.");
+        }
+      };
+
+      //////////////////////////////////////////////////////////////////////////
+      //// Dropdown population
+
+      window.attemptDropdownPopulation = function (retries = 20) {
+        // Check for any of the main dropdowns to ensure the DOM is ready
+        const domReady =
+          document.getElementById("filterCategory") ||
+          document.getElementById("form_cat") ||
+          document.getElementById("siteSelect") ||
+          document.getElementById("inv_supplier");
+
+        if (window.CachedDataVal && domReady) {
+          window.populateAllValidationDropdowns();
+        } else if (retries > 0) {
+          setTimeout(() => window.attemptDropdownPopulation(retries - 1), 300);
+        } else {
+          console.warn(
+            "Dropdowns not populated: validation cache or DOM not ready.",
+          );
+        }
+      };
+
+      // 1. The existing populator logic
+      window.populateAllValidationDropdowns = function () {
+        const val = window.CachedDataVal;
+        if (!val) return;
+
+        const fillOptions = (ids, list, placeholderKey, isObject = false) => {
+          const placeholder = i18n(placeholderKey);
+          const safeList = list || [];
+          let uniqueList = isObject
+            ? [
+                ...new Map(
+                  safeList
+                    .filter((item) => item && item.name)
+                    .map((item) => [item.name, item]),
+                ).values(),
+              ]
+            : [...new Set(safeList.filter((item) => item))];
+
+          const html =
+            `<option value="">${placeholder}</option>` +
+            uniqueList
+              .map(
+                (item) =>
+                  `<option value="${isObject ? item.name : item}">${isObject ? item.name : item}</option>`,
+              )
+              .join("");
+
+          ids.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = html;
+          });
+        };
+
+        fillOptions(
+          ["filterCategory", "form_cat", "categorySelect"],
+          val.categories,
+          "p_all_cats",
+          true,
+        );
+        fillOptions(
+          ["filterBrand", "form_brand"],
+          val.brands,
+          "p_all_brands",
+          false,
+        );
+        fillOptions(
+          ["filterSupplier", "form_supplier"],
+          val.suppliers,
+          "supplier",
+          true,
+        );
+
+        // Setup the logic for sub-categories
+        const setupLink = (catId, subId) => {
+          const catEl = document.getElementById(catId);
+          const subEl = document.getElementById(subId);
+          if (catEl && subEl) {
+            catEl.onchange = function () {
+              const sel = this.value;
+              subEl.innerHTML = `<option value="">${i18n("p_all_subcats")}</option>`;
+              const filtered = (val.subCategories || []).filter(
+                (s) => s.parent === sel,
+              );
+              subEl.innerHTML += filtered
+                .map((s) => `<option value="${s.name}">${s.name}</option>`)
+                .join("");
+              subEl.disabled = !sel;
+              if (typeof window.handleSearchInput === "function")
+                window.handleSearchInput();
+            };
+          }
+        };
+        setupLink("filterCategory", "filterSubCategory");
+        setupLink("form_cat", "form_subcat");
+        setupLink("categorySelect", "subCategorySelect");
+      };
+
+      // 3. THE DEDICATED SITE LOCK FUNCTION
+
+      window.applySiteLock = function (elementId, userSite) {
+        console.log("--- 🏁 START SITE LOCK CHECK for ID:", elementId, " ---");
+
+        const user = JSON.parse(localStorage.getItem("recon_user_secure"));
+        if (!user) {
+          console.error("❌ ERROR: No user found in storage.");
+          return;
+        }
+
+        // LOGIC: Only USER role gets locked if they have a 'site' assigned.
+        if (user.role.toLowerCase() !== "user") {
+          console.log("🔓 Role is not USER. Skipping Site Lock.");
+          return;
+        }
+
+        if (!userSite) {
+          console.log("🔓 No Site assigned in 'Site' column. Skipping Site Lock.");
+          return;
+        }
+
+        const targetEl = document.getElementById(elementId);
+        if (!targetEl) {
+          console.error(
+            "❌ ERROR: Dropdown '" + elementId + "' not found on this page.",
+          );
+          return;
+        }
+
+        // Use Observer to wait for the data to arrive from Google Sheets
+        const observer = new MutationObserver(function (mutations, obs) {
+          if (targetEl.options.length > 1) {
+            executeSiteLockLogic(targetEl, userSite, obs);
+          }
+        });
+
+        observer.observe(targetEl, { childList: true });
+
+        // Safety: If data is already there before the observer starts
+        if (targetEl.options.length > 1) {
+          executeSiteLockLogic(targetEl, userSite, observer);
+        }
+
+        function executeSiteLockLogic(el, siteName, obs) {
+          console.log("🎯 ACTION: Locking dropdown to:", siteName);
+
+          el.value = siteName;
+
+          // Check if the set worked (case-sensitivity check)
+          if (el.value !== siteName) {
+            console.warn(
+              "⚠️ MISMATCH: '" + siteName + "' not found in dropdown list!",
+            );
+          }
+
+          el.disabled = true;
+          el.style.backgroundColor = "#e9ecef"; // Light grey to show it's locked
+          el.title = i18n ? i18n("site_locked_msg", "Site locked for your role") : "Site locked for your role";
+
+          // Trigger the change event so dependent dropdowns update
+          el.dispatchEvent(new Event("change"));
+
+          console.log("✅ SITE LOCK SUCCESSFUL");
+          if (obs) obs.disconnect(); // Stop watching once locked
+        }
+      };
+
+      // 4. THE DEDICATED CATEGORY LOCK FUNCTION
+      // Locks a category dropdown to a specific category for non-admin/manager users
+      window.applyCategoryLock = function (elementId, userCategory) {
+        console.log("--- 🏁 START CATEGORY LOCK CHECK for ID:", elementId, " ---");
+
+        const user = JSON.parse(localStorage.getItem("recon_user_secure"));
+        if (!user) {
+          console.error("❌ ERROR: No user found in storage.");
+          return;
+        }
+
+        // LOGIC: Only ADMIN and MANAGER roles skip the category lock.
+        // Office, User, and other roles get locked to their assigned category.
+        const role = user.role.toLowerCase();
+        if (role === "admin" || role === "manager") {
+          console.log("🔓 Role is Admin or Manager. Skipping Category Lock.");
+          return;
+        }
+
+        if (!userCategory) {
+          console.log("🔓 No Category assigned in 'Position' column. Skipping Category Lock.");
+          return;
+        }
+
+        const targetEl = document.getElementById(elementId);
+        if (!targetEl) {
+          console.error(
+            "❌ ERROR: Dropdown '" + elementId + "' not found on this page.",
+          );
+          return;
+        }
+
+        // Use Observer to wait for the data to arrive from Google Sheets
+        const observer = new MutationObserver(function (mutations, obs) {
+          if (targetEl.options.length > 1) {
+            executeCategoryLockLogic(targetEl, userCategory, obs);
+          }
+        });
+
+        observer.observe(targetEl, { childList: true });
+
+        // Safety: If data is already there before the observer starts
+        if (targetEl.options.length > 1) {
+          executeCategoryLockLogic(targetEl, userCategory, observer);
+        }
+
+        function executeCategoryLockLogic(el, catName, obs) {
+          console.log("🎯 ACTION: Locking category dropdown to:", catName);
+
+          el.value = catName;
+
+          // Check if the set worked (case-sensitivity check)
+          if (el.value !== catName) {
+            console.warn(
+              "⚠️ MISMATCH: '" + catName + "' not found in dropdown list!",
+            );
+          }
+
+          el.disabled = true;
+          el.style.backgroundColor = "#e9ecef"; // Light grey to show it's locked
+          el.title = i18n ? i18n("category_locked_msg", "Category locked for your role") : "Category locked for your role";
+
+          // Trigger the change event so dependent dropdowns update
+          el.dispatchEvent(new Event("change"));
+
+          console.log("✅ CATEGORY LOCK SUCCESSFUL");
+          if (obs) obs.disconnect(); // Stop watching once locked
+        }
+      };
+
+      //////////////////////////////////////////////////////////////////////////
+
+      // --- GLOBAL UI CLEANUP ---
+      function clearUIAfterSuccess() {
+        // 1. Clear the Cart data (Global variable)
+        if (typeof localCart !== "undefined") {
+          localCart = [];
+        }
+
+        // 2. Refresh Cart UI
+        if (window.updateCartUI) window.updateCartUI();
+
+        // 3. Clear Search Input
+        const searchInput = document.getElementById("searchInput");
+        if (searchInput) searchInput.value = "";
+
+        // 4. Clear Search Results Table (The 'buz' results)
+        const searchResults = document.getElementById("searchResults");
+        if (searchResults) searchResults.innerHTML = "";
+
+        // 5. Reset the MAIN "Preview" button
+        const mainBtn = document.getElementById("btnSubmit");
+        if (mainBtn) {
+          mainBtn.innerText = getI18nText('preview_email');
+          mainBtn.disabled = true;
+        }
+
+        console.log("✨ UI Cleared successfully.");
+      }
+
+      function getGroupedQuotes(data) {
+        const groups = {};
+        data.forEach((row) => {
+          if (!row.quoteLink) return; // Skip rows without quotes
+          const key = `${row.orderId}-${row.supplier}-${row.category}`;
+          if (!groups[key]) {
+            groups[key] = {
+              id: row.orderId,
+              supplier: row.supplier,
+              category: row.category,
+              link: row.quoteLink, // From Col M
+              items: [],
+            };
+          }
+          groups[key].items.push(row);
+        });
+        return Object.values(groups);
+      }
+
+      function loadPeopleData() {
+        google.script.run.withSuccessHandler(data => {
+          window.peopleData = data;
+          console.log("People loaded:", data.length);
+        }).getPeople();
+      }
+
+ 
+</script>
+      <script src="api.js"></script>
+    <script src="js/gas-shim.js"></script>
+  </head>
+  <body>
+    <div
+      id="appLoader"
+      class="position-fixed vh-100 vw-100 bg-white d-flex flex-column align-items-center justify-content-center"
+      style="z-index: 9999; top: 0; left: 0"
+    >
+      <div class="spinner-border text-primary mb-2" role="status"></div>
+      <span class="text-muted" data-i18n="app_loading">Cargando Recon ERP...</span>
+    </div>
+
+    <div id="app-wrapper" style="display: none">
+      <!-- Top Status Bar -->
+      <div id="appStatusBar">
+        <div class="status-spinner"></div>
+        <div id="statusMessage">Loading inventory and system data...</div>
+      </div>
+      <div class="d-flex" style="min-height: 100vh">
+        <div
+          id="sidebarOverlay"
+          class="sidebar-overlay"
+          onclick="window.toggleSidebar(true)"
+        ></div>
+
+        <button
+          id="sidebarMobileToggleBtn"
+          type="button"
+          class="btn btn-primary sidebar-mobile-toggle-btn"
+          onclick="window.toggleSidebar()"
+          aria-label="Open menu"
+          title="Open menu"
+          data-i18n="sb_open_menu"
+        >
+          <i class="bi bi-list"></i>
+        </button>
+
+        <div id="sidebar" class="sidebar d-flex flex-column shadow bg-dark">
+  
+          <div class="sidebar-header p-3 border-bottom border-secondary">
+            <div class="d-flex align-items-center justify-content-between mb-3 brand-row">
+              <div class="d-flex align-items-center overflow-hidden">
+                <img id="sideLogo" src="" style="max-height: 30px; width: auto; display: none" class="me-2" />
+                <h5 id="sidebarTitle" class="fw-bold mb-0 text-primary" style="letter-spacing: 1px; font-size: 1.1rem;">RECON ERP</h5>
+              </div>
+              
+              <button
+                id="sidebarToggleBtn"
+                type="button"
+                class="btn btn-sm btn-outline-primary border-0 p-1"
+                onclick="window.toggleSidebar()"
+                style="width: 16px; height: 32px; flex-shrink: 0;"
+              >
+                <i class="bi bi-chevron-left" id="toggleIcon"></i>
+              </button>
+            </div>
+
+            <div id="sidebarUserInfo" class="d-flex align-items-center justify-content-between bg-black bg-opacity-25 p-2 rounded">
+              <div id="sidebarUserName" class="fw-bold text-white small text-uppercase text-truncate me-2"></div>
+              <i class="bi bi-info-circle text-info cursor-pointer" id="user-info-trigger" data-bs-toggle="tooltip" data-bs-html="true" title=""></i>
+            </div>
+          </div>
+            <button
+              id="btnInstallPWA"
+              type="button"
+              class="btn btn-outline-info btn-sm w-100 mt-2 btn-install-pwa"
+              style="display: none;"
+            >
+              <i class="bi bi-download me-1"></i>
+              <span>Install Mobile App</span>
+            </button>
+
+          <div class="sidebar-nav-container flex-grow-1">
+            <div class="nav flex-column px-2 py-3">
+              
+              <a id="nav-Dashboard" class="nav-link active" onclick="loadModule('Dashboard', this)" title="Dashboard">
+                <i class="bi bi-speedometer2"></i>
+                <span class="sidebar-label" data-i18n="m_dashboard">Dashboard</span>
+              </a>
+
+              <a id="nav-Products" class="nav-link text-white" onclick="loadModule('Products', this)" title="Products">
+                <i class="bi bi-box-seam"></i>
+                <span class="sidebar-label" data-i18n="m_products">Products</span>
+              </a>
+
+              <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#reqSubmenu" style="cursor: pointer" title="Requirements">
+                <i class="bi bi-file-earmark-text"></i>
+                <span class="sidebar-label" data-i18n="m_requirements">Requirements</span>
+                <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+              </div>
+              <div class="collapse ps-3" id="reqSubmenu">
+                <a class="nav-link py-1 text-white-50 small" onclick="loadModule('CreateReq', this)" title="Create New">
+                  <i class="bi bi-plus-circle"></i>
+                  <span class="sidebar-label" data-i18n="m_create_req">Create New</span>
+                </a>
+                <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ViewReq', this)" title="View History">
+                  <i class="bi bi-list-task"></i>
+                  <span class="sidebar-label" data-i18n="m_view_req">View History</span>
+                </a>
+              </div>
+
+              <div class="nav-item ">
+                <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#procSubmenu" style="cursor: pointer" title="Procurement">
+                  <i class="bi bi-cart-check"></i>
+                  <span class="sidebar-label" data-i18n="m_procurement">Procurement</span>
+                  <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+                </div>
+                <div class="collapse ps-3" id="procSubmenu">
+                  <a class="nav-link py-1 text-white-50 small admin-only" onclick="loadModule('RFQ', this)" title="Create Quote" >
+                    <i class="bi bi-file-earmark-plus"></i>
+                    <span class="sidebar-label" data-i18n="m_create_quote">Create Quote</span>
+                  </a>
+                 
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('QuoteMgmt', this)" title="Quote Management">
+                    <i class="bi bi-file-earmark-check"></i>
+                    <span class="sidebar-label" data-i18n="m_quote_mgmt">Quote Management</span>
+                  </a>
+                  <a id="nav-QuoteReport" class="nav-link py-1 text-white-50 small" onclick="loadModule('QuoteReport', this)" title="Quote Report">
+                    <i class="bi bi-graph-up-arrow"></i>
+                    <span class="sidebar-label" data-i18n="m_quote_report">Quotes Report</span>
+                  </a>
+
+                </div>
+              </div>
+
+              <div class="nav-item admin-only">
+
+                <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#informeSubmenu" style="cursor: pointer" title="Reports">
+                  <i class="bi bi-cart-check"></i>
+                  <span class="sidebar-label" data-i18n="m_reports">Reports</span>
+                  <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+                </div>
+
+                <div class="collapse ps-3" id="informeSubmenu">
+
+                 <a id="nav-LifecycleReport" class="nav-link py-1 text-white-50 small" onclick="loadModule('LifecycleReport', this)" title="Lifecycle Report">
+                    <i class="bi bi-diagram-3"></i>
+                    <span class="sidebar-label" data-i18n="m_lifecycle_report">Lifecycle Report</span>
+                  </a>
+                </div> 
+
+
+              </div>
+
+
+
+              <div class="nav-item admin-only">
+                <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#adminSubmenu" style="cursor: pointer" title="Administration">
+                  <i class="bi bi-gear-fill"></i>
+                  <span class="sidebar-label" data-i18n="m_admin">Administration</span>
+                  <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+                </div>
+                <div class="collapse ps-3" id="adminSubmenu">
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ValSites', this)" title="Sites"><i class="bi bi-diagram-3"></i><span class="sidebar-label" data-i18n="m_sites">Sites</span></a>
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ValCategories', this)" title="Categories"><i class="bi bi-tags"></i><span class="sidebar-label" data-i18n="m_cat">Categories</span></a>
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ValSubCats', this)" title="Sub Cats"><i class="bi bi-tag"></i><span class="sidebar-label" data-i18n="m_subcat">Sub Cats</span></a>
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ValBrands', this)" title="Brands"><i class="bi bi-badge-ad"></i><span class="sidebar-label" data-i18n="m_brand">Brands</span></a>
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ValSuppliers', this)" title="Suppliers"><i class="bi bi-truck"></i><span class="sidebar-label" data-i18n="m_supplier">Suppliers</span></a>
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ValUsers', this)" id="menuItemUsers" title="Users"><i class="bi bi-people"></i><span class="sidebar-label" data-i18n="lbl_users">Users</span></a>
+                  <a class="nav-link py-1 text-white-50 small" onclick="loadModule('ValSystemConfig', this)" title="System Flags"><i class="bi bi-gear-fill"></i><span class="sidebar-label" data-i18n="m_system_flags">System Flags</span></a>
+<a class="nav-link py-1 text-white-50 small admin-only" onclick="loadModule('SheetsSync', this)" title="Google Sheets Sync"><i class="bi bi-cloud-download"></i><span class="sidebar-label">Sheets Sync</span></a>
+                </div>
+              </div>
+              
+              <div class="nav-item">
+                <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#invSubmenu" style="cursor: pointer" title="Inventory">
+                  <i class="bi bi-box-seam"></i>
+                  <span class="sidebar-label" data-i18n="m_inventory">Inventory</span>
+                  <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+                </div>
+                <div class="collapse ps-3" id="invSubmenu">
+                  <a id="nav-Scanner" class="nav-link py-1 text-white-50 small" onclick="loadModule('Scanner', this)" title="Stock Count">
+                    <i class="bi bi-upc-scan"></i>
+                    <span class="sidebar-label" data-i18n="m_scanner">Stock Count</span>
+                  </a>
+                  <a id="nav-InvMov" class="nav-link py-1 text-white-50 small" onclick="loadModule('InvMov', this)" title="Inventory Movement">
+                    <i class="bi bi-arrow-left-right"></i>
+                    <span class="sidebar-label" data-i18n="m_inventory_mov">Movements</span>
+                  </a>
+                   <a id="nav-LocMap" class="nav-link py-1 text-white-50 small" onclick="loadModule('LocationMap', this)" title="Location Map" >
+                    <i class="bi bi-map"></i>
+                    <span class="sidebar-label" data-i18n="m_location_map">Location Map</span>
+                  </a>
+                   <a id="nav-Stock" class="nav-link py-1 text-white-50 small" onclick="loadModule('Stock', this)" title="Stock Management" >
+                    <i class="bi bi-box-seam"></i>
+                    <span class="sidebar-label" data-i18n="m_stock">Stock</span>
+                  </a>
+                   <a id="nav-MinMax" class="nav-link py-1 text-white-50 small admin-only" onclick="loadModule('MinMax', this)" title="Min/Max per site">
+                    <i class="bi bi-sliders"></i>
+                    <span class="sidebar-label" data-i18n="m_minmax">Min/Max per Site</span>
+                  </a>
+                </div>
+               
+              </div>
+
+
+              
+
+              <div class="nav-item admin-only">
+                <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#bundleSubmenu" style="cursor: pointer" title="Bundles">
+                  <i class="bi bi-box2"></i>
+                  <span class="sidebar-label" data-i18n="m_bundles">Bundles</span>
+                  <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+                </div>
+                <div class="collapse ps-3" id="bundleSubmenu">
+                  <a id="nav-Bundles" class="nav-link py-1 text-white-50 small" onclick="loadModule('Bundles', this)" title="Manage Bundles">
+                    <i class="bi bi-box"></i>
+                    <span class="sidebar-label" data-i18n="bundle_list">Bundle List</span>
+                  </a>
+                </div>
+              </div>
+
+
+              <!-- =============================== -->
+              <!-- MICROSOFT GRAPH INTEGRATION LINK -->
+
+              <div class="nav-item admin-only">
+                <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#azureSubmenu" style="cursor: pointer" title="Azure Integration">
+                  <i class="bi bi-microsoft"></i>
+                  <span class="sidebar-label" data-i18n="m_azure">Azure Integration</span>
+                  <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+                </div>
+                <div class="collapse ps-3" id="azureSubmenu">
+                  <a id="nav-AzureTest" class="nav-link py-1 text-white-50 small" onclick="loadModule('AzureTest', this)" title="Test Connection">
+                    <i class="bi bi-shield-check"></i>
+                    <span class="sidebar-label" data-i18n="m_azure_test">Test Graph Connection</span>
+                  </a>
+                </div>
+              </div>
+
+
+                            <!-- ===============================               
+
+              <div class="nav-item admin-only">
+                <div class="nav-link text-white" data-bs-toggle="collapse" data-bs-target="#gpMacroSubmenu" style="cursor: pointer" title="Dynamics GP Utilities">
+                  <i class="bi bi-file-earmark-code"></i>
+                  <span class="sidebar-label" data-i18n="m_gp_utils">Dynamics GP Utilities</span>
+                  <i class="bi bi-chevron-down float-end small mt-1 sidebar-chevron"></i>
+                </div>
+                <div class="collapse ps-3" id="gpMacroSubmenu">
+                  <a id="nav-CreateBulkPOMAC" class="nav-link py-1 text-white-50 small" onclick="loadModule('CreateBulkPOMAC', this)" title="Create Bulk PO Macro">
+                    <i class="bi bi-box-arrow-in-right"></i>
+                    <span class="sidebar-label" data-i18n="m_bulk_po">Bulk PO Generator</span>
+                  </a>
+                </div>
+              </div>
+
+              =============================== -->
+
+              <div class="nav-item admin-only">
+                <a id="nav-ControlCombustible" class="nav-link text-white" onclick="loadModule('ControlCombustible', this)" title="Fuel Control" style="cursor: pointer">
+                  <i class="bi bi-fuel-pump"></i>
+                  <span class="sidebar-label" i18n="m_fuel_control">Control Combustible</span>
+                </a>
+              </div>
+
+              <div class="nav-item admin-only">
+                <a id="nav-OpSphere" class="nav-link text-white" onclick="loadModule('OpSphereReact', this)" title="OpSphere" style="cursor: pointer">
+                  <i class="bi bi-globe"></i>
+                  <span class="sidebar-label" i18n="m_OpSphere">OpSphere</span>
+                </a>
+              </div>
+
+             <div class="nav-item">
+              <a id="nav-GestionActivos" class="nav-link text-white" onclick="loadModule('GestionActivos', this)" title="Gestión de Activos" style="cursor: pointer">
+                <i class="bi bi-truck"></i>
+                <span class="sidebar-label" data-i18n="lbl_asset_management">Gestión de Activos</span>
+              </a>
+            </div>
+
+            <div class="nav-item">
+              <a id="nav-Labels" class="nav-link text-white" onclick="loadModule('Labels', this)" title="Labels" style="cursor: pointer">
+                <i class="bi bi-tag"></i>
+                <span class="sidebar-label" data-i18n="lbl_labels">Labels</span>
+              </a>
+            </div>
+
+
+
+
+
+            </div>
+          </div>
+
+          <div class="sidebar-footer p-3 border-top border-secondary bg-dark">
+            <div class="nav-item">
+              <a id="nav-EditPin" class="nav-link text-white" onclick="loadModule('EditPin', this)" title="Change PIN">
+                <i class="bi bi-key"></i>
+                <span class="sidebar-label" data-i18n="m_edit_pin">Change PIN</span>
+              </a>
+            </div>
+            <div class="d-flex flex-wrap">
+              <button id="langBtn" class="btn btn-outline-light btn-sm w-100 d-flex align-items-center justify-content-center" onclick="toggleLanguage()">
+                <i class="bi bi-translate"></i>
+              </button>
+              <button class="btn btn-outline-danger btn-sm w-100 d-flex align-items-center justify-content-center" onclick="window.reconLogout()">
+                <i class="bi bi-box-arrow-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div
+          class="main-wrapper flex-grow-1"
+          style="overflow-y: auto; background-color: #f8f9fa"
+        >
+          <div id="mainContent" class="container-fluid p-4"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="emailModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title" data-i18n="modal_title">
+              Confirm & Send Email
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <!--
+          <div class="mb-3">
+            <label class="form-label fw-bold" data-i18n="modal_to">To:</label>
+            <input type="text" id="emailTo" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold" data-i18n="modal_subject">Subject:</label>
+            <input type="text" id="emailSubject" class="form-control">
+          </div>
+        -->
+            <div class="mb-3">
+              <label class="form-label fw-bold" data-i18n="modal_body"
+                >Message Body:</label
+              >
+              <div
+                id="emailPreview"
+                contenteditable="true"
+                style="
+                  border: 1px solid #ced4da;
+                  padding: 15px;
+                  min-height: 300px;
+                  border-radius: 5px;
+                  background: #fff;
+                "
+              ></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+              data-i18n="modal_cancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              id="btnFinalConfirm"
+              class="btn btn-success"
+              onclick="confirmAndSend()"
+              data-i18n="modal_send"
+            >
+              Send & Save Order
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="editReqModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title"><span data-i18n="modal_edit_req">Edit Requirement:</span> <span id="editModalOrderNum"></span></h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+
+          <div class="modal-body">
+            <div class="row g-3 mb-4">
+              <div class="col-md-3">
+                <label class="form-label fw-bold" data-i18n="lbl_site_faena">Site (Faena)</label>
+                <input type="text" id="editFaena" class="form-control">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label fw-bold" data-i18n="sub_area">Sub Area</label>
+                <input type="text" id="editSubArea" class="form-control" readonly>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label fw-bold" data-i18n="sub_area_number">SubArea Number</label>
+                <input type="text" id="editSubAreaNo" class="form-control" readonly>
+              </div>
+              <div class="col-md-3">
+                <div class="d-flex gap-2 flex-wrap">
+                  <button type="button" class="btn btn-success btn-sm" id="btnApproveAll" onclick="approveAllItems()" data-i18n="btn_approve_all">
+                    <i class="bi bi-check-all"></i> <span class="i18n-label">Approve All Items</span>
+                  </button>
+                  <button type="button" class="btn btn-danger btn-sm" id="btnDeleteAll" onclick="deleteAllItems()" data-i18n="btn_delete_all">
+                    <i class="bi bi-trash-fill"></i> <span class="i18n-label">Delete All Items</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+              <div class="col-md-12">
+                <label class="form-label fw-bold" data-i18n="lbl_emails">Emails</label>
+                <input type="text" id="editEmails" class="form-control" placeholder="name@company.com, name2@company.com">
+              </div>
+            </div>
+
+            <!-- Notes: the "Additional Message (Body)" the requester typed when
+                 the requirement was created (Ordenes "Notes" column). Read-only
+                 so the approver can see why the material is being requested. -->
+            <div class="row g-3 mb-4" id="editNotesRow">
+              <div class="col-md-12">
+                <label class="form-label fw-bold" data-i18n="lbl_req_notes">Notes</label>
+                <div id="editNotes" class="form-control bg-light" style="min-height:60px; max-height:180px; overflow-y:auto; font-size:12px; display:none;"></div>
+                <small id="editNotesEmpty" class="text-muted fst-italic" data-i18n="req_notes_empty">No notes for this requirement.</small>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="table table-sm border align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 150px;" data-i18n="geo">Geo</th> 
+                    <th data-i18n="m_pn">P/N</th>
+                    <th data-i18n="desc">Description</th>
+                    <th style="width: 80px;" data-i18n="qty">Qty</th>
+                    <th style="width: 180px;" data-i18n="item_notes">Item Notes</th>
+                    <th style="width: 140px;" data-i18n="item_images">Images</th>
+                    <th style="width: 120px;" data-i18n="status">Status</th>
+                    <th style="width: 40px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="editItemsTableBody"></tbody>
+              </table>
+            </div>
+
+            <div class="mb-3 position-relative">
+              <label class="form-label fw-bold text-success" data-i18n="add_new_item_search">Add New Item via Search</label>
+              <div class="input-group">
+                <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                <input type="text" id="editItemSearch" class="form-control"
+                       data-i18n-placeholder="placeholder_edit_item_search" oninput="handleEditSearch(this.value)">
+              </div>
+              <ul id="editSearchResults" class="list-group position-absolute w-100 shadow-lg d-none"
+                  style="z-index: 1060; max-height: 200px; overflow-y: auto;">
+              </ul>
+            </div>
+
+            <button type="button" class="btn btn-sm btn-outline-success" onclick="addEditRow()" data-i18n="add_item_manually">
+              <i class="bi bi-plus-circle"></i> <span class="i18n-label">Add Item Manually</span>
+            </button>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="modal_cancel">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="saveRequirementChanges()" data-i18n="btn_save_changes">
+              <span id="saveBtnSpinner" class="spinner-border spinner-border-sm d-none"></span> <span class="i18n-label">Save Changes</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="productModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-dark text-white">
+            <h5 class="modal-title" id="prodModalTitle" data-i18n="p_modal_title">
+              Product Details
+            </h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <form id="productForm">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label small fw-bold" data-i18n="geo"
+                    >GEO CODE</label
+                  >
+                  <input
+                    type="text"
+                    id="form_geo"
+                    class="form-control bg-light"
+                    readonly
+                  />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-bold" data-i18n="m_pn"
+                    >PART NUMBER</label
+                  >
+                  <input type="text" id="form_pn" class="form-control" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-bold" data-i18n="m_un"
+                    >UNIT (UN)</label
+                  >
+                  <input type="text" id="form_un" class="form-control" />
+                </div>
+
+                <div class="col-md-6">
+                  <label class="form-label small fw-bold" data-i18n="m_cat"
+                    >CATEGORY</label
+                  >
+                  <select id="form_cat" class="form-select"></select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-bold" data-i18n="m_subcat"
+                    >SUB CATEGORIA</label
+                  >
+                  <select id="form_subcat" class="form-select"></select>
+                </div>
+
+                <div class="col-md-6">
+                  <label class="form-label small fw-bold" data-i18n="m_brand"
+                    >MARCA</label
+                  >
+                  <select id="form_brand" class="form-select"></select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-bold" data-i18n="m_supplier"
+                    >PROVEEDOR</label
+                  >
+                  <select id="form_supplier" class="form-select"></select>
+                </div>
+
+                <div class="col-md-4">
+                  <label
+                    class="form-label small fw-bold text-danger"
+                    data-i18n="m_min"
+                    >MIN STOCK</label
+                  >
+                  <input type="number" id="form_min" class="form-control" />
+                </div>
+                <div class="col-md-4">
+                  <label
+                    class="form-label small fw-bold text-primary"
+                    data-i18n="m_max"
+                    >MAX STOCK</label
+                  >
+                  <input type="number" id="form_max" class="form-control" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-bold" data-i18n="m_eta"
+                    >TIEMPO ENTREGA</label
+                  >
+                  <input type="text" id="form_eta" class="form-control" />
+                </div>
+
+                <div class="col-md-6">
+                  <label class="form-label small fw-bold" data-i18n="m_cost"
+                    >COSTO</label
+                  >
+                  <input
+                    type="number"
+                    id="form_cost_clp"
+                    class="form-control"
+                  />
+                </div>
+
+                <div class="col-md-12">
+                  <label class="form-label small fw-bold" data-i18n="m_desc_en"
+                    >DESC EN</label
+                  >
+                  <textarea
+                    id="form_desc_en"
+                    class="form-control"
+                    rows="2"
+                  ></textarea>
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label small fw-bold" data-i18n="m_desc_es"
+                    >DESC ES</label
+                  >
+                  <textarea
+                    id="form_desc_es"
+                    class="form-control"
+                    rows="2"
+                  ></textarea>
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+              data-i18n="modal_cancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              onclick="window.saveProduct()"
+              data-i18n="modal_save"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="reconLoginOverlay"
+      class="position-fixed top-0 start-0 w-100 h-100 bg-light d-flex align-items-center justify-content-center d-none"
+      style="
+        z-index: 10000;
+        background-image: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      "
+    >
+      <div
+        class="card shadow-lg border-0 animate__animated animate__zoomIn"
+        style="width: 380px; border-radius: 15px"
+      >
+        <div class="card-body p-5 text-center">
+          <div class="mb-4 text-center">
+            <div class="d-flex justify-content-center mb-3">
+              <img
+                id="loginLogo"
+                src=""
+                alt="Company logo"
+                style="
+                  max-height: 120px;
+                  width: auto;
+                  display: none;
+                  filter: drop-shadow(0px 4px 8px rgba(0, 0, 0, 0.1));
+                "
+              />
+            </div>
+
+            <div
+              id="logoPlaceholder"
+              class="bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center mx-auto"
+              style="width: 70px; height: 70px"
+            >
+              <i class="bi bi-shield-lock fs-1"></i>
+            </div>
+          </div>
+          <h4 class="fw-bold text-dark mb-1">Recon ERP</h4>
+          <p class="text-muted small mb-4" data-i18n="login_subtitle">Please enter your credentials</p>
+
+          <div class="mb-3">
+            <label
+              class="form-label small fw-bold text-muted d-block text-start"
+              data-i18n="lbl_user_id"
+              >USER ID</label
+            >
+            <input
+              type="text"
+              id="inputUserId"
+              class="form-control form-control-lg text-center fw-bold"
+              maxlength="4"
+              placeholder="0000"
+              autofocus
+              style="letter-spacing: 0.5rem"
+              autocomplete="off"
+              pattern="[0-9]*"
+            />
+          </div>
+
+          <div class="mb-4">
+            <label
+              class="form-label small fw-bold text-muted d-block text-start"
+              data-i18n="lbl_pin"
+              >PIN</label
+            >
+            <input
+              type="password"
+              id="inputPin"
+              class="form-control form-control-lg text-center fw-bold"
+              maxlength="4"
+              placeholder="••••"
+              style="letter-spacing: 0.5rem"
+              inputmode="numeric"
+              pattern="[0-9]*"
+            />
+          </div>
+
+          <div
+            id="loginFeedback"
+            class="alert alert-danger d-none p-2 small"
+          ></div>
+
+          <div id="loginLoader" class="d-none mb-3">
+            <div class="spinner-border spinner-border-sm text-primary"></div>
+            <span class="small ms-2 text-muted">Verifying...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="modal fade"
+      id="quoteDetailsModal"
+      tabindex="-1"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-quote-full modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header bg-dark text-white">
+            <div>
+              <h5 class="modal-title mb-0" id="quoteDetailsTitle" data-i18n="quote_details_title">
+                Quote
+              </h5>
+              <div class="small text-white-50" id="quoteDetailsSubtitle"></div>
+            </div>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              aria-label="Close"
+            ></button>
+          </div>
+          <div class="modal-body" id="quoteDetailsBody"></div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+              data-i18n="modal_close"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="modal fade"
+      id="quoteEditModal"
+      tabindex="-1"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-quote-full modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header bg-secondary text-white">
+            <h5 class="modal-title" data-i18n="quote_edit_title">Edit Quote</h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              aria-label="Close"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <div id="quoteEditSummary" class="mb-3"></div>
+            <div class="d-flex justify-content-end align-items-center gap-1 mb-1">
+              <div class="btn-group btn-group-sm" role="group" aria-label="Table text size">
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  onclick="window.quoteTableZoom('edit', -1)"
+                  data-i18n-title="quote_text_smaller"
+                  title="Smaller text"
+                >A&minus;</button>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  onclick="window.quoteTableZoom('edit', 1)"
+                  data-i18n-title="quote_text_bigger"
+                  title="Bigger text"
+                >A+</button>
+              </div>
+              <div class="dropdown">
+                <button
+                  type="button"
+                  id="quoteEditColBtn"
+                  class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false"
+                  data-i18n-title="quote_cols_toggle"
+                  title="Show / hide columns"
+                  onclick="window.buildQuoteColMenu('edit')"
+                >
+                  <i class="bi bi-eye"></i>
+                </button>
+                <div
+                  id="quoteEditColMenu"
+                  class="dropdown-menu dropdown-menu-end p-2"
+                  style="max-height: 320px; overflow-y: auto; min-width: 220px;"
+                ></div>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 40px">
+                      <input
+                        id="quoteEditSelectAll"
+                        type="checkbox"
+                        title="Select all rows"
+                      />
+                    </th>
+                    <th style="width: 120px" data-i18n="status">Status</th>
+                    <th data-i18n="geo">GEO</th>
+                    <th data-i18n="m_pn">P/N</th>
+                    <th data-i18n="desc">Description</th>
+                    <th data-i18n="item_notes" data-qcol="notes" style="min-width:140px;">Item Notes</th>
+                    <th class="text-center" style="width: 80px" data-i18n="col_qty">Qty</th>
+                    <!-- Quoted vs approved: "Cant." freezes at Approved, so the
+                         reduced figure the manager signed off lives beside it. -->
+                    <th class="text-center" style="width: 90px" data-i18n="lbl_qty_approved" data-qcol="approved">Approved</th>
+                    <th data-i18n="supplier_notes" data-qcol="supnotes" style="min-width:140px;">Supplier Notes</th>
+                    <!-- Requester photos (Create Req attachments): read-only. -->
+                    <th data-i18n="item_images" data-qcol="images" style="min-width:110px;">Images</th>
+                    <th class="text-center" style="width: 120px" data-i18n="lbl_supplier_quote_no" data-qcol="quoteno">Quote No. <span class="text-danger" title="Required when status is Quoted">*</span></th>
+                    <th class="text-center" style="width: 90px" data-i18n="lbl_quoted_doc" data-qcol="doc">Doc <span class="text-danger" title="Required when status is Quoted">*</span></th>
+                    <th class="text-center" style="width: 90px" data-i18n="tbl_rcvd" data-qcol="rcvd">Rcvd</th>
+                    <th class="text-end text-danger small" style="width: 90px; font-weight: bold;" data-i18n="tbl_diff" data-qcol="diff">Diff</th>
+                    <th class="text-center quote-col-currency d-none" style="width: 110px" data-i18n="lbl_currency" data-qcol="currency">Currency</th>
+                    <th class="text-end quote-col-xrate d-none" style="width: 90px" data-i18n="lbl_exchange_rate" data-qcol="currency">Exch. Rate</th>
+                    <!-- 💰 QUOTED price it applies to and the derived
+                         NET unit price actually paid. Discount % + Transport are
+                         quote-level: edited once in the bar below, shown once in
+                         the footer — never as per-line columns. -->
+                    <th class="text-end" style="width: 150px" data-i18n="lbl_price">Price</th>
+                    <th class="text-end" style="width: 130px" data-i18n="lbl_net_price">Net Unit</th>
+                    <th class="text-end" style="width: 150px" data-i18n="lbl_total">Total</th>
+                  </tr>
+                </thead>
+                <tbody id="quoteEditBody"></tbody>
+                <tfoot>
+                  <tr class="table-light">
+                    <!-- 19 columns: 14 leading + Currency + Exch.Rate + Price +
+                         Net + Total. The money block (Subtotal / Discount /
+                         Transport / Total, one per line, transport counted
+                         ONCE) spans the last THREE columns so each figure has
+                         room. Base=14 + currency spacer=2 + money=3 => 19 when
+                         currency shows, 14 + 3 = 17 when it is hidden. -->
+                    <td id="quoteEditFootBase" colspan="14"></td>
+                    <td colspan="2" class="quote-col-currency d-none" data-qcol="currency"></td>
+                    <td id="quoteEditTotalSum" colspan="3" class="fw-bold"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div
+              id="quoteEditToolbar"
+              class="d-flex gap-2 align-items-center mt-2"
+            >
+              <label class="mb-0" data-i18n="apply_to_selected">Apply to selected:</label>
+              <select id="quoteEditApplySelect" class="form-select w-auto">
+                <option value="Pending" data-i18n="status_pending">Pending</option>
+                <option value="Not Quoted" data-i18n="status_not_quoted">Not Quoted</option>
+                <option value="Quoted" data-i18n="status_quoted">Quoted</option>
+                <option value="Approved" data-i18n="status_approved">Approved</option>
+                <option value="Sent" data-i18n="status_sent">Sent</option>
+                <option value="Received" data-i18n="status_received">Received</option>
+                <option value="Despatched" data-i18n="status_despatched">Despatched</option>
+                <option value="Final Received" data-i18n="status_final_received">Final Received</option>
+                <option value="Deleted" data-i18n="status_deleted">Deleted</option>
+              </select>
+              <button
+                id="quoteEditApplyBtn"
+                type="button"
+                class="btn btn-outline-primary btn-sm"
+                data-i18n="btn_apply"
+              >
+                Apply
+              </button>
+              <div class="ms-auto text-muted small" data-i18n="quote_edit_tip">
+                Tip: select rows, choose status, then click Apply
+              </div>
+            </div>
+            <div
+              id="quoteEditDocBar"
+              class="d-flex flex-wrap gap-2 align-items-center mt-2 border rounded p-2 bg-light"
+            >
+              <label class="mb-0 mb-1 small fw-semibold" data-i18n="lbl_supplier_quote_no">Supplier Quote No.: <span class="text-danger">*</span></label>
+              <input
+                id="quoteEditSupplierNo"
+                type="text"
+                class="form-control form-control-sm"
+                style="max-width: 190px;"
+                placeholder="COT-2024-001"
+                data-i18n-placeholder="quote_no_placeholder"
+                oninput="window.updateQuoteDocPreviews()"
+              />
+              <div id="quoteEditDocDropzone" class="d-flex flex-column justify-content-center px-2 py-1 rounded border border-success border-dashed text-success" style="min-width:190px;cursor:pointer;" role="button" tabindex="0" aria-label="Drop a supplier quotation PDF or image here, or browse" onclick="window.pickQuoteDoc()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.pickQuoteDoc();}">
+                <span class="small fw-semibold text-center">
+                  <i class="bi bi-file-earmark-arrow-up me-1"></i>
+                  <span data-i18n="quote_doc_dropzone">Drop PDF or image here</span>
+                </span>
+                <span class="text-muted text-center" style="font-size:.68rem;" data-i18n="quote_doc_dropzone_hint">PDF, PNG, JPG or WebP · max 10 MB</span>
+              </div>
+              <input
+                id="quoteEditDocFile"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp"
+                class="d-none"
+                onchange="window.handleQuoteDocFile(this)"
+              />
+              <span id="quoteEditDocStatus" class="text-muted small ms-2"></span>
+              <span id="quoteEditDocScope" class="small w-100 text-muted ms-2"></span>
+            </div>
+            <!-- 💰 Quote-level COMMERCIALS. One discount % for the whole supplier
+                 quote (applied to every line's price) + one transport charge
+                 for the whole quote, so neither can ever be counted per-line. -->
+            <div
+              id="quoteEditFreightBar"
+              class="d-flex flex-wrap gap-2 align-items-center mt-2 border rounded p-2 bg-light"
+            >
+              <label class="mb-0 small fw-semibold" for="quoteEditDiscount" data-i18n="lbl_discount_pct">Discount %:</label>
+              <input
+                id="quoteEditDiscount"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                class="form-control form-control-sm"
+                style="max-width: 110px;"
+                placeholder="0"
+              />
+              <button
+                id="quoteEditDiscountBtn"
+                type="button"
+                class="btn btn-outline-success btn-sm"
+                data-i18n="btn_apply"
+              >
+                Apply
+              </button>
+              <label class="mb-0 small fw-semibold ms-2" for="quoteEditFreight" data-i18n="lbl_freight">Transport:</label>
+              <input
+                id="quoteEditFreight"
+                type="number"
+                min="0"
+                max="999999999999.99"
+                step="0.01"
+                class="form-control form-control-sm"
+                style="max-width: 150px;"
+                placeholder="0"
+              />
+              <button
+                id="quoteEditFreightBtn"
+                type="button"
+                class="btn btn-outline-info btn-sm"
+                data-i18n="btn_apply"
+              >
+                Apply
+              </button>
+              <span class="small text-muted" data-i18n="quote_freight_hint">Charged once for the whole quote: edit it in the Transport box below.</span>
+            </div>
+            <input
+              id="quoteEditRowDocFile"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.webp"
+              class="d-none"
+              onchange="window.handleQuoteRowDocFile(this)"
+            />
+            <div class="mt-1 small text-muted" data-i18n="msg_quote_doc_autofill">
+              Tick a line to apply the quote number and document above to it. Lines already carrying their own quote number and document are left untouched, so a supplier can quote part of the items in one file and the rest in another. Use the upload and ✕ icons in a row to set a single line.
+            </div>
+            <div class="mt-3 d-flex gap-2 align-items-center">
+              <div class="ms-auto text-muted small" data-i18n="supplier_readonly_edit">
+                Supplier is read-only in edit mode
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+              data-i18n="modal_cancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              id="btnSaveEditedQuote"
+              class="btn btn-primary"
+              onclick="window.saveEditedQuote()"
+              data-i18n="btn_save_changes"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quote Price Comparison modal -->
+    <div
+      class="modal fade"
+      id="quoteCompareModal"
+      tabindex="-1"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width: 96vw;">
+        <div class="modal-content">
+          <div class="modal-header bg-info text-white">
+            <h5 class="modal-title" id="quoteCompareTitle">Compare Prices</h5>
+            <button
+              type="button"
+              class="btn-close btn-close-white"
+              data-bs-dismiss="modal"
+              aria-label="Close"
+            ></button>
+          </div>
+          <div class="modal-body" id="quoteCompareBody"></div>
+          <div class="modal-footer">
+            <!-- Resync ("Fix Deleted"): re-scans this requirement on the SERVER for
+                 items that are approved from one supplier while another supplier's
+                 line for the same item is still alive, previews the repair, and
+                 applies it in one confirm. Revealed by openCompareQuotes only for
+                 roles that may approve (same gate as the compare icon) and refused
+                 server-side too (getRequirementQuoteRows rejects the "User" role). -->
+            <button
+              type="button"
+              id="btnResyncQuoteCompare"
+              class="btn btn-outline-warning me-auto d-none"
+              onclick="window.resyncQuoteCompare()"
+              data-i18n="quote_compare_resync"
+            >
+              <i class="bi bi-arrow-clockwise"></i>
+              <span class="i18n-label">Fix Deleted</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+              data-i18n="modal_cancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              id="btnApplyQuoteCompare"
+              class="btn btn-primary"
+              onclick="window.applyQuoteCompareSelection()"
+              data-i18n="quote_compare_apply"
+            >
+              Approve Selected &amp; Delete Others
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- quoteAddModal removed: additional quotes are created via the RFQ module
+         (the "+" in Quote Management deep-links there with the requirement preselected) -->
+
+
+    
+
+
+    <!-- =========================
+        CREATE / EDIT MODAL
+    ========================= -->
+    <div class="modal fade" id="bundleModal">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+
+          <div class="modal-header">
+            <h5 id="bundleModalTitle" data-i18n="bundle_create_title">Create Bundle</h5>
+            <button class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+
+          <div class="modal-body">
+
+            <!-- BASIC INFO -->
+            <div class="row mb-3">
+              <div class="col-md-4">
+                <label>Bundle ID</label>
+                <input id="bundleId" class="form-control">
+              </div>
+
+              <div class="col-md-6">
+                <label>Name</label>
+                <input id="bundleName" class="form-control">
+              </div>
+
+              <div class="col-md-2">
+                <label>Status</label>
+                <select id="bundleStatus" class="form-select">
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </select>
+              </div>
+            </div>
+
+            <hr>
+
+            <!-- ITEM SEARCH -->
+            <div class="mb-2">
+              <input id="bundleSearch" class="form-control"
+                    placeholder="Search items to add..." data-i18n-placeholder="p_search_placeholder"
+                    oninput="searchBundleItems()">
+            </div>
+
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <tbody id="bundleSearchResults"></tbody>
+              </table>
+            </div>
+
+            <hr>
+
+            <!-- SELECTED ITEMS -->
+            <h6>Selected Items</h6>
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Geo</th>
+                  <th>Name</th>
+                  <th style="width:100px;">Qty</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="bundleItemsTable"></tbody>
+            </table>
+
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button class="btn btn-success" onclick="saveBundle()" data-i18n="bundle_save">Save Bundle</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+
+   <div class="modal fade" id="peopleModal" tabindex="-1">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+
+          <div class="modal-header">
+            <h5 class="modal-title" data-i18n="lbl_manage_people">Manage People</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+
+          <div class="modal-body">
+            
+            <ul class="nav nav-tabs mb-3" id="peopleModalTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="single-tab" data-bs-toggle="tab" data-bs-target="#singlePersonView" type="button" role="tab" data-i18n="lbl_single_person">
+                  Single Person
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="bulk-tab" data-bs-toggle="tab" data-bs-target="#bulkPersonView" type="button" role="tab" data-i18n="lbl_bulk_add">
+                  Bulk Add (Names Only)
+                </button>
+              </li>
+            </ul>
+
+            <div class="tab-content" id="peopleModalTabsContent">
+              
+              <div class="tab-pane fade show active" id="singlePersonView" role="tabpanel">
+                <div class="card p-3 mb-3">
+                  <div class="row">
+                    <div class="col-md-4">
+                      <label data-i18n="lbl_name">Name</label>
+                      <input id="p_name" class="form-control">
+                    </div>
+                    <div class="col-md-3">
+                      <label data-i18n="lbl_department">Department</label>
+                      <input id="p_department" class="form-control">
+                    </div>
+                    <div class="col-md-3">
+                      <label data-i18n="lbl_sector">Sector</label>
+                      <input id="p_sector" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                      <label>&nbsp;</label>
+                      <button class="btn btn-success w-100" onclick="savePerson()" data-i18n="btn_save">SAVE</button>
+                    </div>
+                  </div>
+                    <div class="row mt-2">
+                      <div class="col-md-4">
+                        <label data-i18n="lbl_rut">RUT</label>
+                        <input id="p_rut" class="form-control" placeholder="12.345.678-9">
+                      </div>
+                      <div class="col-md-4">
+                        <label data-i18n="lbl_email">Email</label>
+                        <input id="p_email" type="email" class="form-control" placeholder="example@domain.com">
+                      </div>
+                      <div class="col-md-4 d-flex align-items-end">
+                        <button id="enrollBtn" class="btn btn-warning w-100" onclick="startEnrollment()" data-i18n="btn_enroll_fingerprint">
+                          Enroll Fingerprint
+                        </button>
+                      </div>
+                    </div>
+
+                    <input type="hidden" id="p_biometricTemplate" value="">
+                </div>
+
+                
+              </div>
+
+              <div class="tab-pane fade" id="bulkPersonView" role="tabpanel">
+                <div class="card p-3 mb-3">
+                  <div class="row align-items-end">
+                    <div class="col-md-10">
+                      <label class="fw-bold text-primary mb-1" data-i18n="lbl_bulk_names_instruction">Enter Names (One person per line)</label>
+                      <textarea id="bulkNamesInput" class="form-control" rows="4" placeholder="John Doe&#10;Jane Smith&#10;Carlos Santana" data-i18n-placeholder="placeholder_bulk_names"></textarea>
+                    </div>
+                    <div class="col-md-2">
+                      <button class="btn btn-success w-100" onclick="submitBulkPeople()" data-i18n="btn_save_list">SAVE LIST</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+
+            <!-- NEW: Search Box -->
+            <div class="row mb-3 mt-4">
+              <div class="col-md-12">
+                <input 
+                  type="text" 
+                  id="peopleSearchInput" 
+                  class="form-control border-primary" 
+                  placeholder="Search by Name, RUT, or Email..." 
+                  onkeyup="renderPeopleTable()"
+                  data-i18n-placeholder="placeholder_people_search"
+                >
+              </div>
+            </div>
+
+            <div id="peopleTable"></div>
+
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="modal fade" id="valModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="valModalTitle" data-i18n="lbl_item_detail">Item Detail</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="valModalBody">
+        </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="btn_cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveValItem()" data-i18n="btn_save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal fade" id="modalFuelReception" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl" >
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" data-i18n="m_fuel_control">Registrar Compra de Combustible</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label>Proveedor</label>
+          <input type="text" id="rec_proveedor" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label>Litros</label>
+          <input type="number" id="rec_litros" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label>Factura/Ref</label>
+          <input type="text" id="rec_factura" class="form-control">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" id="btn_save_fuel_purchase" class="btn btn-primary" onclick="saveFuelPurchase(this)">
+          Guardar Recepción
+        </button>
+      </div>
+
+       <div class="border-top p-3">
+
+          <h6 class="fw-bold mb-3" data-i18n="fuel_last_receptions">
+            Últimas recepciones
+          </h6>
+
+          <!-- Filters -->
+          <div class="row g-2 align-items-end mb-3">
+
+            <div class="col-md-3">
+              <label class="form-label mb-1 small fw-semibold"
+                    data-i18n="date_from">
+                Desde
+              </label>
+              <input type="date"
+                    id="fuel_purchase_date_from"
+                    class="form-control form-control-sm">
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label mb-1 small fw-semibold"
+                    data-i18n="date_to">
+                Hasta
+              </label>
+              <input type="date"
+                    id="fuel_purchase_date_to"
+                    class="form-control form-control-sm">
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label mb-1 small fw-semibold"
+                    data-i18n="supplier">
+                Proveedor
+              </label>
+              <select id="fuel_purchase_supplier"
+                      class="form-select form-select-sm">
+                <option value="" data-i18n="all">Todos</option>
+              </select>
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label mb-1 small fw-semibold"
+                    data-i18n="invoice_reference">
+                Factura / Guía
+              </label>
+              <input type="text"
+                    id="fuel_purchase_invoice"
+                    class="form-control form-control-sm"
+                    data-i18n-placeholder="search"
+                    placeholder="Buscar...">
+            </div>
+
+          </div>
+
+          <!-- Table -->
+          <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
+            <table class="table table-sm table-hover align-middle mb-0">
+              <thead class="table-light sticky-top">
+                <tr>
+                  <th data-i18n="date">Fecha</th>
+                  <th data-i18n="supplier">Proveedor</th>
+                  <th data-i18n="liters">Litros</th>
+                  <th data-i18n="invoice_reference">Factura / Guía</th>
+                  <th data-i18n="user">Usuario</th>
+                </tr>
+              </thead>
+
+              <tbody id="fuel_purchase_history_body">
+              </tbody>
+
+            </table>
+          </div>
+
+        </div>
+
+    </div>
+  </div>
+</div>
+
+  <div class="modal fade" id="macroWizardModal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" data-i18n="m_bulk_po">Bulk PO Processing Wizard</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="resetWizard()"></button>
+        </div>
+        <div class="modal-body">
+          
+          <div id="panel-step-a" class="wizard-panel">
+            <h6>Step 1: Upload or Paste Source Data</h6>
+            <div class="mb-3">
+              <label class="form-label text-muted small">Paste spreadsheet cells directly into textbox area or load a file (.csv, .xlsx, .xls):</label>
+              <textarea class="form-control font-monospace mb-2" id="csv-raw-input" rows="5" placeholder="PONumber,VendorID,ItemNumber,Quantity,UnitCost..." oninput="updateLivePreview()"></textarea>
+              <input class="form-control form-control-sm" type="file" id="csv-file-loader" accept=".csv,.txt,.xlsx,.xls">
+            </div>
+
+            <div class="row align-items-center bg-light p-2 rounded border mb-3 g-2">
+              <div class="col-sm-4">
+                <label class="form-label small fw-bold mb-0">Column Delimiter Format:</label>
+              </div>
+              <div class="col-sm-8">
+                <select class="form-select form-select-sm" id="delimiter-selector" onchange="updateLivePreview()">
+                  <option value="auto">Auto-Detect Separator (Applies to CSV/Clipboard)</option>
+                  <option value=",">Comma ( , ) &mdash; Standard CSV</option>
+                  <option value=";">Semicolon ( ; ) &mdash; LatAm / Chilean Excel CSV</option>
+                  <option value="\t">Tab ( \t ) &mdash; Excel/Sheets Direct Paste</option>
+                </select>
+              </div>
+
+              <div class="col-sm-4 mt-2">
+                  <label class="form-label small fw-bold mb-0">Source Date Format:</label>
+                </div>
+                <div class="col-sm-8 mt-2">
+                  <select class="form-select form-select-sm" id="user-date-format-selector">
+                    <option value="auto_clean">Auto-Detect / Keep Original Layout</option>
+                    <option value="MMDDYYYY">MM/DD/YYYY (Month is First &rarr; Convert)</option>
+                    <option value="DDMMYYYY">DD/MM/YYYY (Day is First &rarr; Keep Structure)</option>
+                  </select>
+                </div>
+            </div>
+
+            <div id="preview-grid-box" class="mb-3" style="display:none;">
+              <label class="form-label text-muted small fw-bold">Data Real-Time Preview Matrix (First 3 Rows):</label>
+              <div class="table-responsive border rounded bg-white" style="max-height:150px;">
+                <table class="table table-sm table-bordered mb-0 small text-nowrap font-monospace" id="live-preview-table">
+                  </table>
+              </div>
+            </div>
+
+            <div class="text-end mt-3">
+              <button class="btn btn-primary" onclick="processIngestedInput()">Analyze Validation Real-Time &gt;</button>
+            </div>
+          </div>
+
+         <div id="panel-step-mappers" class="wizard-panel" style="display:none;">
+            <h6>Step 1B: Map File Columns to Dynamics GP Fields</h6>
+            <p class="text-muted small">Map your file's columns manually below to match our processing pipeline:</p>
+            <div class="row g-3 border p-3 rounded bg-light mb-3">
+              <div class="col-sm-6">
+                <label class="form-label small fw-bold" data-i18n="lbl_date_from">Document Date Target Field</label>
+                <select class="form-select form-select-sm" id="map-col-date"></select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label small fw-bold">Invoice / Control Number Target Field</label>
+                <select class="form-select form-select-sm" id="map-col-invoice"></select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label small fw-bold" data-i18n="m_supplier">Vendor ID Target Field</label>
+                <select class="form-select form-select-sm" id="map-col-vendor"></select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label small fw-bold" data-i18n="geo">Item Number Target Field</label>
+                <select class="form-select form-select-sm" id="map-col-item"></select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label small fw-bold" data-i18n="m_cost">Unit Cost Target Field</label>
+                <select class="form-select form-select-sm" id="map-col-cost"></select>
+              </div>
+            </div>
+            <div class="text-end mt-4">
+              <button class="btn btn-primary" onclick="processMappedColumns()">Confirm Mapping &gt;</button>
+            </div>
+          </div>
+
+          <div id="panel-step-b" class="wizard-panel" style="display:none;">
+            <h6>Step 2: Assign Document Category Rules</h6>
+            <p class="text-muted small">Map classifications cleanly below for each unique document group found:</p>
+            <div style="max-height:250px; overflow-y:auto;" id="category-mapping-container" class="border p-2 rounded bg-light mb-3">
+              </div>
+            <div class="d-flex justify-content-between mt-4">
+              <button class="btn btn-secondary" onclick="switchPanel('a')">&lt; Back</button>
+              <button class="btn btn-primary" onclick="validateCacheStep()">Verify Inventory Cache Alignment &gt;</button>
+            </div>
+          </div>
+
+          <div id="panel-step-c" class="wizard-panel" style="display:none;">
+            <h6>Step 3: Verification Controls & Execution Config</h6>
+            <div id="validation-report-summary" class="alert mb-3"></div>
+            <div id="flagged-items-box" class="mb-3" style="display:none;">
+              <label class="form-label text-danger small fw-bold">Flagged rows dropped out completely from generation output:</label>
+              <div style="max-height:120px; overflow-y:auto;" class="border p-2 bg-white rounded text-danger font-monospace small" id="flagged-items-list"></div>
+            </div>
+
+            <div class="card p-3 bg-light mb-4">
+              <label class="form-label fw-bold small">Choose Output Distribution Setup File Layout Rules:</label>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="exportOptionMode" id="expSingle" value="single" checked>
+                <label class="form-check-label small" for="expSingle">All-In-One Compilation File (Single concatenated sequential `.mac` script execution structure)</label>
+              </div>
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="radio" name="exportOptionMode" id="expSplit" value="split">
+                <label class="form-check-label small" for="expSplit">Split Isolated Files per Document Target (Compressed collection `.zip` download package distribution)</label>
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-between mt-4">
+              <button class="btn btn-secondary" onclick="switchPanel('a')">&lt; Restart</button>
+              <button class="btn btn-success" id="btn-compile-execution" onclick="executeCompilationPipeline()">Compile, Save, and Download File</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- Global Uncaught Exception Handler -->
+<script>
+(function() {
+  // Catch uncaught errors before any external scripts load
+  window.onerror = function(msg, url, lineNo, columnNo, error) {
+    console.error("Global Error Caught:", msg);
+    console.error("  URL:   ", url);
+    console.error("  Line:  ", lineNo, "Column:", columnNo);
+    if (error && error.stack) {
+      console.error("  Stack: ", error.stack);
+    }
+    // Show user-friendly message for SyntaxError
+    if (msg.indexOf("SyntaxError") !== -1 || msg.includes("Invalid or unexpected token")) {
+      var errDiv = document.createElement('div');
+      errDiv.className = 'alert alert-danger position-fixed top-0 start-0 p-3 m-0';
+      errDiv.style.cssText = 'z-index:9999;background:#dc3545;color:white;font-size:12px;max-width:400px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.3);';
+      errDiv.textContent = '⚠️ JavaScript Syntax Error\n\nThe app detected a syntax error in its code. This usually means:\n• A .html file was edited but not saved properly\n• Code wasn\'t re-deployed to Google Apps Script after editing\n• A third-party library failed to load\n\nPlease redeploy your app via Apps Script → Deploy → New Deployment.';
+      document.body.appendChild(errDiv);
+    }
+    return false; // Prevent default error handling
+  };
+
+  window.onunhandledrejection = function(event) {
+    console.error("Unhandled Promise Rejection:", event.reason);
+  };
+
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+   
+    <!-- CesiumJS via CDN -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.102/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.102/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+    <!-- Put these in Index.html head
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.149.0/three.min.js"></script>
+<script src="https://unpkg.com/react-globe.gl@2.27.2/dist/react-globe.gl.min.js"></script> -->
+
+<!-- React & ReactDOM UMD -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- HTM -->
+    <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
+    
+    <!-- Three.js (0.149.0 pinned) 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.149.0/three.min.js"></script> 
+    -->
+    
+    <!-- react-globe.gl UMD -->
+    <script src="https://unpkg.com/react-globe.gl@2.27.2/dist/react-globe.gl.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/fabric-all-modules@5.3.0/dist/fabric.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+
+
+
+    <script src="js/CreateReqJS.js"></script>
+    <script src="js/ViewEditReqJS.js"></script> 
+    <script src="js/ProductsJS.js"></script> 
+    <script src="js/MinMaxJS.js"></script> 
+    <script src="js/i18n.js"></script> 
+    <script src="js/AdminValJS.js"></script> 
+    <script src="js/RFQJS.js"></script> 
+    <script src="js/QuoteMgmtJS.js"></script>
+    <script src="js/BundlesJS.js"></script>
+    <script src="js/InvMovJS.js"></script>
+    <script src="js/ChoicesJS.js"></script>
+    <link rel="stylesheet" href="css/choices.css" />
+    <script src="js/ImportInvJS.js"></script>
+    <script src="js/ScannerJS.js"></script>
+    <script src="js/AzureTestJS.js"></script>
+    <script src="js/SheetsSyncJS.js"></script>    
+    <script src="js/CreateBulkPOMACJS.js"></script>
+    <script src="js/QuoteReportJS.js"></script>
+    <script src="js/LifecycleReportJS.js"></script>
+    <script src="js/DashboardJS.js"></script>
+    <script src="js/ControlCombustibleJS.js"></script>
+    <script src="js/StockJS.js"></script>
+    <script src="js/LocationMapJS.js"></script>
+    <script src="js/OpSphereReactJS.js"></script>
+    <script src="js/EditPinJS.js"></script>
+    <script src="js/GestionActivosJS.js"></script>
+    <script src="js/LabelsJS.js"></script>
+    <script src="js/BackgroundJobsJS.js"></script>
+
+    <!-- PWA Service Worker Registration & Install Handler -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((reg) => console.log('[PWA] Service Worker registered scope:', reg.scope))
+            .catch((err) => console.warn('[PWA] Service Worker registration failed:', err));
+        });
+      }
+      let deferredPwaPrompt = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPwaPrompt = e;
+        const btn = document.getElementById('btnInstallPWA');
+        if (btn) {
+          btn.style.display = 'inline-flex';
+          btn.onclick = async () => {
+            if (!deferredPwaPrompt) return;
+            deferredPwaPrompt.prompt();
+            const { outcome } = await deferredPwaPrompt.userChoice;
+            console.log('[PWA] Install prompt outcome:', outcome);
+            deferredPwaPrompt = null;
+            btn.style.display = 'none';
+          };
+        }
+      });
+    </script>
+  </body>
+</html>

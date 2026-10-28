@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      margin: 0; 
+      background: #121212; 
+      color: #ffffff; 
+      display: flex; 
+      flex-direction: column; 
+      height: 100vh; 
+      overflow: hidden; 
+    }
+    .header { 
+      background: #0d6efd; 
+      padding: 15px; 
+      text-align: center; 
+      font-weight: bold; 
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+      z-index: 10;
+    }
+    #reader { 
+      width: 100%; 
+      flex-grow: 1; 
+      background: #000;
+    }
+    .footer { 
+      padding: 20px; 
+      text-align: center; 
+      background: #1e1e1e; 
+      font-size: 0.95rem; 
+      border-top: 1px solid #333;
+      z-index: 10;
+    }
+    .last-scan { 
+      color: #28a745; 
+      font-weight: bold; 
+      margin-top: 8px; 
+      font-size: 1.1rem;
+    }
+    /* Setup Screen to satisfy strict browser permission rules */
+    #setup-screen {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: #121212;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      box-sizing: border-box;
+      z-index: 100;
+    }
+    .btn-activate {
+      background: #28a745;
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      border-radius: 30px;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(40,167,69,0.4);
+      transition: transform 0.2s;
+    }
+    .btn-activate:active {
+      transform: scale(0.95);
+    }
+    .info-text {
+      color: #aaa;
+      font-size: 0.9rem;
+      text-align: center;
+      margin-top: 15px;
+      max-width: 280px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="setup-screen">
+    <button class="btn-activate" onclick="initiateCameraHardware()">
+      TAP TO START CAMERA
+    </button>
+    <div class="info-text">
+      Browsers require a physical tap inside this window to authorize high-accuracy continuous hardware scanning.
+    </div>
+  </div>
+
+  <div class="header">Movement Scanner Active</div>
+  
+  <div id="reader"></div>
+  
+  <div class="footer">
+    <div id="instruction">Point lens closely at item QR code</div>
+    <div id="status" class="last-scan">Awaiting initialization...</div>
+  </div>
+
+  <script>
+    let html5QrCode = null;
+    let lastCode = "";
+    let lastTime = 0;
+
+    // Handles the processing frame when code is detected
+    function onScanSuccess(decodedText) {
+      const now = Date.now();
+      
+      // Strict 2-second cooldown block to stop duplicate processing loops
+      if (decodedText === lastCode && (now - lastTime) < 2000) return;
+
+      lastCode = decodedText;
+      lastTime = now;
+
+      document.getElementById("status").innerText = "Scanned: " + decodedText;
+
+      // Teleport string back to the parent inventory window context
+      if (window.opener) {
+        window.opener.postMessage({
+          type: 'QR_SCANNED',
+          code: decodedText
+        }, '*');
+        
+        // Flashes screen green as confirmation feedback
+        document.body.style.backgroundColor = "#28a745";
+        setTimeout(() => { document.body.style.backgroundColor = "#121212"; }, 250);
+      }
+    }
+
+    // Two-stage safe hardware bridge authorization
+    async function initiateCameraHardware() {
+      const setupScreen = document.getElementById("setup-screen");
+      const statusEl = document.getElementById("status");
+      
+      try {
+        statusEl.innerText = "Requesting permissions...";
+        
+        // Stage 1: Call native MediaDevices directly under context of user gesture click
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "environment" } 
+        });
+        
+        // Immediately stop track so hardware layer releases completely back to library context
+        stream.getTracks().forEach(track => track.stop());
+
+        // Clear landing block layout out of view
+        setupScreen.style.display = "none";
+
+        // Stage 2: Fire up library scan sequence
+        html5QrCode = new Html5Qrcode("reader");
+        await html5QrCode.start(
+          { facingMode: "environment" }, 
+          { 
+            fps: 15, 
+            qrbox: function(width, height) {
+              const minEdge = Math.min(width, height);
+              return { width: Math.floor(minEdge * 0.65), height: Math.floor(minEdge * 0.65) };
+            }
+          },
+          onScanSuccess
+        );
+        
+        statusEl.innerText = "Ready to scan items...";
+      } catch (err) {
+        console.error("Hardware Lock Exception: ", err);
+        statusEl.style.color = "#dc3545";
+        
+        if (err.name === "NotAllowedError" || err.message.toLowerCase().includes("permission")) {
+          alert("PERMISSIONS BLOCKED:\n\n1. Look up at your browser's address bar.\n2. Tap the lock/settings icon next to the URL.\n3. Change Camera permission to 'Allow'.\n4. Refresh this window.");
+          statusEl.innerText = "Error: Camera access blocked by site settings.";
+        } else {
+          alert("Scanner Error: " + err.message);
+          statusEl.innerText = "Error: " + err.message;
+        }
+      }
+    }
+  </script>
+  <script src="./ScannerJS.html"></script>
+</body>
+
+  <script src="./ScannerJS.html"></script>
+</body>
+</html>

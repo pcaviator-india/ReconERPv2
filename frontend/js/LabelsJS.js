@@ -1,0 +1,1339 @@
+let canvas;
+let currentTemplateId = null;
+let persistentPrintQueue = []; 
+let printQueueItems = [];
+let currentPreviewIndex = 0;
+let isLiveDataView = false; 
+let currentUnit = 'px';
+let canvasMargin = 0; 
+let canvasZoom = 1;
+const DPI = 96;
+let isMouseOverCanvas = false; // Track if mouse is over canvas viewport
+
+window.initLabelsModule = function() {
+    if (typeof fabric === 'undefined') {
+        setTimeout(window.initLabelsModule, 100);
+        return;
+    }
+
+    if (!canvas) {
+        canvas = new fabric.Canvas('labelCanvas', {
+            backgroundColor: '#ffffff',
+            preserveObjectStacking: true
+        });
+
+        // Make canvas globally accessible for debugging
+        window.canvas = canvas;
+
+        canvas.on('selection:created', handleObjectSelected);
+        canvas.on('selection:updated', handleObjectSelected);
+        canvas.on('selection:cleared', handleObjectCleared);
+        canvas.on('object:modified', (e) => { 
+            if (!isLiveDataView) updateLayerTree(); 
+            clearAlignmentLines();
+            // Handle rotation snapping to 5° increments
+            handleRotationSnap(e);
+        });
+        canvas.on('object:added', () => { if (!isLiveDataView) updateLayerTree(); });
+        canvas.on('object:removed', () => { if (!isLiveDataView) updateLayerTree(); });
+        canvas.on('object:moving', handleObjectMoving);
+        canvas.on('mouse:up', handleMouseUp);
+        canvas.on('mouse:down', () => { clearAlignmentLines(); });
+    }
+
+    // Fix: Properly initialize and show the default Bootstrap tab on load
+    const designerTabBtn = document.getElementById('designer-tab');
+    if (designerTabBtn) {
+        const tabInstance = bootstrap.Tab.getOrCreateInstance(designerTabBtn);
+        tabInstance.show();
+    }
+
+    ensureInventoryColumnsLoaded();
+    updateLayerTree();
+    syncCanvasSizeInputs();
+    console.log("BarTender-style Unified Labels module initialized with zoom, alignments, and barcode text properties.");
+};
+
+function ensureInventoryColumnsLoaded(retries = 10) {
+    if (window.fullInventory && Array.isArray(window.fullInventory) && window.fullInventory.length > 0) {
+        populateDbColumnsDropdowns(window.fullInventory[0]);
+    } else if (retries > 0) {
+        setTimeout(() => ensureInventoryColumnsLoaded(retries - 1), 300);
+    } else {
+        populateDbColumnsDropdowns({ geo: '', pn: '', en: '', es: '', marca: '', category: '' });
+    }
+}
+
+function populateDbColumnsDropdowns(sampleItem) {
+    const dbColumnsListEl = document.getElementById('db-columns-list');
+    const propDbColEl = document.getElementById('prop-db-col');
+    if (!dbColumnsListEl || !propDbColEl) return;
+
+    dbColumnsListEl.innerHTML = '';
+    propDbColEl.innerHTML = '<option value="">-- None (Static) --</option>';
+
+    const columns = Object.keys(sampleItem || {});
+    if (columns.length === 0) return;
+
+    columns.forEach(col => {
+        const item = document.createElement('button');
+        item.className = 'list-group-item list-group-item-action list-group-item-light py-1 px-2 small';
+        item.innerHTML = `<i class="bi bi-database me-1"></i> ${col}`;
+        item.onclick = () => addDynamicField(col);
+        dbColumnsListEl.appendChild(item);
+
+        const opt = document.createElement('option');
+        opt.value = col;
+        opt.textContent = col;
+        propDbColEl.appendChild(opt);
+    });
+}
+
+function syncCanvasSizeInputs() {
+    if (!canvas) return;
+    let wPx = canvas.width;
+    let hPx = canvas.height;
+    let valW = wPx, valH = hPx;
+    let valMargin = canvasMargin;
+
+    if (currentUnit === 'in') {
+        valW = +(wPx / DPI).toFixed(2);
+        valH = +(hPx / DPI).toFixed(2);
+        valMargin = +(canvasMargin / DPI).toFixed(2);
+    } else if (currentUnit === 'cm') {
+        valW = +((wPx / DPI) * 2.54).toFixed(2);
+        valH = +((hPx / DPI) * 2.54).toFixed(2);
+        valMargin = +((canvasMargin / DPI) * 2.54).toFixed(2);
+    } else if (currentUnit === 'mm') {
+        valW = +((wPx / DPI) * 25.4).toFixed(1);
+        valH = +((hPx / DPI) * 25.4).toFixed(1);
+        valMargin = +((canvasMargin / DPI) * 25.4).toFixed(1);
+    }
+
+    const wInput = document.getElementById('prop-canvas-w');
+    const hInput = document.getElementById('prop-canvas-h');
+    const marginInput = document.getElementById('prop-canvas-margin');
+    if (wInput) wInput.value = valW;
+    if (hInput) hInput.value = valH;
+    if (marginInput) marginInput.value = valMargin;
+}
+
+function changeCanvasUnit(newUnit) {
+    currentUnit = newUnit;
+    syncCanvasSizeInputs();
+}
+
+function updateCanvasFromProperties() {
+    let valW = parseFloat(document.getElementById('prop-canvas-w').value) || 100;
+    let valH = parseFloat(document.getElementById('prop-canvas-h').value) || 100;
+    let valMargin = parseFloat(document.getElementById('prop-canvas-margin')?.value) || 0;
+    let wPx = valW, hPx = valH, mPx = valMargin;
+
+    if (currentUnit === 'in') {
+        wPx = Math.round(valW * DPI);
+        hPx = Math.round(valH * DPI);
+        mPx = Math.round(valMargin * DPI);
+    } else if (currentUnit === 'cm') {
+        wPx = Math.round((valW / 2.54) * DPI);
+        hPx = Math.round((valH / 2.54) * DPI);
+        mPx = Math.round((valMargin / 2.54) * DPI);
+    } else if (currentUnit === 'mm') {
+        wPx = Math.round((valW / 25.4) * DPI);
+        hPx = Math.round((valH / 25.4) * DPI);
+        mPx = Math.round((valMargin / 25.4) * DPI);
+    }
+
+    // 1. Set dimensions using Fabric.js built-in API
+    canvas.setDimensions({
+        width: wPx,
+        height: hPx
+    });
+
+    // 2. Forcefully override height and width on Fabric's wrapper element container
+    if (canvas.wrapperEl) {
+        canvas.wrapperEl.style.width = wPx + 'px';
+        canvas.wrapperEl.style.height = hPx + 'px';
+    }
+
+    // 3. Forcefully override height and width on the lower and upper HTML canvas elements
+    if (canvas.lowerCanvasEl) {
+        canvas.lowerCanvasEl.style.width = wPx + 'px';
+        canvas.lowerCanvasEl.style.height = hPx + 'px';
+    }
+    if (canvas.upperCanvasEl) {
+        canvas.upperCanvasEl.style.width = wPx + 'px';
+        canvas.upperCanvasEl.style.height = hPx + 'px';
+    }
+
+    canvasMargin = mPx;
+    redrawMarginOverlay();
+    canvas.renderAll();
+}
+
+function zoomCanvas(factor) {
+    if (factor < 1) {
+        canvasZoom = Math.max(0.3, canvasZoom * 0.9);
+    } else {
+        canvasZoom = Math.min(3.0, canvasZoom * 1.1);
+    }
+    applyCanvasZoom();
+}
+
+function resetCanvasZoom() {
+    canvasZoom = 1.0;
+    applyCanvasZoom();
+}
+
+function applyCanvasZoom() {
+    const scaler = document.getElementById('canvas-scaler');
+    if (scaler) {
+        scaler.style.transform = `scale(${canvasZoom})`;
+    }
+    
+    const indicator = document.getElementById('zoom-indicator');
+    if (indicator) {
+        indicator.textContent = `${Math.round(canvasZoom * 100)}%`;
+    }
+}
+
+// Enable Mouse Wheel Zooming over the Canvas Viewport (Blocks browser zoom and scales canvas instead)
+document.addEventListener('DOMContentLoaded', () => {
+    const viewport = document.getElementById('canvas-viewport');
+    if (viewport) {
+        // Track mouse position over canvas
+        viewport.addEventListener('mouseenter', () => { isMouseOverCanvas = true; });
+        viewport.addEventListener('mouseleave', () => { isMouseOverCanvas = false; });
+        
+        viewport.addEventListener('wheel', function(e) {
+            // Only block browser zoom when mouse is over canvas viewport
+            if (isMouseOverCanvas && e.ctrlKey) { 
+                e.preventDefault(); // Stop browser from zooming the web page
+                e.stopPropagation(); // Prevent event from bubbling up
+                if (e.deltaY < 0) {
+                    zoomCanvas(1.1); // Zoom in
+                } else {
+                    zoomCanvas(0.9); // Zoom out
+                }
+            }
+        }, { passive: false });
+    }
+});
+
+function redrawMarginOverlay() {
+    const existing = canvas.getObjects().find(o => o.isMarginOverlay);
+    if (existing) canvas.remove(existing);
+
+    // Always draw a boundary representation so the canvas wrapper and visual bounds match perfectly
+    const marginRect = new fabric.Rect({
+        left: canvasMargin || 0,
+        top: canvasMargin || 0,
+        width: canvas.width - ((canvasMargin || 0) * 2),
+        height: canvas.height - ((canvasMargin || 0) * 2),
+        fill: 'transparent',
+        stroke: canvasMargin > 0 ? '#ff9800' : 'transparent', // Orange dashed if margin exists, invisible border if 0
+        strokeWidth: 1,
+        strokeDashArray: canvasMargin > 0 ? [4, 4] : null,
+        selectable: false,
+        evented: false,
+        isMarginOverlay: true
+    });
+    
+    canvas.add(marginRect);
+    marginRect.sendToBack();
+}
+
+// Smart Alignment & Snapping Engine
+let alignmentLines = [];
+
+function clearAlignmentLines() {
+    alignmentLines.forEach(line => canvas.remove(line));
+    alignmentLines = [];
+    canvas.renderAll();
+}
+
+// Check if snapping is enabled via checkbox
+function isSnappingEnabled() {
+    const checkbox = document.getElementById('snapping-toggle');
+    return checkbox ? checkbox.checked : true;
+}
+
+function handleObjectMoving(e) {
+    const obj = e.target;
+    clearAlignmentLines();
+
+    // If snapping is disabled, don't do anything during move
+    if (!isSnappingEnabled()) return;
+
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const objectCenter = obj.getCenterPoint();
+    const objectWidth = obj.getScaledWidth();
+    const objectHeight = obj.getScaledHeight();
+
+    // Increased threshold from 5 to 10 for softer snapping
+    const threshold = 10; 
+    let snapX = null;
+    let snapY = null;
+
+    const canvasCenterX = canvasWidth / 2;
+    const canvasCenterY = canvasHeight / 2;
+
+    if (Math.abs(objectCenter.x - canvasCenterX) < threshold) {
+        snapX = canvasCenterX - (objectWidth / 2);
+        drawVerticalGuide(canvasCenterX);
+    }
+    if (Math.abs(objectCenter.y - canvasCenterY) < threshold) {
+        snapY = canvasCenterY - (objectHeight / 2);
+        drawHorizontalGuide(canvasCenterY);
+    }
+
+    canvas.getObjects().forEach(target => {
+        if (target === obj || target.isMarginOverlay) return;
+
+        const targetCenter = target.getCenterPoint();
+        const targetWidth = target.getScaledWidth();
+        const targetHeight = target.getScaledHeight();
+
+        if (Math.abs(objectCenter.x - targetCenter.x) < threshold) {
+            snapX = targetCenter.x - (objectWidth / 2);
+            drawVerticalGuide(targetCenter.x);
+        }
+        if (Math.abs(objectCenter.y - targetCenter.y) < threshold) {
+            snapY = targetCenter.y - (objectHeight / 2);
+            drawHorizontalGuide(targetCenter.y);
+        }
+
+        if (Math.abs(obj.left - target.left) < threshold) {
+            snapX = target.left;
+            drawVerticalGuide(target.left);
+        }
+        const objRight = obj.left + objectWidth;
+        const targetRight = target.left + targetWidth;
+        if (Math.abs(objRight - targetRight) < threshold) {
+            snapX = targetRight - objectWidth;
+            drawVerticalGuide(targetRight);
+        }
+    });
+
+    if (snapX !== null) obj.set('left', snapX);
+    if (snapY !== null) obj.set('top', snapY);
+    
+    // Update coordinates to fix control positions (markers)
+    if (snapX !== null || snapY !== null) {
+        obj.setCoords();
+    }
+}
+
+// Snap on mouse up for more precise positioning
+function handleMouseUp(e) {
+    clearAlignmentLines();
+    
+    const obj = e.target;
+    if (!obj || !isSnappingEnabled()) return;
+    
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const objectCenter = obj.getCenterPoint();
+    const objectWidth = obj.getScaledWidth();
+    const objectHeight = obj.getScaledHeight();
+
+    const threshold = 10;
+    let snapX = null;
+    let snapY = null;
+
+    const canvasCenterX = canvasWidth / 2;
+    const canvasCenterY = canvasHeight / 2;
+
+    // Canvas center snapping
+    if (Math.abs(objectCenter.x - canvasCenterX) < threshold) {
+        snapX = canvasCenterX - (objectWidth / 2);
+        drawVerticalGuide(canvasCenterX);
+    }
+    if (Math.abs(objectCenter.y - canvasCenterY) < threshold) {
+        snapY = canvasCenterY - (objectHeight / 2);
+        drawHorizontalGuide(canvasCenterY);
+    }
+
+    // Object-to-object snapping
+    canvas.getObjects().forEach(target => {
+        if (target === obj || target.isMarginOverlay) return;
+
+        const targetCenter = target.getCenterPoint();
+        const targetWidth = target.getScaledWidth();
+        const targetHeight = target.getScaledHeight();
+
+        if (Math.abs(objectCenter.x - targetCenter.x) < threshold) {
+            snapX = targetCenter.x - (objectWidth / 2);
+            drawVerticalGuide(targetCenter.x);
+        }
+        if (Math.abs(objectCenter.y - targetCenter.y) < threshold) {
+            snapY = targetCenter.y - (objectHeight / 2);
+            drawHorizontalGuide(targetCenter.y);
+        }
+
+        if (Math.abs(obj.left - target.left) < threshold) {
+            snapX = target.left;
+            drawVerticalGuide(target.left);
+        }
+        const objRight = obj.left + objectWidth;
+        const targetRight = target.left + targetWidth;
+        if (Math.abs(objRight - targetRight) < threshold) {
+            snapX = targetRight - objectWidth;
+            drawVerticalGuide(targetRight);
+        }
+    });
+
+    if (snapX !== null) obj.set('left', snapX);
+    if (snapY !== null) obj.set('top', snapY);
+    
+    if (snapX !== null || snapY !== null) {
+        obj.setCoords();
+        canvas.renderAll();
+    }
+}
+
+// Handle rotation snapping to 5-degree increments
+function handleRotationSnap(e) {
+    const obj = e.target;
+    if (!obj) return;
+    
+    // Check if rotation snapping is enabled via checkbox or Shift key
+    const checkbox = document.getElementById('rotation-snap-toggle');
+    const rotationSnapEnabled = checkbox ? checkbox.checked : false;
+    const useShift = e.shiftKey;
+    
+    if (!rotationSnapEnabled && !useShift) return;
+    
+    const increment = 5;
+    const currentAngle = obj.angle || 0;
+    const snappedAngle = Math.round(currentAngle / increment) * increment;
+    
+    if (Math.abs(currentAngle - snappedAngle) > 0.1) {
+        obj.set('angle', snappedAngle);
+        obj.setCoords();
+        canvas.renderAll();
+    }
+}
+
+function drawVerticalGuide(xCoord) {
+    const line = new fabric.Line([xCoord, 0, xCoord, canvas.height], {
+        stroke: 'red',
+        strokeWidth: 1,
+        strokeDashArray: [3, 3],
+        selectable: false,
+        evented: false
+    });
+    canvas.add(line);
+    alignmentLines.push(line);
+}
+
+function drawHorizontalGuide(yCoord) {
+    const line = new fabric.Line([0, yCoord, canvas.width, yCoord], {
+        stroke: 'red',
+        strokeWidth: 1,
+        strokeDashArray: [3, 3],
+        selectable: false,
+        evented: false
+    });
+    canvas.add(line);
+    alignmentLines.push(line);
+}
+
+function addDynamicField(columnName) {
+    if (isLiveDataView) refreshCanvasPlaceholderData();
+
+    const textObj = new fabric.Textbox(`{{${columnName}}}`, {
+        left: Math.max(30, canvasMargin + 10), top: Math.max(30, canvasMargin + 10), width: 180, fontSize: 16, fontFamily: 'Arial', fill: '#000000', textAlign: 'left', editable: true
+    });
+    textObj.db_col = columnName;
+    textObj.rawTemplateText = `{{${columnName}}}`;
+    textObj.elementName = columnName + " Field";
+    
+    canvas.add(textObj);
+    canvas.setActiveObject(textObj);
+    if (canvasMargin > 0) redrawMarginOverlay();
+    canvas.renderAll();
+
+    if (isLiveDataView) refreshCanvasLiveData();
+    updateLayerTree();
+}
+
+function addTextbox() {
+    if (isLiveDataView) refreshCanvasPlaceholderData();
+
+    const textObj = new fabric.Textbox('Static Text', {
+        left: Math.max(30, canvasMargin + 10), top: Math.max(30, canvasMargin + 10), width: 150, fontSize: 16, fontFamily: 'Arial', fill: '#000000', textAlign: 'left', editable: true
+    });
+    textObj.rawTemplateText = 'Static Text';
+    textObj.elementName = "Text Block";
+    
+    canvas.add(textObj);
+    canvas.setActiveObject(textObj);
+    if (canvasMargin > 0) redrawMarginOverlay();
+    canvas.renderAll();
+
+    if (isLiveDataView) refreshCanvasLiveData();
+    updateLayerTree();
+}
+
+function addBarcode() {
+    if (isLiveDataView) refreshCanvasPlaceholderData();
+
+    const barcodeObj = new fabric.Rect({
+        left: Math.max(30, canvasMargin + 10), top: Math.max(80, canvasMargin + 10), width: 180, height: 70, fill: '#ffffff', stroke: '#000000', strokeWidth: 1, rx: 2, ry: 2
+    });
+    
+    barcodeObj.isBarcode = true;
+    barcodeObj.db_col = 'geo'; 
+    barcodeObj.elementName = "Barcode (CODE128)";
+    barcodeObj.barcodeFormat = "CODE128";
+    barcodeObj.showText = true;
+    barcodeObj.fontFamily = "monospace";
+    barcodeObj.fontSize = 12;
+    barcodeObj.textAlign = "center"; // Barcode text alignment option
+    barcodeObj.fillColor = "#000000";
+    barcodeObj.rawTemplateText = "{{geo}}";
+    
+    canvas.add(barcodeObj);
+    canvas.setActiveObject(barcodeObj);
+    if (canvasMargin > 0) redrawMarginOverlay();
+    canvas.renderAll();
+
+    if (isLiveDataView) refreshCanvasLiveData();
+    updateLayerTree();
+}
+
+function updateLayerTree() {
+    const layerListEl = document.getElementById('layer-list');
+    if (!layerListEl || !canvas) return;
+    layerListEl.innerHTML = '';
+
+    const objects = canvas.getObjects().filter(o => !o.isMarginOverlay);
+    if (objects.length === 0) {
+        layerListEl.innerHTML = '<li class="list-group-item text-muted small fst-italic">No layers on canvas</li>';
+        return;
+    }
+
+    objects.forEach((obj, idx) => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center py-1 px-2 small';
+        li.innerHTML = `<span>${idx + 1}. ${obj.elementName || obj.type}</span>`;
+        li.style.cursor = 'pointer';
+        li.onclick = () => { canvas.setActiveObject(obj); canvas.renderAll(); };
+        layerListEl.appendChild(li);
+    });
+}
+
+function handleObjectSelected(e) {
+    const obj = e.selected[0];
+    if (!obj || obj.isMarginOverlay) return;
+
+    document.getElementById('canvas-properties').style.display = 'none';
+    document.getElementById('object-properties').style.display = 'block';
+
+    document.getElementById('prop-name').value = obj.elementName || '';
+    document.getElementById('prop-text').value = obj.rawTemplateText || obj.text || '';
+    document.getElementById('prop-db-col').value = obj.db_col || '';
+    document.getElementById('prop-font').value = obj.fontFamily || 'Arial';
+    document.getElementById('prop-fontsize').value = obj.fontSize || 16;
+    
+    // Toggle barcode vs textbox specific property blocks
+    const barcodeFields = document.getElementById('barcode-specific-properties');
+    const standardTextAlignContainer = document.getElementById('standard-text-align-container');
+
+    if (barcodeFields) {
+        barcodeFields.style.display = obj.isBarcode ? 'block' : 'none';
+    }
+    if (standardTextAlignContainer) {
+        standardTextAlignContainer.style.display = obj.isBarcode ? 'none' : 'block';
+    }
+
+    if (obj.isBarcode) {
+        const showTextChk = document.getElementById('prop-barcode-showtext');
+        if (showTextChk) showTextChk.checked = obj.showText !== false;
+        
+        const alignSel = document.getElementById('prop-barcode-align');
+        if (alignSel) alignSel.value = obj.textAlign || 'center';
+    } else {
+        const textAlignSel = document.getElementById('prop-text-align');
+        if (textAlignSel) textAlignSel.value = obj.textAlign || 'left';
+    }
+}
+
+function handleObjectCleared() {
+    document.getElementById('canvas-properties').style.display = 'block';
+    document.getElementById('object-properties').style.display = 'none';
+    syncCanvasSizeInputs();
+}
+
+// Helper to always fetch the *currently selected* live data row/item
+function getCurrentLiveItem() {
+    // 1. Check if there's an explicit active/current live item variable
+    if (typeof currentLiveItem !== 'undefined' && currentLiveItem) return currentLiveItem;
+    if (typeof currentLiveDataSample !== 'undefined' && currentLiveDataSample) return currentLiveDataSample;
+    if (typeof activeLiveDataItem !== 'undefined' && activeLiveDataItem) return activeLiveDataItem;
+    
+    // 2. Check if liveData exists and look up by current index (e.g., pagination/row selector)
+    if (typeof liveData !== 'undefined' && Array.isArray(liveData) && liveData.length > 0) {
+        let idx = (typeof currentLiveIndex !== 'undefined') ? currentLiveIndex : 
+                  (typeof selectedRowIndex !== 'undefined') ? selectedRowIndex : 0;
+        return liveData[idx] || liveData[0] || {};
+    }
+    return {};
+}
+
+function updateProperty(property, value) {
+    const activeObj = canvas.getActiveObject();
+    if (!activeObj || activeObj.isMarginOverlay) return;
+
+    const sampleItem = getCurrentLiveItem();
+
+    if (property === 'name') {
+        activeObj.elementName = value;
+        updateLayerTree();
+    } else if (property === 'db_col') {
+        activeObj.db_col = value;
+        if (value && activeObj.type === 'textbox') {
+            activeObj.rawTemplateText = `{{${value}}}`;
+        }
+        if (isLiveDataView) {
+            refreshCanvasLiveData();
+        } else {
+            refreshCanvasPlaceholderData();
+        }
+    } else if (property === 'text') {
+        activeObj.rawTemplateText = value;
+
+        if (isLiveDataView) {
+            // Only refresh live data if this is NOT a plain textbox being edited
+            // (prevents barcode from stealing focus while typing)
+            if (activeObj.isBarcode) {
+                refreshCanvasLiveData();
+            } else {
+                // For normal textboxes just update the visible text
+                activeObj.set('text', value);
+                canvas.renderAll();
+            }
+        } else {
+            activeObj.set('text', value);
+            canvas.renderAll();
+        }
+    } else if (property === 'showText' || property === 'barcodeFormat') {
+        activeObj[property] = value;
+        if (isLiveDataView && activeObj.isBarcode) {
+            updateBarcodeObjectLive(activeObj, sampleItem);
+        }
+    } else if (property === 'textAlign') {
+        activeObj.textAlign = value;
+        if (activeObj.type === 'textbox') {
+            activeObj.set('textAlign', value);
+            activeObj.dirty = true;
+            if (typeof activeObj.initDimensions === 'function') {
+                activeObj.initDimensions();
+            }
+            activeObj.setCoords();
+        }
+        if (isLiveDataView && activeObj.isBarcode) {
+            activeObj.textAlign = value;
+            updateBarcodeObjectLive(activeObj, sampleItem);
+        }
+        canvas.renderAll();
+    } else if (property === 'fontFamily' || property === 'fontSize') {
+        activeObj.set(property, value);
+        if (activeObj.type === 'textbox') {
+            activeObj.set(property, value);
+            activeObj.dirty = true;
+            if (typeof activeObj.initDimensions === 'function') {
+                activeObj.initDimensions();
+            }
+            activeObj.setCoords();
+        }
+        if (isLiveDataView && activeObj.isBarcode) {
+            activeObj[property] = value;
+            updateBarcodeObjectLive(activeObj, sampleItem);
+        }
+        canvas.renderAll();
+    } else {
+        activeObj.set(property, value);
+        canvas.renderAll();
+    }
+}
+
+function deleteSelectedObject() {
+    const activeObj = canvas.getActiveObject();
+    if (activeObj && !activeObj.isMarginOverlay) {
+        canvas.remove(activeObj);
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        handleObjectCleared();
+        updateLayerTree();
+    }
+}
+
+function createNewLabel() {
+    if (confirm("Clear canvas and start a new label? Unsaved changes will be lost.")) {
+        if (isLiveDataView) toggleLiveDataView();
+        canvas.clear();
+        canvas.setBackgroundColor('#ffffff', () => { canvas.renderAll(); });
+        currentTemplateId = null;
+        canvasMargin = 0;
+        resetCanvasZoom();
+        const nameInput = document.getElementById('template-name-input');
+        if (nameInput) nameInput.value = "New Label Template";
+        updateLayerTree();
+        handleObjectCleared();
+    }
+}
+
+function saveTemplateJSON() {
+    let wasInLive = isLiveDataView;
+    if (wasInLive) refreshCanvasPlaceholderData();
+
+    const marginOverlay = canvas.getObjects().find(o => o.isMarginOverlay);
+    if (marginOverlay) canvas.remove(marginOverlay);
+
+    const canvasJson = canvas.toJSON([
+        'isBarcode', 'db_col', 'elementName', 'barcodeFormat', 'showText',
+        'fontFamily', 'fontSize', 'fillColor', 'rawTemplateText',
+        'isLiveBarcodeImage', 'textAlign'
+    ]);
+
+    if (marginOverlay) {
+        canvas.add(marginOverlay);
+        marginOverlay.sendToBack();
+    }
+    if (wasInLive) refreshCanvasLiveData();
+
+    const templateData = {
+        templateId: currentTemplateId || "template_" + Date.now(),
+        templateName: document.getElementById('template-name-input')?.value || "Default Label",
+        elementsJson: JSON.stringify(canvasJson),
+
+        // ===== ADD THESE =====
+        canvasWidth:  canvas.width,
+        canvasHeight: canvas.height
+        // =====================
+    };
+
+    google.script.run
+        .withSuccessHandler(res => {
+            alert(res.message || "Template saved successfully!");
+            currentTemplateId = templateData.templateId;
+            loadTemplatesList();
+        })
+        .withFailureHandler(err => {
+            console.error("Failed to save template:", err);
+            alert("Error saving template.");
+        })
+        .saveLabelTemplate(templateData);
+}
+
+function loadTemplatesList() {
+    google.script.run.withSuccessHandler(templates => {
+        const tbody = document.querySelector('#templates-table tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!templates || !Array.isArray(templates) || templates.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No saved templates found.</td></tr>';
+            return;
+        }
+
+        templates.forEach((t) => {
+            tbody.innerHTML += `
+                <tr>
+                    <td><code>${t.templateId}</code></td>
+                    <td class="fw-bold">${t.templateName}</td>
+                    <td class="small text-muted">${new Date(t.updatedAt).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-outline-primary btn-sm me-1 p-1 px-2" title="Edit Template" onclick="loadTemplateIntoCanvas('${t.templateId}')">✏️ Edit</button>
+                        <button class="btn btn-outline-danger btn-sm p-1 px-2" title="Delete Template" onclick="deleteTemplateFromDb('${t.templateId}')">🗑️</button>
+                    </td>
+                </tr>`;
+        });
+    }).getLabelTemplates();
+}
+
+function loadTemplateIntoCanvas(templateId) {
+    if (isLiveDataView) toggleLiveDataView();
+
+    google.script.run.withSuccessHandler(template => {
+        if (template && template.elementsJson) {
+            currentTemplateId = template.templateId;
+
+            const nameInput = document.getElementById('template-name-input');
+            if (nameInput) nameInput.value = template.templateName;
+
+            // ===== RESTORE SIZE =====
+            if (template.canvasWidth && template.canvasHeight) {
+                canvas.setWidth(template.canvasWidth);
+                canvas.setHeight(template.canvasHeight);
+
+                // If you also keep a matching HTML <canvas> element in sync:
+                const el = canvas.getElement();
+                if (el) {
+                    el.width  = template.canvasWidth;
+                    el.height = template.canvasHeight;
+                }
+            }
+            // ========================
+
+            let cleanJson = template.elementsJson.replace(/"alphabetical"/g, '"alphabetic"');
+
+            canvas.loadFromJSON(cleanJson, () => {
+                canvas.getObjects().forEach(o => {
+                    if (!o.rawTemplateText && o.text) o.rawTemplateText = o.text;
+                    if (o.isLiveBarcodeImage) restoreBarcodePlaceholder(o);
+                });
+
+                if (canvasMargin > 0) redrawMarginOverlay();
+                canvas.renderAll();
+                updateLayerTree();
+
+                const designerTabBtn = document.getElementById('designer-tab');
+                if (designerTabBtn) {
+                    bootstrap.Tab.getOrCreateInstance(designerTabBtn).show();
+                }
+            });
+        }
+    }).getLabelTemplates(templateId);
+}
+
+function deleteTemplateFromDb(templateId) {
+    if (confirm("Delete this template?")) {
+        google.script.run
+            .withSuccessHandler(res => {
+                alert(res.message || "Template deleted successfully.");
+                loadTemplatesList();
+            })
+            .withFailureHandler(err => alert("Error deleting template."))
+            .deleteLabelTemplate(templateId);
+    }
+}
+
+// Queue & Product Search Logic
+function filterPrintProducts(query) {
+    const container = document.getElementById('print-product-selection-list');
+    if (!container) return;
+
+    if (!query || query.trim().length < 2) {
+        container.innerHTML = '<div class="text-center text-muted small py-2">Type at least 2 characters to search products...</div>';
+        return;
+    }
+
+    if (!window.fullInventory || !Array.isArray(window.fullInventory)) {
+        container.innerHTML = '<div class="text-center text-danger small py-2">Inventory not loaded yet.</div>';
+        return;
+    }
+
+    // Same multi-term logic that works in ProductsJS
+    var terms = query.toLowerCase().split(/\s+/).filter(function(t) { return t.length > 0; });
+
+    var matches = window.fullInventory.filter(function(item) {
+        var combinedSearch = (
+            String(item.geo || '') +
+            String(item.pn || '') +
+            String(item.en || '') +
+            String(item.es || '') +
+            String(item.marca || '')
+        ).toLowerCase();
+
+        return terms.every(function(term) {
+            return combinedSearch.includes(term);
+        });
+    }).slice(0, 25);
+
+    if (matches.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted small py-2">No matching products found.</div>';
+        return;
+    }
+
+    container.innerHTML = '';
+        matches.forEach(function(item) {
+        var idx = window.fullInventory.indexOf(item);
+
+        var displayName = item.es || item.en || item.geo || 'Unnamed Item';
+        var secondLine = '';
+
+        if (item.es && item.en && item.es !== item.en) {
+            secondLine = '<div class="text-muted" style="font-size: 10px;">EN: <strong>' + item.en + '</strong></div>';
+        }
+
+        container.innerHTML += `
+            <div class="list-group-item d-flex justify-content-between align-items-center py-1 px-2">
+                <div>
+                    <span class="small fw-bold">${displayName}</span>
+                    ${secondLine}
+                    <div class="text-muted" style="font-size: 10px;">GEO: <strong>${item.geo || 'N/A'}</strong></div>
+                </div>
+                <button class="btn btn-outline-success btn-sm py-0 px-2" onclick="addProductToPersistentQueue(${idx})">+ Add</button>
+            </div>`;
+    });
+}
+
+function addProductToPersistentQueue(inventoryIdx) {
+    const item = window.fullInventory[inventoryIdx];
+    if (!item) return;
+
+    const existing = persistentPrintQueue.find(qItem => qItem.inventoryIdx === inventoryIdx);
+    if (existing) {
+        existing.qty += 1;
+    } else {
+        persistentPrintQueue.push({ inventoryIdx: inventoryIdx, item: item, qty: 1 });
+    }
+    renderPersistentQueuePanel();
+    rebuildPrintQueueArray();
+}
+
+function updateQueueItemQty(index, newQty) {
+    const qty = parseInt(newQty);
+    if (qty > 0) persistentPrintQueue[index].qty = qty;
+    rebuildPrintQueueArray();
+}
+
+function removeQueueItem(index) {
+    persistentPrintQueue.splice(index, 1);
+    renderPersistentQueuePanel();
+    rebuildPrintQueueArray();
+    if (persistentPrintQueue.length === 0 && isLiveDataView) {
+        toggleLiveDataView();
+    }
+}
+
+function renderPersistentQueuePanel() {
+    const panel = document.getElementById('print-queue-panel');
+    const countEl = document.getElementById('queue-count');
+    if (!panel || !countEl) return;
+
+    countEl.textContent = persistentPrintQueue.length;
+
+    if (persistentPrintQueue.length === 0) {
+        panel.innerHTML = '<div class="text-center text-muted small py-1 fst-italic">No products added yet. Click [+] from search results.</div>';
+        return;
+    }
+
+    panel.innerHTML = '';
+    persistentPrintQueue.forEach((qObj, idx) => {
+        const displayName = qObj.item.en || qObj.item.es || qObj.item.geo || 'Unnamed';
+        panel.innerHTML += `
+            <div class="list-group-item d-flex justify-content-between align-items-center py-1 px-2 bg-white mb-1 border rounded">
+                <div class="text-truncate me-2" style="max-width: 150px;">
+                    <div class="small fw-bold text-truncate">${displayName}</div>
+                    <div class="text-muted" style="font-size: 10px;">GEO: ${qObj.item.geo || 'N/A'}</div>
+                </div>
+                <div class="d-flex align-items-center gap-1">
+                    <input type="number" class="form-control form-control-sm text-center p-0" value="${qObj.qty}" min="1" style="width: 45px; height: 24px; font-size: 11px;" onchange="updateQueueItemQty(${idx}, this.value)">
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size: 10px;" onclick="removeQueueItem(${idx})">✕</button>
+                </div>
+            </div>`;
+    });
+}
+
+function rebuildPrintQueueArray() {
+    printQueueItems = [];
+    persistentPrintQueue.forEach(qObj => {
+        for (let i = 0; i < qObj.qty; i++) {
+            printQueueItems.push(qObj.item);
+        }
+    });
+    if (isLiveDataView) {
+        if (currentPreviewIndex >= printQueueItems.length) currentPreviewIndex = Math.max(0, printQueueItems.length - 1);
+        refreshCanvasLiveData();
+    }
+}
+
+function toggleLiveDataView() {
+    if (!isLiveDataView) {
+        if (printQueueItems.length === 0) {
+            alert("Please add items to your print queue first so there is data to preview.");
+            return;
+        }
+        isLiveDataView = true;
+        currentPreviewIndex = 0;
+        document.getElementById('canvas-mode-title').textContent = "Canvas Workspace (Live Data View Active)";
+        document.getElementById('preview-pagination-indicator').style.display = 'inline-block';
+        document.getElementById('canvas-preview-controls').style.display = 'flex';
+        document.getElementById('live-data-toggle-btn').className = "btn btn-warning btn-sm text-dark fw-bold ms-2";
+        document.getElementById('live-data-toggle-btn').innerHTML = "✏️ Show Placeholders";
+        refreshCanvasLiveData();
+    } else {
+        isLiveDataView = false;
+        document.getElementById('canvas-mode-title').textContent = "Canvas Workspace (Template Design Mode)";
+        document.getElementById('preview-pagination-indicator').style.display = 'none';
+        document.getElementById('canvas-preview-controls').style.display = 'none';
+        document.getElementById('live-data-toggle-btn').className = "btn btn-outline-warning btn-sm fw-bold ms-2";
+        document.getElementById('live-data-toggle-btn').innerHTML = "👁️ Show Live Data";
+        refreshCanvasPlaceholderData();
+    }
+}
+
+function nextPreviewItem() {
+    if (printQueueItems.length === 0) return;
+    currentPreviewIndex = (currentPreviewIndex + 1) % printQueueItems.length;
+    refreshCanvasLiveData();
+}
+
+function prevPreviewItem() {
+    if (printQueueItems.length === 0) return;
+    currentPreviewIndex = (currentPreviewIndex - 1 + printQueueItems.length) % printQueueItems.length;
+    refreshCanvasLiveData();
+}
+
+function getLiveText(templateText) {
+    if (!printQueueItems.length) {
+        console.log('[getLiveText] No printQueueItems, returning template as-is:', templateText);
+        return templateText;
+    }
+    const item = printQueueItems[currentPreviewIndex];
+    console.log('[getLiveText] template:', templateText, '| item keys:', Object.keys(item || {}), '| currentIndex:', currentPreviewIndex);
+    const result = templateText.replace(/\{\{([^}]+)\}\}/g, function(match, propName) {
+        const trimmedProp = propName.trim();
+        const value = item[trimmedProp];
+        console.log(`[getLiveText] Checking {{${trimmedProp}}} -> value:`, value, '| item has key:', item.hasOwnProperty(trimmedProp));
+        return value !== undefined && value !== null ? value : match;
+    });
+    console.log('[getLiveText] result:', result);
+    return result;
+}
+
+function refreshCanvasLiveData() {
+    if (!isLiveDataView || printQueueItems.length === 0) {
+        console.log('[refreshCanvasLiveData] Early exit: isLiveDataView=' + isLiveDataView + ', queue length=' + (printQueueItems ? printQueueItems.length : 0));
+        return;
+    }
+
+    console.log('[refreshCanvasLiveData] Updating canvas for record', currentPreviewIndex + 1, 'of', printQueueItems.length);
+    document.getElementById('preview-pagination-indicator').textContent = `Record ${currentPreviewIndex + 1} of ${printQueueItems.length}`;
+    const item = printQueueItems[currentPreviewIndex];
+
+    // Detect if user is currently editing a textbox
+    const active = canvas.getActiveObject();
+    const isEditingTextbox = active && active.type === 'textbox' && !active.isBarcode;
+    console.log('[refreshCanvasLiveData] Active object:', active ? active.elementName || active.type : 'none', '| isEditingTextbox:', isEditingTextbox);
+
+    canvas.getObjects().forEach(obj => {
+        if (obj.isMarginOverlay) return;
+
+        if (!obj.rawTemplateText) {
+            obj.rawTemplateText = obj.text || `{{${obj.db_col || 'geo'}}}`;
+            console.log('[refreshCanvasLiveData] Set rawTemplateText for', obj.elementName || obj.type, ':', obj.rawTemplateText);
+        }
+
+        if (obj.type === 'textbox') {
+            // Do NOT overwrite the textbox the user is currently typing into
+            if (isEditingTextbox && obj === active) {
+                console.log('[refreshCanvasLiveData] Skipping textbox (user editing):', obj.elementName || obj.type);
+                return;
+            }
+
+            const newText = getLiveText(obj.rawTemplateText);
+            console.log('[refreshCanvasLiveData] Setting textbox text:', obj.elementName || obj.type, '->', newText);
+            obj.set({ text: newText });
+        } else if (obj.isBarcode) {
+            console.log('[refreshCanvasLiveData] Updating barcode:', obj.elementName || 'barcode');
+            updateBarcodeObjectLive(obj, item);
+        }
+    });
+    canvas.renderAll();
+}
+
+function refreshCanvasPlaceholderData() {
+    canvas.getObjects().forEach(obj => {
+        if (obj.isMarginOverlay) return;
+        if (obj.type === 'textbox' && obj.rawTemplateText) {
+            obj.set({ text: obj.rawTemplateText });
+        } else if (obj.isLiveBarcodeImage) {
+            restoreBarcodePlaceholder(obj);
+        }
+    });
+    canvas.renderAll();
+}
+
+function updateBarcodeObjectLive(obj, item) {
+    let val = "123456";
+    
+    // 1. Check if db_col is specified and exists in the item data
+    if (obj.db_col && item && item[obj.db_col] !== undefined && item[obj.db_col] !== null) {
+        val = String(item[obj.db_col]);
+    } 
+    // 2. Check if rawTemplateText exists (e.g. "{{geo}}") and replace tags with actual item values
+    else if (obj.rawTemplateText && item) {
+        val = obj.rawTemplateText.replace(/\{\{([^}]+)\}\}/g, function(match, colName) {
+            let trimmedKey = colName.trim();
+            return (item[trimmedKey] !== undefined && item[trimmedKey] !== null) ? item[trimmedKey] : match;
+        });
+    }
+
+    // Fallback if it still resolves to an unreplaced template tag or empty string
+    if (!val || val.startsWith("{{")) {
+        val = obj.lastBarcodeVal || "123456";
+    }
+
+    var svgNode = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    try {
+        JsBarcode(svgNode, val, {
+            format: "CODE128",
+            displayValue: obj.showText !== false,
+            font: obj.fontFamily || "monospace",
+            fontSize: obj.fontSize || 12,
+            textMargin: 2,
+            textAlign: obj.textAlign || "center",
+            height: Math.max(20, (obj.height * (obj.scaleY || 1) || 70) - 25),
+            width: 2,
+            lineColor: "#000000",
+            background: "#ffffff"
+        });
+
+        const svgData = new XMLSerializer().serializeToString(svgNode);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const blobURL = (window.URL || window.webkitURL || window).createObjectURL(svgBlob);
+
+        // Capture whether this barcode was the active object BEFORE we replace it
+        const wasActive = canvas.getActiveObject() === obj;
+
+        fabric.Image.fromURL(blobURL, function(img) {
+            let targetW = (obj.width || 180) * (obj.scaleX || 1);
+            let targetH = (obj.height || 70) * (obj.scaleY || 1);
+            
+            img.set({
+                left: obj.left,
+                top: obj.top,
+                scaleX: targetW / img.width,
+                scaleY: targetH / img.height,
+                angle: obj.angle || 0,
+                selectable: true,
+                isBarcode: true,
+                db_col: obj.db_col,
+                elementName: obj.elementName,
+                barcodeFormat: obj.barcodeFormat,
+                showText: obj.showText,
+                fontFamily: obj.fontFamily,
+                fontSize: obj.fontSize,
+                textAlign: obj.textAlign,
+                rawTemplateText: obj.rawTemplateText,
+                isLiveBarcodeImage: true,
+                lastBarcodeVal: val
+            });
+            
+            canvas.remove(obj);
+            canvas.add(img);
+
+            // Only restore selection if this barcode was already selected
+            if (wasActive) {
+                canvas.setActiveObject(img);
+            }
+            
+            canvas.renderAll();
+        });
+    } catch (err) {
+        console.error("Barcode render error:", err);
+    }
+}
+
+function restoreBarcodePlaceholder(obj) {
+    if (obj.isLiveBarcodeImage) {
+        const rect = new fabric.Rect({
+            left: obj.left,
+            top: obj.top,
+            width: (obj.width || 180) * (obj.scaleX || 1),
+            height: (obj.height || 70) * (obj.scaleY || 1),
+            angle: obj.angle || 0,
+            fill: '#ffffff',
+            stroke: '#000000',
+            strokeWidth: 1,
+            rx: 2,
+            ry: 2,
+            isBarcode: true,
+            db_col: obj.db_col,
+            elementName: obj.elementName,
+            barcodeFormat: obj.barcodeFormat,
+            showText: obj.showText,
+            fontFamily: obj.fontFamily,
+            fontSize: obj.fontSize,
+            textAlign: obj.textAlign,
+            rawTemplateText: obj.rawTemplateText
+        });
+        canvas.remove(obj);
+        canvas.add(rect);
+    }
+}
+
+// Batch Printing Logic
+// Batch Printing Logic via C# Local Tray App
+async function executeBatchPrint() {
+    if (typeof printQueueItems === 'undefined' || printQueueItems.length === 0) {
+        alert("Please add items to print queue first.");
+        return;
+    }
+    
+    let wasInLive = typeof isLiveDataView !== 'undefined' && isLiveDataView;
+    if (wasInLive && typeof refreshCanvasPlaceholderData === 'function') refreshCanvasPlaceholderData();
+
+    const marginOverlay = canvas.getObjects().find(o => o.isMarginOverlay);
+    if (marginOverlay) canvas.remove(marginOverlay);
+
+    const canvasJson = canvas.toJSON([
+        'isBarcode', 'db_col', 'elementName', 'barcodeFormat', 'showText', 'fontFamily', 'fontSize', 'fillColor', 'rawTemplateText', 'isLiveBarcodeImage', 'textAlign'
+    ]);
+
+    if (marginOverlay) {
+        canvas.add(marginOverlay);
+        marginOverlay.sendToBack();
+    }
+    if (wasInLive && typeof refreshCanvasLiveData === 'function') refreshCanvasLiveData();
+
+    let index = 0;
+
+    async function processNextBatchItem() {
+        if (index >= printQueueItems.length) {
+            console.log("Batch printing complete!");
+            alert("Batch print job sent successfully to Brother QL-800!");
+            return;
+        }
+
+        const item = printQueueItems[index];
+        const tempCanvasEl = document.createElement('canvas');
+        tempCanvasEl.width = canvas.width; 
+        tempCanvasEl.height = canvas.height;
+        
+        const batchCanvas = new fabric.StaticCanvas(tempCanvasEl, { backgroundColor: '#ffffff' });
+
+        batchCanvas.loadFromJSON(canvasJson, async function() {
+            const objects = batchCanvas.getObjects();
+            let barcodesToProcess = objects.filter(function(obj) { return obj.isBarcode; });
+
+            if (barcodesToProcess.length === 0) {
+                await processBatchTextAndFinalize(batchCanvas, item, tempCanvasEl);
+                return;
+            }
+
+            let completedBarcodes = 0;
+            objects.forEach(function(obj) {
+                if (obj.isBarcode) {
+                    let val = "123456";
+                    if (obj.db_col && item[obj.db_col] !== undefined) {
+                        val = String(item[obj.db_col]);
+                    } else if (obj.rawTemplateText) {
+                        val = obj.rawTemplateText.replace(/\{\{([^}]+)\}\}/g, function(match, propName) {
+                            const trimmedProp = propName.trim();
+                            return item[trimmedProp] !== undefined && item[trimmedProp] !== null ? item[trimmedProp] : match;
+                        });
+                    }
+
+                    var svgNode = document.createElementNS('http://www.w3.org/2000/svg', "svg");
+                    try {
+                        JsBarcode(svgNode, val, {
+                            format: "CODE128",
+                            displayValue: obj.showText !== false,
+                            font: obj.fontFamily || "monospace",
+                            fontSize: obj.fontSize || 12,
+                            textMargin: 2,
+                            textAlign: obj.textAlign || "center",
+                            height: Math.max(20, (obj.height || 70) - 25),
+                            width: 2,
+                            lineColor: "#000000", 
+                            background: "#ffffff"
+                        });
+
+                        const svgData = new XMLSerializer().serializeToString(svgNode);
+                        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                        const blobURL = (window.URL || window.webkitURL || window).createObjectURL(svgBlob);
+
+                        fabric.Image.fromURL(blobURL, async function(img) {
+                            let targetW = obj.width || 180;
+                            let targetH = obj.height || 70;
+
+                            img.set({
+                                left: obj.left, 
+                                top: obj.top, 
+                                scaleX: targetW / img.width, 
+                                scaleY: targetH / img.height, 
+                                angle: obj.angle || 0
+                            });
+                            batchCanvas.remove(obj);
+                            batchCanvas.add(img);
+
+                            completedBarcodes++;
+                            if (completedBarcodes === barcodesToProcess.length) {
+                                await processBatchTextAndFinalize(batchCanvas, item, tempCanvasEl);
+                            }
+                        });
+                    } catch (err) {
+                        completedBarcodes++;
+                        if (completedBarcodes === barcodesToProcess.length) {
+                            processBatchTextAndFinalize(batchCanvas, item, tempCanvasEl);
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+async function processBatchTextAndFinalize(batchCanvas, item, tempCanvasEl) {
+    batchCanvas.getObjects().forEach(function(obj) {
+        // 1. Handle regular text boxes
+        if (obj.type === 'textbox' || obj.type === 'text') {
+            let baseText = obj.rawTemplateText || obj.text || '';
+            let currentText = baseText.replace(/\{\{([^}]+)\}\}/g, function(match, propName) {
+                const trimmedProp = propName.trim();
+                return item[trimmedProp] !== undefined && item[trimmedProp] !== null ? item[trimmedProp] : match;
+            });
+            obj.set({ text: currentText });
+        }
+        
+        // 2. Handle Barcode objects
+        if (obj.isBarcode || obj.type === 'barcode' || (obj.name && obj.name.includes('barcode'))) {
+            let barcodeValue = item.geo || item.pn || '123456';
+            obj.set({ text: barcodeValue });
+        }
+    });
+    
+    batchCanvas.renderAll();
+
+    // =====================================================
+    // Calculate physical size in inches
+    // =====================================================
+    // Change this DPI value to match how you designed the canvas.
+    // Common values for label design: 300 or 203
+    //const DPI = 300;
+
+    const widthInches  = canvas.width  / DPI;
+    const heightInches = canvas.height / DPI;
+
+    console.log(`Canvas: ${canvas.width} × ${canvas.height} px → ${widthInches.toFixed(2)}" × ${heightInches.toFixed(2)}"`);
+
+    // 1. Export high-res PNG
+    const dataUrl = batchCanvas.toDataURL({
+        format: 'png',
+        multiplier: 3
+    });
+
+    try {
+        // 2. Send image + physical size to C# tray app
+        const response = await fetch('http://127.0.0.1:8888/print-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                image: dataUrl,
+                labelName: item.en || item.es || item.geo || 'Label',
+                widthInches: widthInches,
+                heightInches: heightInches
+            })
+        });
+
+        const result = await response.json();
+        if (result.status !== 'success') {
+            console.error("Print server warning:", result.message);
+        }
+    } catch (err) {
+        console.error("Failed to communicate with local C# print service:", err);
+    }
+
+    batchCanvas.dispose();
+    
+    index++;
+    setTimeout(processNextBatchItem, 200);
+}
+
+    processNextBatchItem();
+}

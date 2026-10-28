@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+api/.env
+!.env.example
+!api/.env.example
+
+# SQLite Databases & temporary files
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Logs & temporary run dumps
+*.log
+*.err
+server.log
+server.err
+smoke-out.txt
+token.txt
+temp_login.json
+login_body.json
+env_var_check.txt
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Wrangler / Cloudflare
+.wrangler/
+dist/

@@ -1,0 +1,65 @@
+<div class="container-fluid py-4">
+  <!-- Top Navigation Header (Matching Product Page Style) -->
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-body d-flex justify-content-between align-items-center bg-white rounded">
+      <div>
+        <h4 class="mb-0 fw-bold text-dark" data-i18n="edit_pin_title">Change PIN</h4>
+        <p class="text-muted small mb-0" data-i18n="edit_pin_subtitle">Update your 4-digit system authentication PIN</p>
+      </div>
+      <div>
+        <button type="button" class="btn btn-outline-secondary shadow-sm" onclick="window.refreshCurrentModule()" title="Refresh">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page Content View -->
+  <div class="card shadow-sm border-0">
+    <div class="card-body text-center py-5">
+      <i class="bi bi-shield-lock text-primary display-3 mb-3"></i>
+      <h5 class="fw-bold" data-i18n="security_management">Security Management</h5>
+      <p class="text-muted small mb-4" data-i18n="click_below_pin">Click below if the PIN prompt didn't launch automatically.</p>
+      <button type="button" class="btn btn-primary px-4 shadow-sm" onclick="window.editPinModule.openModal()">
+        <i class="bi bi-key me-2"></i> <span data-i18n="open_pin_modal">Open PIN Modal</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Edit PIN Modal -->
+  <div class="modal fade" id="editPinModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title" data-i18n="edit_pin_title">Change PIN</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="window.editPinModule.clearPinFields()"></button>
+        </div>
+        <div class="modal-body p-4">
+          <form id="editPinForm" onsubmit="event.preventDefault();">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label fw-bold" data-i18n="lbl_current_pin">Current PIN</label>
+                <input type="password" id="currentPin" class="form-control text-center fs-4" maxlength="4" placeholder="••••" style="letter-spacing: 0.5rem" autocomplete="off" inputmode="numeric">
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-bold" data-i18n="lbl_new_pin">New PIN (4 digits)</label>
+                <input type="password" id="newPin" class="form-control text-center fs-4" maxlength="4" placeholder="••••" style="letter-spacing: 0.5rem" autocomplete="off" inputmode="numeric">
+                <div class="invalid-feedback mt-2" id="pinError" data-i18n="incorrect_pin_format" style="display: none;">Incorrect PIN format</div>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer bg-light">
+         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="window.editPinModule.clearPinFields()">
+              <span id="cancelPinSpinner" class="spinner-border spinner-border-sm d-none me-1"></span>
+              <span data-i18n="btn_cancel">Cancel</span>
+          </button>
+         <button type="button" class="btn btn-primary" id="savePinBtn" disabled>
+            <span id="savePinSpinner" class="spinner-border spinner-border-sm d-none me-1"></span>
+            <span data-i18n="btn_save">Save</span>
+        </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

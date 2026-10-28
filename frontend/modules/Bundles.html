@@ -1,0 +1,66 @@
+<div class="card mb-3">
+  <div class="card-body">
+
+    <div class="row g-2 align-items-center">
+
+      <!-- SEARCH -->
+      <div class="col-md-6">
+        <input id="bundleSearchGlobal"
+               class="form-control"
+               data-i18n-placeholder="bundle_search_placeholder"
+               placeholder="Search bundles by ID or name..."
+               oninput="filterBundles()">
+      </div>
+
+      <!-- STATUS FILTER -->
+      <div class="col-md-3">
+        <select id="bundleStatusFilter"
+                class="form-select"
+                onchange="filterBundles()">
+          <option value="all" data-i18n="bundle_status_all">All Status</option>
+          <option value="true" data-i18n="bundle_status_active">Active</option>
+          <option value="false" data-i18n="bundle_status_inactive">Inactive</option>
+        </select>
+      </div>
+
+      <!-- ACTIONS -->
+      <div class="col-md-3 text-end">
+        <button class="btn btn-outline-primary me-2"
+                onclick="loadBundles()" data-i18n="btn_refresh">
+          Refresh
+        </button>
+
+        <button class="btn btn-primary"
+                onclick="openCreateBundleModal()" data-i18n="btn_create_bundle">
+          + Create
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+
+    <table class="table table-hover mb-0">
+
+      <thead class="table-light">
+        <tr>
+          <th onclick="sortBundles('bundleId')" style="cursor:pointer" data-i18n="bundle_id">Bundle ID</th>
+          <th onclick="sortBundles('name')" style="cursor:pointer" data-i18n="bundle_name">Name</th>
+          <th data-i18n="bundle_status">Status</th>
+          <th onclick="sortBundles('itemCount')" style="cursor:pointer" data-i18n="bundle_items">Items</th>
+          <th class="text-end" data-i18n="bundle_actions">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody id="bundleTableBody">
+        <!-- JS renders here -->
+      </tbody>
+
+    </table>
+
+  </div>
+</div>

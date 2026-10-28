@@ -1,0 +1,39 @@
+{
+  "name": "recon-erp-api",
+  "version": "1.0.0",
+  "description": "RECON ERP REST API on Cloudflare Workers",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js",
+    "deploy": "wrangler deploy",
+    "seed": "node scripts/seed.js",
+    "test": "node scripts/legacy-coverage.js && node scripts/smoke-frontend.js && node scripts/legacy-all-test.js && node scripts/legacy-shape-test.js",
+    "test:coverage": "node scripts/legacy-coverage.js",
+    "test:smoke": "node scripts/smoke-frontend.js",
+    "test:legacy": "node scripts/legacy-all-test.js",
+    "test:shapes": "node scripts/legacy-shape-test.js",
+    "d1:create": "wrangler d1 create recon-erp",
+    "d1:execute": "wrangler d1 execute recon-erp --file=./schema.sql",
+    "d1:local": "wrangler d1 create recon-erp --local"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "googleapis": "^186.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^2.7.0",
+    "uuid": "^9.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240101.0",
+    "better-sqlite3": "^11.10.0",
+    "wrangler": "^3.0.0"
+  }
+}

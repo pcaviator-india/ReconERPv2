@@ -1,0 +1,174 @@
+<div class="container-fluid py-4">
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-body d-flex justify-content-between align-items-center bg-white rounded">
+      <div>
+        <h4 class="mb-0 fw-bold text-dark" data-i18n="mm_header">Per-Site Min / Max</h4>
+        <p class="text-muted small mb-0" data-i18n="mm_sub">Manage Min/Max stock thresholds per product per site</p>
+      </div>
+      <div class="d-flex gap-2 align-items-center">
+        <button type="button" class="btn btn-outline-secondary shadow-sm" onclick="window.refreshCurrentModule()" title="Refresh" data-i18n="p_refresh">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        <button type="button" class="btn btn-outline-primary shadow-sm" onclick="window.mmOpenImport()" data-i18n="mm_import">
+          <i class="bi bi-upload me-1"></i><span>Import</span>
+        </button>
+        <button type="button" class="btn btn-success shadow-sm px-4" onclick="window.mmAddRow()" data-i18n="mm_add">
+          <i class="bi bi-plus-circle me-2"></i><span>Add</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0 mb-3">
+    <div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-3">
+          <label class="form-label small fw-bold" data-i18n="site">Site</label>
+          <select id="mmSiteFilter" class="form-select" onchange="window.mmApplyFilters()">
+            <option value="">-- All Sites --</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-bold" data-i18n="mm_search">Search Geo / P/N / Description</label>
+          <input type="text" id="mmSearch" class="form-control" onkeyup="window.mmApplyFilters()">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add-to-cart modal -->
+  <div class="modal fade" id="mmAddModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h5 class="modal-title" data-i18n="mm_cart_title">Add Min/Max (Site Cart)</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-md-5">
+              <label class="form-label small fw-bold" data-i18n="mm_cart_site">Site (applies to all)</label>
+              <select id="mmCartSite" class="form-select"></select>
+            </div>
+            <div class="col-md-7">
+              <label class="form-label small fw-bold" data-i18n="mm_cart_search">Search product (Geo / P/N / Description)</label>
+              <input type="text" id="mmCartSearch" class="form-control" autocomplete="off" oninput="window.mmCartSearch()">
+              <div class="table-responsive mt-2" style="max-height: 30vh;">
+                <table class="table table-sm table-hover align-middle mb-0">
+                  <thead class="bg-light">
+                    <tr><th data-i18n="geo">Geo</th><th>P/N</th><th data-i18n="desc">Desc</th><th class="text-center" style="width:90px;">Min</th><th class="text-center" style="width:90px;">Max</th><th style="width:50px;"></th></tr>
+                  </thead>
+                  <tbody id="mmCartResults"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="border rounded p-2 bg-light">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <strong class="small" data-i18n="mm_cart_items">Items in cart</strong>
+              <span class="badge bg-primary" id="mmCartCount">0</span>
+            </div>
+            <div class="table-responsive" style="max-height: 25vh;">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="bg-light">
+                  <tr><th data-i18n="geo">Geo</th><th data-i18n="desc">Desc</th><th class="text-center" style="width:110px;" data-i18n="m_min">Min</th><th class="text-center" style="width:110px;" data-i18n="m_max">Max</th><th style="width:50px;"></th></tr>
+                </thead>
+                <tbody id="mmCartBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="btn_cancel">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="window.mmCartConfirm()" data-i18n="mm_cart_confirm">Add to Table</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import modal -->
+  <div class="modal fade" id="mmImportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h5 class="modal-title" data-i18n="mm_import_title">Import Min/Max</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3 mb-3">
+            <div class="col-md-5">
+              <label class="form-label small fw-bold" data-i18n="mm_import_file">File (.csv or .xlsx)</label>
+              <input type="file" id="mmImportFile" class="form-control" accept=".csv,.xlsx,.xls">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-bold" data-i18n="mm_import_sep">CSV Separator</label>
+              <select id="mmImportSep" class="form-select">
+                <option value=",">, (comma)</option>
+                <option value=";">; (semicolon)</option>
+                <option value="tab">Tab</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-bold" data-i18n="mm_import_conflict">If row already exists</label>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="mmImportMode" id="mmModeReplace" value="replace" checked>
+                <label class="form-check-label small" for="mmModeReplace" data-i18n="mm_import_replace">Replace (update existing)</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="mmImportMode" id="mmModeNew" value="newOnly">
+                <label class="form-check-label small" for="mmModeNew" data-i18n="mm_import_newonly">Only import new rows</label>
+              </div>
+            </div>
+          </div>
+          <div id="mmImportPreviewWrap" class="d-none">
+            <div class="d-flex gap-2 mb-2 small" id="mmImportStats"></div>
+            <div class="table-responsive" style="max-height: 40vh;">
+              <table class="table table-sm table-bordered align-middle mb-0">
+                <thead class="bg-light sticky-top">
+                  <tr>
+                    <th data-i18n="site">Site</th><th data-i18n="geo">Geo Code</th>
+                    <th class="text-center" data-i18n="m_min">Min</th><th class="text-center" data-i18n="m_max">Max</th>
+                    <th data-i18n="mm_import_status">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="mmImportPreview"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="text-muted small mt-2" data-i18n="mm_import_hint">Expected columns: Site, Geo Code, Min, Max. First sheet is used for Excel files.</div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="btn_cancel">Cancel</button>
+          <button type="button" class="btn btn-outline-secondary" id="mmImportParseBtn" onclick="window.mmImportParse()" data-i18n="mm_import_preview_btn">Preview</button>
+          <button type="button" class="btn btn-primary d-none" id="mmImportConfirmBtn" onclick="window.mmImportConfirm()" data-i18n="mm_import_confirm">Import</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="table-responsive" style="max-height: 72vh;">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="bg-light sticky-top">
+          <tr>
+            <th style="width: 30px;"><input type="checkbox" id="mmCheckAll" onclick="window.mmToggleAll()"></th>
+            <th data-i18n="site">Site</th>
+            <th data-i18n="geo">Geo Code</th>
+            <th data-i18n="desc">Description</th>
+            <th data-i18n="m_min" class="text-center" style="width: 110px;">Min</th>
+            <th data-i18n="m_max" class="text-center" style="width: 110px;">Max</th>
+            <th data-i18n="tbl_date" style="width: 140px;">Updated</th>
+          </tr>
+        </thead>
+        <tbody id="mmTableBody"></tbody>
+      </table>
+    </div>
+    <div class="card-footer bg-white border-0 d-flex justify-content-between align-items-center py-3">
+      <div class="text-muted small" id="mmInfo"></div>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-danger btn-sm" onclick="window.mmDeleteSelected()" data-i18n="mm_delete">Delete</button>
+        <button type="button" class="btn btn-primary" onclick="window.mmSaveAll()" data-i18n="modal_save">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>

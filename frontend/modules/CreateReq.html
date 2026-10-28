@@ -1,0 +1,103 @@
+<div class="card p-3 shadow-sm border-0">
+  <div class="d-flex justify-content-end mb-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.refreshCurrentModule()" title="Refresh">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <label class="small fw-bold text-uppercase" data-i18n="site">Project Site</label>
+      <select id="siteSelect" class="form-select" onchange="window.refreshLiveStock()"></select>
+    </div>
+    <div class="col-md-4">
+      <label class="small fw-bold text-uppercase">Solicitated By</label>
+      <select id="solicitedBySelect" class="form-select">
+        <option value="">-- Select Solicitated By --</option>
+      </select>
+    </div>
+    <div class="col-md-8">
+      <label class="small fw-bold text-uppercase" data-i18n="lbl_search">Search</label>
+      <input type="text" id="itemSearch" class="form-control" oninput="window.processSearch()">
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3 d-none" id="subAreaWrap">
+    <div class="col-md-4">
+      <label class="small fw-bold text-uppercase" data-i18n="sub_area">Sub Area</label>
+      <select id="subAreaSelect" class="form-select">
+        <option value="" data-i18n="sub_area_placeholder">-- Select Sub Area --</option>
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="small fw-bold text-uppercase" data-i18n="sub_area_number">SubArea Number</label>
+      <input type="number" id="subAreaNumberInput" class="form-control" min="1" max="9999999" step="1" placeholder="156">
+    </div>
+  </div>
+
+  <table class="table table-sm">
+    <thead class="table-dark">
+      <tr>
+          <th data-i18n="geo">Geo</th>
+          <th data-i18n="pn">P/N</th>
+          <th data-i18n="desc">Description</th>
+          <th data-i18n="tbl_stock">Stock</th>
+          <th data-i18n="qty">Qty</th>
+          <th></th>      
+      </tr>
+    </thead>
+    <tbody id="searchResults"></tbody>
+  </table>
+
+  <div class="mt-3 border-top pt-2">
+      <h6 data-i18n="lbl_cart">Cart</h6>
+    <table class="table table-sm"><thead class="table-light"><tr>
+      <th data-i18n="geo">Geo</th><th data-i18n="pn">P/N</th><th data-i18n="desc">Description</th>
+      <th data-i18n="qty">Qty</th><th id="cartNotesTh" data-i18n="item_notes" style="min-width:140px;">Item Notes</th><th id="cartSupplierNotesTh" data-i18n="supplier_notes" style="min-width:140px;">Supplier Notes</th><th id="cartImagesTh" data-i18n="item_images" style="min-width:120px;">Images</th><th></th>
+    </tr></thead><tbody id="cartBody"></tbody></table>
+  </div>
+
+  <div class="text-end border-top pt-3 mt-3 d-flex justify-content-between align-items-center">
+    <div>
+      <button id="btnDrafts"
+              class="btn btn-outline-secondary"
+              onclick="window.openDraftsModal()"
+              disabled>
+        <i class="bi bi-folder2-open me-1"></i>
+        <span data-i18n="btn_drafts">Drafts</span>
+        <span id="draftCount" class="badge bg-warning ms-1" style="display:none">0</span>
+      </button>
+    </div>
+    <div class="d-flex gap-2">
+      <button id="btnSaveDraft"
+              class="btn btn-outline-warning"
+              onclick="window.saveAsDraft()"
+              disabled>
+        <i class="bi bi-pencil-square me-1"></i>
+        <span data-i18n="btn_save_draft">Save as Draft</span>
+      </button>
+      <button id="btnSubmit"
+              class="btn btn-primary px-5 fw-bold shadow-sm"
+              onclick="window.finalizeReq()"
+              disabled>
+        <i class="bi bi-eye me-2"></i>
+        <span data-i18n="preview_email">Preview Email</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Small trigger to fill site dropdown and update UI on load [cite: 8, 9]
+  (function() {
+    const sel = document.getElementById('siteSelect');
+    if (sel && window.cachedSites) {
+      sel.innerHTML = window.cachedSites.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+    }
+    window.updateCartUI();
+    if (typeof window.loadSolicitedByOptions === 'function') window.loadSolicitedByOptions();
+    if (typeof window.updateSubAreaDropdown === 'function') window.updateSubAreaDropdown();
+    if(typeof updateUI === 'function') updateUI();
+    // Load draft count on page load
+    if (typeof window.updateDraftCount === 'function') window.updateDraftCount();
+  })();
+</script>

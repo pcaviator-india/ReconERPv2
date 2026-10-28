@@ -1,0 +1,560 @@
+<script>
+// =============================================
+// OPSPHERE TELEMETRY ENGINE V2.2
+// =============================================
+
+window.initOpSphereReact = function() {
+  console.log("Initializing OpSphere Telemetry Engine V2.2...");
+
+  var rootEl = document.getElementById("opSphereRoot");
+  var statusEl = document.getElementById("opSphereStatus");
+
+  if (!rootEl) return;
+
+  if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
+    if (statusEl) statusEl.innerHTML = '<span class="text-danger">Error: React/ReactDOM missing.</span>';
+    return;
+  }
+
+  var GlobeComp = window.Globe || (window.ReactGlobeGL ? window.ReactGlobeGL.default : null);
+
+  if (!GlobeComp) {
+    if (statusEl) statusEl.innerHTML = '<span class="text-warning">Loading 3D Globe Engine...</span>';
+    setTimeout(window.initOpSphereReact, 300);
+    return;
+  }
+
+  var e = React.createElement;
+  var useState = React.useState;
+  var useEffect = React.useEffect;
+  var useRef = React.useRef;
+
+  // Geographic Centroids for Countries (comprehensive for oil/gas regions)
+  var COUNTRY_CENTERS = {
+    'Egypt': { lat: 26.8206, lng: 30.8025 },
+    'UK': { lat: 55.3781, lng: -3.4360 },
+    'Brazil': { lat: -14.2350, lng: -51.9253 },
+    'USA': { lat: 37.0902, lng: -95.7129 },
+    'Norway': { lat: 60.4720, lng: 8.4689 },
+    'Canada': { lat: 56.1304, lng: -106.3468 },
+    'Saudi Arabia': { lat: 23.8859, lng: 45.0792 },
+    'Mexico': { lat: 23.6345, lng: -102.5528 },
+    'Australia': { lat: -25.2744, lng: 133.7751 },
+    'Russia': { lat: 61.5240, lng: 105.3188 },
+    'China': { lat: 35.8617, lng: 104.1954 },
+    'India': { lat: 20.5937, lng: 78.9629 },
+    'Kazakhstan': { lat: 48.0196, lng: 66.9237 },
+    'Algeria': { lat: 28.0339, lng: 1.6596 },
+    'Argentina': { lat: -38.4161, lng: -63.6167 },
+    'Indonesia': { lat: -0.7893, lng: 113.9213 },
+    'Iran': { lat: 32.4279, lng: 53.6880 },
+    'Iraq': { lat: 33.2232, lng: 43.6793 },
+    'Qatar': { lat: 25.3548, lng: 51.1839 },
+    'UAE': { lat: 23.4241, lng: 53.8478 },
+    'Venezuela': { lat: 6.4238, lng: -66.5897 },
+    'Nigeria': { lat: 9.0820, lng: 8.6753 },
+    'Angola': { lat: -11.2027, lng: 17.8739 },
+    'Libya': { lat: 26.3351, lng: 17.2283 },
+    'Colombia': { lat: 4.5709, lng: -74.2973 },
+    'Oman': { lat: 21.4735, lng: 55.9754 },
+    'Kuwait': { lat: 29.3117, lng: 47.4818 },
+    'Malaysia': { lat: 4.2105, lng: 101.9758 },
+    'Peru': { lat: -9.1900, lng: -75.0152 },
+    'Ecuador': { lat: -1.8312, lng: -78.1834 },
+    'Syria': { lat: 34.8021, lng: 38.9968 },
+    'Yemen': { lat: 15.5527, lng: 48.5164 },
+    'Azerbaijan': { lat: 40.1431, lng: 47.5769 },
+    'Turkmenistan': { lat: 38.9697, lng: 59.5563 },
+    'South Africa': { lat: -30.5595, lng: 22.9375 }
+  };
+
+  // ---------------------------------------------
+  // Data Parsing & Centroid Engine
+  // ---------------------------------------------
+  function parseHierarchyData(data) {
+    var rawRigs = [];
+    if (Array.isArray(data)) {
+      rawRigs = data;
+    } else if (typeof data === 'object') {
+      Object.keys(data).forEach(function(country) {
+        var sites = data[country] || {};
+        Object.keys(sites).forEach(function(site) {
+          var rigs = sites[site] || {};
+          Object.keys(rigs).forEach(function(rigId) {
+            var rig = rigs[rigId] || {};
+            rawRigs.push({
+              rigId: rigId,
+              country: country,
+              site: site,
+              lat: Number(rig.lat) || 0,
+              lng: Number(rig.lng) || 0,
+              status: rig.status || 'active',
+              depth: rig.depth || (1200 + Math.floor(Math.random() * 800)) + 'm',
+              pressure: rig.pressure || (320 + Math.floor(Math.random() * 50)) + ' PSI'
+            });
+          });
+        });
+      });
+    }
+
+    if (rawRigs.length === 0) {
+      rawRigs = [
+        { rigId: 'R-101', country: 'Egypt', site: 'Suez Platform', lat: 29.9737, lng: 32.5599, status: 'active', depth: '1450m', pressure: '340 PSI' },
+        { rigId: 'R-102', country: 'Egypt', site: 'Suez Platform', lat: 29.9100, lng: 32.4800, status: 'maintenance', depth: '1200m', pressure: '310 PSI' },
+        { rigId: 'R-103', country: 'Egypt', site: 'Nile Basin', lat: 31.2001, lng: 29.9187, status: 'active', depth: '1800m', pressure: '360 PSI' },
+        { rigId: 'R-201', country: 'UK', site: 'North Sea Alpha', lat: 56.5000, lng: 3.2000, status: 'active', depth: '2100m', pressure: '390 PSI' },
+        { rigId: 'R-202', country: 'UK', site: 'North Sea Alpha', lat: 56.6500, lng: 3.3500, status: 'inactive', depth: '0m', pressure: '0 PSI' },
+        { rigId: 'R-301', country: 'Brazil', site: 'Santos Deepwater', lat: -24.2000, lng: -44.3000, status: 'active', depth: '2800m', pressure: '420 PSI' }
+      ];
+    }
+
+    var countryMap = {};
+    var siteMap = {};
+
+    rawRigs.forEach(function(r) {
+      if (!countryMap[r.country]) countryMap[r.country] = { country: r.country, lats: [], lngs: [], count: 0, sites: new Set() };
+      countryMap[r.country].lats.push(r.lat);
+      countryMap[r.country].lngs.push(r.lng);
+      countryMap[r.country].count++;
+      countryMap[r.country].sites.add(r.site);
+
+      var siteKey = r.country + '::' + r.site;
+      if (!siteMap[siteKey]) siteMap[siteKey] = { country: r.country, site: r.site, lats: [], lngs: [], count: 0, rigs: [] };
+      siteMap[siteKey].lats.push(r.lat);
+      siteMap[siteKey].lngs.push(r.lng);
+      siteMap[siteKey].count++;
+      siteMap[siteKey].rigs.push(r);
+    });
+
+    var countryMarkers = Object.keys(countryMap).map(function(cName) {
+      var item = countryMap[cName];
+      var centerLat = COUNTRY_CENTERS[cName] ? COUNTRY_CENTERS[cName].lat : item.lats.reduce(function(a, b) { return a + b; }, 0) / item.lats.length;
+      var centerLng = COUNTRY_CENTERS[cName] ? COUNTRY_CENTERS[cName].lng : item.lngs.reduce(function(a, b) { return a + b; }, 0) / item.lngs.length;
+      return { id: 'country-' + cName, type: 'country', name: cName, lat: centerLat, lng: centerLng, siteCount: item.sites.size, rigCount: item.count };
+    });
+
+    var siteMarkers = Object.keys(siteMap).map(function(sKey) {
+      var item = siteMap[sKey];
+      var avgLat = item.lats.reduce(function(a, b) { return a + b; }, 0) / item.lats.length;
+      var avgLng = item.lngs.reduce(function(a, b) { return a + b; }, 0) / item.lngs.length;
+      var offsetLat = avgLat;
+      var offsetLng = avgLng;
+      if (item.count === 1) {
+        offsetLat = avgLat + 0.15;
+        offsetLng = avgLng + 0.15;
+      }
+      return { id: 'site-' + sKey, type: 'site', country: item.country, name: item.site, lat: offsetLat, lng: offsetLng, rigCount: item.count, rigs: item.rigs };
+    });
+
+    var rigMarkers = rawRigs.map(function(r) {
+      return Object.assign({}, r, { id: 'rig-' + r.rigId, type: 'rig' });
+    });
+
+    return { allRigs: rawRigs, countryMarkers: countryMarkers, siteMarkers: siteMarkers, rigMarkers: rigMarkers };
+  }
+
+  function App() {
+    var globeRef = useRef();
+    var dataState = useState({ allRigs: [], countryMarkers: [], siteMarkers: [], rigMarkers: [] });
+    var parsedData = dataState[0], setParsedData = dataState[1];
+    var loadingState = useState(true);
+    var loading = loadingState[0], setLoading = loadingState[1];
+
+    var levelState = useState('country');
+    var activeLevel = levelState[0], setActiveLevel = levelState[1];
+
+    var selCountryState = useState(null);
+    var selCountry = selCountryState[0], setSelCountry = selCountryState[1];
+    var selSiteState = useState(null);
+    var selSite = selSiteState[0], setSelSite = selSiteState[1];
+    var selRigState = useState(null);
+    var selRig = selRigState[0], setSelRig = selRigState[1];
+
+    var hoverState = useState(null);
+    var hoveredRig = hoverState[0], setHoveredRig = hoverState[1];
+
+    var visState = useState({ country: true, site: false, rig: false });
+    var visibility = visState[0], setVisibility = visState[1];
+
+    var mountState = useState(0);
+    var mountKey = mountState[0], setMountKey = mountState[1];
+
+    var modalCamState = useState(null);
+    var activeCamIndex = modalCamState[0], setActiveCamIndex = modalCamState[1];
+
+    useEffect(function() {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function(data) { setParsedData(parseHierarchyData(data)); setLoading(false); })
+          .withFailureHandler(function(err) { console.error("GAS Fetch error:", err); setParsedData(parseHierarchyData([])); setLoading(false); })
+          .opSphere_getHierarchy();
+      } else {
+        setParsedData(parseHierarchyData([]));
+        setLoading(false);
+      }
+    }, []);
+
+    useEffect(function() {
+      if (!globeRef.current || !globeRef.current.controls) return;
+      var controls = globeRef.current.controls();
+      if (controls) { controls.autoRotate = true; controls.autoRotateSpeed = 0.5; }
+      var container = document.getElementById("opSphereRoot");
+      if (!container) return;
+
+      function handleEnter() { if (globeRef.current && globeRef.current.controls()) { globeRef.current.controls().autoRotate = false; } }
+      function handleLeave() { if (globeRef.current && globeRef.current.controls()) { globeRef.current.controls().autoRotate = true; } }
+      container.addEventListener('mouseenter', handleEnter);
+      container.addEventListener('mouseleave', handleLeave);
+      return function() { container.removeEventListener('mouseenter', handleEnter); container.removeEventListener('mouseleave', handleLeave); };
+    }, [loading]);
+
+    useEffect(function() {
+      var allMarkers = document.querySelectorAll('.opsphere-marker');
+      allMarkers.forEach(function(el) {
+        var markerId = el.getAttribute('data-marker-id');
+        el.style.opacity = (hoveredRig && markerId === hoveredRig.id) ? '1' : '0';
+      });
+    }, [hoveredRig]);
+
+    function toggleLayer(layerName) {
+      setVisibility(function(prev) {
+        var next = {};
+        next.country = prev.country;
+        next.site = prev.site;
+        next.rig = prev.rig;
+        next[layerName] = !prev[layerName];
+        return next;
+      });
+      setMountKey(function(c) { return c + 1; });
+    }
+
+    var activePoints = [].concat(
+      visibility.country ? parsedData.countryMarkers
+        .filter(function(c) { return !selCountry || c.name === selCountry; })
+        .map(function(c) { return { id: c.id, type: 'country', name: c.name, lat: c.lat, lng: c.lng, size: 0.8, color: '#3b82f6', altitude: 0.10, raw: c }; }) : [],
+      
+      visibility.site ? parsedData.siteMarkers
+        .filter(function(s) { return (!selCountry || s.country === selCountry) && (!selSite || s.name === selSite); })
+        .map(function(s) { return { id: s.id, type: 'site', name: s.name, country: s.country, lat: s.lat, lng: s.lng, size: 0.4, color: '#a855f7', altitude: 0.05, raw: s }; }) : [],
+      
+      visibility.rig ? parsedData.rigMarkers
+        .filter(function(r) { return (!selCountry || r.country === selCountry) && (!selSite || r.site === selSite); })
+        .map(function(r) {
+          var color = r.status === 'active' ? '#22c55e' : r.status === 'maintenance' ? '#eab308' : '#ef4444';
+          return { id: r.id, type: 'rig', name: r.rigId, country: r.country, site: r.site, lat: r.lat, lng: r.lng, size: 0.35, color: color, altitude: 0.025, raw: r };
+        }) : []
+    );
+
+    function zoomToLocation(lat, lng, altitude, duration) {
+      if (globeRef.current) { 
+        globeRef.current.pointOfView({ lat: lat, lng: lng, altitude: altitude }, duration || 1500);
+        // Ensure controls are centered
+        if (globeRef.current.controls) {
+            globeRef.current.controls().target.set(0, 0, 0);
+            globeRef.current.controls().update();
+        }
+      }
+    }
+
+    function handlePointClick(point) {
+      if (!point) return;
+      if (point.type === 'country') {
+        setSelCountry(point.name);
+        setSelSite(null);
+        setSelRig(null);
+        setActiveLevel('site');
+        setVisibility(function(prev) { return Object.assign({}, prev, { site: true }); });
+        zoomToLocation(point.lat, point.lng, 1.5);
+      } else if (point.type === 'site') {
+        setSelCountry(point.country);
+        setSelSite(point.name);
+        setSelRig(null);
+        setActiveLevel('rig');
+        setVisibility(function(prev) { return Object.assign({}, prev, { rig: true }); });
+        zoomToLocation(point.lat, point.lng, 0.6);
+      } else if (point.type === 'rig') {
+        setSelCountry(point.country);
+        setSelSite(point.site);
+        setSelRig(point.raw);
+        setActiveLevel('rig');
+        zoomToLocation(point.lat, point.lng, 0.15);
+      }
+    }
+
+    function resetToGlobal() {
+      setSelCountry(null);
+      setSelSite(null);
+      setSelRig(null);
+      setActiveLevel('country');
+      zoomToLocation(10, 0, 2.5);
+    }
+
+    function renderCustomMarker(point) {
+      var color = point.color || '#3b82f6';
+      var el = document.createElement('div');
+      el.className = 'opsphere-marker type-' + (point.type || 'rig');
+      el.setAttribute('data-marker-id', point.id);
+      el.setAttribute('data-type', point.type || 'rig');
+      el.style.color = color;
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 0.15s ease-in-out';
+      el.style.pointerEvents = 'none';
+
+      var label = point.name || point.id;
+      var subText = point.type === 'country' ? (point.raw.siteCount + ' Sites') :
+                    point.type === 'site' ? (point.raw.rigCount + ' Rigs') :
+                    (point.country + ' • ' + point.site);
+
+      el.innerHTML = 
+        '<div class="reticle-corner corner-tl"></div>' +
+        '<div class="reticle-corner corner-tr"></div>' +
+        '<div class="reticle-corner corner-bl"></div>' +
+        '<div class="reticle-corner corner-br"></div>' +
+        '<div class="reticle-center"></div>' +
+        '<div class="opsphere-hud-tooltip">' +
+          '<div style="font-size: 12px; font-weight: bold; color: #60a5fa;">' + label + '</div>' +
+          '<div style="font-size: 10px; color: #9ca3af; margin-top: 2px;">' + subText + '</div>' +
+        '</div>';
+      return el;
+    }
+
+    var headerPanel = e('div', {
+      key: 'header-panel',
+      className: 'opsphere-panel p-3 position-absolute',
+      style: { top: '16px', left: '16px', zIndex: 10, minWidth: '280px' }
+    }, [
+      e('div', { key: 't', style: { fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' } }, 'OpSphere Telemetry V2'),
+      e('div', { key: 'b', style: { fontSize: '11px', color: '#9ca3af', marginTop: '6px' } }, [
+        e('span', { key: 'g', style: { cursor: 'pointer', textDecoration: 'underline' }, onClick: resetToGlobal }, 'Global'),
+        selCountry ? e('span', { key: 'c-sep' }, ' > ') : null,
+        selCountry ? e('span', { key: 'c', style: { cursor: 'pointer', textDecoration: 'underline', color: '#38bdf8' } }, selCountry) : null,
+        selSite ? e('span', { key: 's-sep' }, ' > ') : null,
+        selSite ? e('span', { key: 's', style: { color: '#c084fc' } }, selSite) : null,
+        selRig ? e('span', { key: 'r-sep' }, ' > ') : null,
+        selRig ? e('span', { key: 'r', style: { color: '#4ade80' } }, selRig.rigId) : null
+      ])
+    ]);
+
+    var rightPanel = e('div', {
+      key: 'right-panel',
+      className: 'opsphere-panel p-3 position-absolute opsphere-scrollbar',
+      style: { top: '16px', right: '16px', zIndex: 10, width: '280px', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }
+    }, [
+      e('div', { key: 'v-title', style: { fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', marginBottom: '12px' } }, 'LAYER VISIBILITY'),
+      e('div', { key: 'v-btns', className: 'd-flex gap-2 mb-3' }, [
+        e('button', {
+          key: 'c-btn',
+          className: 'toggle-btn ' + (visibility.country ? 'active' : ''),
+          style: { borderBottom: '3px solid #3b82f6' },
+          onClick: function() { toggleLayer('country'); }
+        }, 'Country'),
+        e('button', {
+          key: 's-btn',
+          className: 'toggle-btn ' + (visibility.site ? 'active' : ''),
+          style: { borderBottom: '3px solid #a855f7' },
+          onClick: function() { toggleLayer('site'); }
+        }, 'Site'),
+        e('button', {
+          key: 'r-btn',
+          className: 'toggle-btn ' + (visibility.rig ? 'active' : ''),
+          style: { borderBottom: '3px solid #22c55e' },
+          onClick: function() { toggleLayer('rig'); }
+        }, 'Rig')
+      ]),
+
+      e('hr', { key: 'hr', style: { borderColor: '#334155', margin: '12px 0' } }),
+
+      e('div', { key: 'cam-title', style: { fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', marginBottom: '8px' } }, 
+        selRig ? ('CAMERAS: ' + selRig.rigId) : 'LIVE RIG CAMERAS'
+      ),
+
+      selRig ? e('div', { key: 'cam-grid', className: 'row g-2' }, [1, 2, 3, 4].map(function(camNum) {
+        return e('div', { key: 'cam-' + camNum, className: 'col-6' }, 
+          e('div', {
+            className: 'cam-card p-2 text-center',
+            onClick: function() { setActiveCamIndex(camNum); }
+          }, [
+            e('div', { key: 'icon', style: { fontSize: '20px', color: '#60a5fa' } }, '🎥'),
+            e('div', { key: 'lbl', style: { fontSize: '10px', color: '#cbd5e1', marginTop: '2px' } }, 'Cam 0' + camNum)
+          ])
+        );
+      })) : e('div', { key: 'no-rig', style: { fontSize: '11px', color: '#64748b', fontStyle: 'italic' } }, 'Select a Rig node to view live CCTV streams.')
+    ]);
+
+    var bottomDrawer = e('div', {
+      key: 'bottom-drawer',
+      className: 'opsphere-panel p-3 position-absolute opsphere-scrollbar',
+      style: { bottom: '16px', left: '16px', right: '16px', zIndex: 10, maxHeight: '180px', overflowY: 'auto' }
+    }, (function() {
+      if (selRig) {
+        return e('div', { className: 'row align-items-center' }, [
+          e('div', { key: 'col1', className: 'col-md-3' }, [
+            e('div', { style: { fontSize: '16px', fontWeight: 'bold', color: '#4ade80' } }, selRig.rigId),
+            e('div', { style: { fontSize: '11px', color: '#9ca3af' } }, selRig.country + ' • ' + selRig.site)
+          ]),
+          e('div', { key: 'col2', className: 'col-md-3' }, [
+            e('div', { style: { fontSize: '10px', color: '#64748b' } }, 'OPERATIONAL STATUS'),
+            e('div', { style: { fontSize: '13px', color: selRig.status === 'active' ? '#22c55e' : '#eab308', textTransform: 'uppercase' } }, selRig.status)
+          ]),
+          e('div', { key: 'col3', className: 'col-md-3' }, [
+            e('div', { style: { fontSize: '10px', color: '#64748b' } }, 'DRILL DEPTH'),
+            e('div', { style: { fontSize: '13px', color: '#f3f4f6' } }, selRig.depth)
+          ]),
+          e('div', { key: 'col4', className: 'col-md-3' }, [
+            e('div', { style: { fontSize: '10px', color: '#64748b' } }, 'PRESSURE READOUT'),
+            e('div', { style: { fontSize: '13px', color: '#f3f4f6' } }, selRig.pressure)
+          ])
+        ]);
+      } else if (selSite) {
+        var siteRigs = parsedData.rigMarkers.filter(function(r) { return r.site === selSite; });
+        return e('div', {}, [
+          e('div', { key: 'st', style: { fontSize: '12px', fontWeight: 'bold', color: '#c084fc', marginBottom: '8px' } }, 'RIGS IN ' + selSite.toUpperCase()),
+          e('div', { key: 'sg', className: 'd-flex gap-2 flex-wrap' }, siteRigs.map(function(r) {
+            return e('div', {
+              key: r.rigId, className: 'cam-card p-2', style: { minWidth: '140px' },
+              onClick: function() { handlePointClick({ type: 'rig', lat: r.lat, lng: r.lng, country: r.country, site: r.site, raw: r }); }
+            }, [
+              e('div', { style: { fontSize: '12px', fontWeight: 'bold', color: '#f3f4f6' } }, r.rigId),
+              e('div', { style: { fontSize: '10px', color: r.status === 'active' ? '#22c55e' : '#eab308' } }, r.status)
+            ]);
+          }))
+        ]);
+      } else if (selCountry) {
+        var countrySites = parsedData.siteMarkers.filter(function(s) { return s.country === selCountry; });
+        return e('div', {}, [
+          e('div', { key: 'ct', style: { fontSize: '12px', fontWeight: 'bold', color: '#38bdf8', marginBottom: '8px' } }, 'SITES IN ' + selCountry.toUpperCase()),
+          e('div', { key: 'cg', className: 'd-flex gap-2 flex-wrap' }, countrySites.map(function(s) {
+            return e('div', {
+              key: s.name, className: 'cam-card p-2', style: { minWidth: '160px' },
+              onClick: function() { handlePointClick({ type: 'site', lat: s.lat, lng: s.lng, country: s.country, name: s.name, raw: s }); }
+            }, [
+              e('div', { style: { fontSize: '12px', fontWeight: 'bold', color: '#f3f4f6' } }, s.name),
+              e('div', { style: { fontSize: '10px', color: '#94a3b8' } }, s.rigCount + ' Active Rigs')
+            ]);
+          }))
+        ]);
+      } else {
+        return e('div', { className: 'd-flex justify-content-between align-items-center' }, [
+          e('div', { key: 'g1' }, [
+            e('div', { style: { fontSize: '12px', color: '#94a3b8' } }, 'GLOBAL NETWORK SUMMARY'),
+            e('div', { style: { fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' } }, parsedData.allRigs.length + ' Total Operational Nodes')
+          ]),
+          e('div', { key: 'g2', style: { fontSize: '11px', color: '#64748b' } }, 'Click a Country node to drill down into field sites.')
+        ]);
+      }
+    })());
+
+    var cameraModal = activeCamIndex ? e('div', {
+      key: 'camera-modal',
+      style: {
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(10px)',
+        zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'
+      }
+    }, [
+      e('div', {
+        key: 'modal-body',
+        className: 'opsphere-panel p-4 position-relative',
+        style: { width: '90%', maxWidth: '700px', background: '#0f172a' }
+      }, [
+        e('div', { key: 'm-hdr', className: 'd-flex justify-content-between align-items-center mb-3' }, [
+          e('div', { style: { fontSize: '14px', fontWeight: 'bold', color: '#60a5fa' } }, 
+            (selRig ? selRig.rigId : 'RIG') + ' — Live Feed Cam 0' + activeCamIndex
+          ),
+          e('button', {
+            className: 'btn btn-sm btn-outline-secondary',
+            onClick: function() { setActiveCamIndex(null); }
+          }, '◀ Back') 
+        ]),
+
+        e('div', {
+          key: 'video-box',
+          style: {
+            width: '100%', height: '350px', background: '#020617', borderRadius: '6px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            border: '1px solid #1e293b', position: 'relative', overflow: 'hidden'
+          }
+        }, [
+          e('div', { key: 'rec', style: { position: 'absolute', top: '12px', left: '12px', color: '#ef4444', fontSize: '11px' } }, '🔴 LIVE 1080p'),
+          e('div', { key: 'cam-icon', style: { fontSize: '48px', color: '#334155' } }, '📹'),
+          e('div', { key: 'cam-msg', style: { fontSize: '12px', color: '#64748b', marginTop: '8px' } }, 'Encrypted RTSP Stream Active')
+        ]),
+
+        e('div', { key: 'm-ftr', className: 'd-flex justify-content-between align-items-center mt-3' }, [
+          e('button', {
+            className: 'btn btn-sm btn-outline-light',
+            onClick: function() { setActiveCamIndex(activeCamIndex > 1 ? activeCamIndex - 1 : 4); }
+          }, '◀ Previous Cam'),
+          e('span', { style: { fontSize: '11px', color: '#64748b' } }, 'Camera ' + activeCamIndex + ' of 4'),
+          e('button', {
+            className: 'btn btn-sm btn-outline-light',
+            onClick: function() { setActiveCamIndex(activeCamIndex < 4 ? activeCamIndex + 1 : 1); }
+          }, 'Next Cam ▶')
+        ])
+      ])
+    ]) : null;
+
+    var globeElement = e('div', {
+      style: {
+        width: '100%',
+        //width: 'calc(100% - 280px)', // Subtract the width of the right panel
+        height: '100%',
+        position: 'relative'
+      }
+    }, e(GlobeComp, {
+      ref: globeRef,
+      key: 'globe-mount-' + mountKey,
+      
+      // High-res static globe texture (original - works reliably)
+      globeImageUrl: "//unpkg.com/three-globe/example/img/earth-blue-marble.jpg",
+      backgroundImageUrl: "//unpkg.com/three-globe/example/img/night-sky.png",
+
+      pointsData: activePoints,
+      pointLat: "lat",
+      pointLng: "lng",
+      pointColor: "color",
+      pointRadius: "size",
+      pointAltitude: "altitude",
+      onPointClick: handlePointClick,
+      onPointHover: function(point) {
+        if ((point && (!hoveredRig || hoveredRig.id !== point.id)) || (!point && hoveredRig)) {
+          setHoveredRig(point || null);
+        }
+      },
+
+      htmlElementsData: activePoints,
+      htmlElement: renderCustomMarker,
+      htmlLat: "lat",
+      htmlLng: "lng",
+      htmlAltitude: "altitude"
+    }));
+
+    return e('div', {
+      style: { 
+        width: '100%', 
+        height: '100%', 
+        position: 'relative', 
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column'
+      }
+    }, [ headerPanel, rightPanel, bottomDrawer, cameraModal, globeElement ]);
+  }
+
+  try {
+    if (window.opSphereReactRoot) { window.opSphereReactRoot.unmount(); window.opSphereReactRoot = null; }
+    if (statusEl) statusEl.style.display = 'none';
+    window.opSphereReactRoot = ReactDOM.createRoot(rootEl);
+    window.opSphereReactRoot.render(e(App));
+    console.log("OpSphere React Engine V2.2 mounted successfully!");
+  } catch (err) {
+    console.error("React mounting failed:", err);
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = '<span class="text-danger">Mount Error: ' + err.message + '</span>';
+    }
+  }
+};
+</script>
+
+   

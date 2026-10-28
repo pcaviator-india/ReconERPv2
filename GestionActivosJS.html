@@ -1,0 +1,212 @@
+<script>
+window.currentAssetTab = 'maquinaria';
+window.currentAssetData = [];
+window.editingAssetIndex = null;
+
+// Initialize Asset Management Module
+window.initGestionActivos = function() {
+  const user = JSON.parse(localStorage.getItem("recon_user_secure") || "{}");
+  
+  if (user.role.toLowerCase() === 'user') {
+    document.getElementById('asset_module_container').innerHTML = 
+      '<div class="alert alert-danger"><span data-i18n="msg_unauthorized_access">Acceso no autorizado a este módulo.</span></div>';
+    if (typeof applyTranslations === 'function') applyTranslations();
+    return;
+  }
+  
+  loadAssetData(window.currentAssetTab);
+};
+
+function switchAssetTab(tabType) {
+  window.currentAssetTab = tabType;
+  loadAssetData(tabType);
+}
+
+function loadAssetData(tabType) {
+  google.script.run
+    .withSuccessHandler((data) => {
+      window.currentAssetData = data || [];
+      renderAssetTable();
+    })
+    .withFailureHandler((err) => {
+      Swal.fire('Error', err.message || 'Error al cargar activos.', 'error');
+    })
+    .getAssetsData(tabType);
+}
+
+function renderAssetTable() {
+  const head = document.getElementById('asset_table_head');
+  const body = document.getElementById('asset_table_body');
+  
+  if (!head || !body) return;
+
+  const user = JSON.parse(localStorage.getItem("recon_user_secure") || "{}");
+  const canEditDelete = user.role.toLowerCase() === 'admin' || user.role.toLowerCase() === 'manager';
+
+  // Table Header
+  head.innerHTML = `
+    <tr>
+      <th>Nombre / Identificador</th>
+      ${canEditDelete ? '<th class="text-end" style="width: 120px;">Acciones</th>' : ''}
+    </tr>
+  `;
+
+  if (window.currentAssetData.length === 0) {
+    body.innerHTML = `<tr><td colspan="${canEditDelete ? 2 : 1}" class="text-center text-muted py-4">No hay registros disponibles.</td></tr>`;
+    return;
+  }
+
+  let html = '';
+  window.currentAssetData.forEach((item, index) => {
+    html += `
+      <tr>
+        <td class="fw-bold">${escapeHtml(item.name)}</td>
+        ${canEditDelete ? `
+          <td class="text-end">
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="openAssetModal(${index})" title="Editar">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteAsset(${index})" title="Eliminar">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        ` : ''}
+      </tr>
+    `;
+  });
+
+  body.innerHTML = html;
+}
+
+function openAssetModal(index = null) {
+  window.editingAssetIndex = index;
+  const isEdit = index !== null;
+  const asset = isEdit ? window.currentAssetData[index] : null;
+
+  const titleEl = document.getElementById('modalAssetTitle');
+  const bodyEl = document.getElementById('modalAssetBody');
+
+  const tabLabels = {
+    maquinaria: 'Maquinaria',
+    generadores: 'Generador',
+    vehiculos: 'Vehículo'
+  };
+
+  titleEl.innerText = `${isEdit ? 'Editar' : 'Agregar'} ${tabLabels[window.currentAssetTab] || 'Activo'}`;
+
+  bodyEl.innerHTML = `
+    <form id="formAsset" onsubmit="event.preventDefault(); submitAssetForm();">
+      <div class="mb-3">
+        <label class="form-label fw-bold">Nombre / Identificador</label>
+        <input type="text" class="form-control" id="asset_name_input" required value="${isEdit ? escapeHtml(asset.name) : ''}" placeholder="Ingrese nombre o identificador">
+      </div>
+    </form>
+  `;
+
+  // Update save button in footer
+  const footerEl = document.querySelector('#modalAsset .modal-footer');
+  if (footerEl) {
+    footerEl.innerHTML = `
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+      <button type="button" id="btn_save_asset" class="btn btn-primary" onclick="submitAssetForm()">Guardar</button>
+    `;
+  }
+
+  const modalEl = document.getElementById('modalAsset');
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  modal.show();
+}
+
+function submitAssetForm() {
+  const nameInput = document.getElementById('asset_name_input');
+  if (!nameInput || !nameInput.value.trim()) {
+    Swal.fire('Atención', 'Por favor ingrese un nombre o identificador.', 'warning');
+    return;
+  }
+
+  const user = JSON.parse(localStorage.getItem("recon_user_secure") || "{}");
+  const isEdit = window.editingAssetIndex !== null;
+  
+  const payload = {
+    name: nameInput.value.trim(),
+    _rowIndex: isEdit ? window.currentAssetData[window.editingAssetIndex]._rowIndex : null
+  };
+
+  const btn = document.getElementById('btn_save_asset');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Guardando...';
+  }
+
+  google.script.run
+    .withSuccessHandler(() => {
+      const modalEl = document.getElementById('modalAsset');
+      const modal = bootstrap.Modal.getInstance(modalEl);
+      if (modal) modal.hide();
+
+      Swal.fire('Éxito', 'Registro guardado correctamente', 'success');
+      loadAssetData(window.currentAssetTab);
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = 'Guardar';
+      }
+    })
+    .withFailureHandler((err) => {
+      Swal.fire('Error', err.message || 'No se pudo guardar el registro.', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = 'Guardar';
+      }
+    })
+    .saveAsset(window.currentAssetTab, payload, isEdit, user.role.toLowerCase());
+}
+
+function confirmDeleteAsset(index) {
+  const item = window.currentAssetData[index];
+  if (!item) return;
+
+  const user = JSON.parse(localStorage.getItem("recon_user_secure") || "{}");
+
+  Swal.fire({
+    title: '¿Eliminar registro?',
+    text: `¿Está seguro de eliminar "${item.name}"?`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#d33',
+    confirmButtonText: 'Sí, eliminar',
+    cancelButtonText: 'Cancelar'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      google.script.run
+        .withSuccessHandler(() => {
+          Swal.fire('Eliminado', 'Registro eliminado correctamente.', 'success');
+          loadAssetData(window.currentAssetTab);
+        })
+        .withFailureHandler((err) => {
+          Swal.fire('Error', err.message || 'No se pudo eliminar.', 'error');
+        })
+        .deleteAsset(window.currentAssetTab, item._rowIndex, user.role.toLowerCase());
+    }
+  });
+}
+
+function filterAssetTable() {
+  const query = (document.getElementById('asset_search_input')?.value || '').toLowerCase();
+  const rows = document.querySelectorAll('#asset_table_body tr');
+
+  rows.forEach(row => {
+    const text = row.innerText.toLowerCase();
+    row.style.display = text.includes(query) ? '' : 'none';
+  });
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+</script>

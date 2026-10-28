@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1e3c72" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <title>RECON ERP — Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" />
+    <style>
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      .login-card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+        width: 100%;
+        max-width: 400px;
+        padding: 2rem;
+      }
+      .login-brand { text-align: center; margin-bottom: 1.5rem; }
+      .login-brand h2 { font-weight: 700; color: #1e3c72; }
+      .alert { border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="login-card">
+      <div class="login-brand">
+        <h2><i class="bi bi-box-seam-fill text-primary me-2"></i>RECON ERP V2</h2>
+        <p class="text-muted mb-0">Inventory Management System</p>
+      </div>
+
+      <!-- LOGIN FORM -->
+      <div id="loginForm">
+        <form id="formLogin" novalidate>
+          <div class="mb-3">
+            <label class="form-label" for="userId">User ID</label>
+            <input type="text" class="form-control" id="userId" placeholder="e.g. 1001" maxlength="4" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="pin">PIN</label>
+            <input type="password" class="form-control" id="pin" placeholder="••••" maxlength="4" required />
+          </div>
+          <div id="msg" class="mb-3"></div>
+          <button type="submit" class="btn btn-primary w-100 mb-2" id="btnLogin">
+            <span id="btnLoginText"><i class="bi bi-box-arrow-in-right me-1"></i> Log In</span>
+            <span id="btnLoginSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
+          </button>
+          <div class="text-center">
+            <a href="#" id="btnBackToReset" class="small text-decoration-none">Forgot PIN?</a>
+          </div>
+        </form>
+      </div>
+
+      <!-- RESET PIN (SEND EMAIL) FORM -->
+      <div id="resetForm" class="d-none">
+        <form id="formResetPin" novalidate>
+          <h6 class="mb-3 text-center">Reset your PIN</h6>
+          <div class="mb-3">
+            <label class="form-label" for="resetEmail">Work Email</label>
+            <input type="email" class="form-control" id="resetEmail" placeholder="you@company.com" required />
+          </div>
+          <div id="resetMsg" class="mb-3"></div>
+          <button type="submit" class="btn btn-primary w-100 mb-2" id="btnSendReset">
+            <span id="btnSendResetText"><i class="bi bi-envelope me-1"></i> Send Reset Link</span>
+            <span id="btnSendResetSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
+          </button>
+          <div class="text-center">
+            <a href="#" id="btnBackToLogin" class="small text-decoration-none">Back to Login</a>
+          </div>
+        </form>
+      </div>
+
+      <!-- CONFIRM RESET (NEW PIN) FORM -->
+      <div id="confirmResetForm" class="d-none">
+        <form id="formConfirmResetPin" novalidate>
+          <h6 class="mb-3 text-center">Set a new PIN</h6>
+          <input type="hidden" id="resetToken" />
+          <div class="mb-3">
+            <label class="form-label" for="newPin">New PIN</label>
+            <input type="password" class="form-control" id="newPin" placeholder="••••" maxlength="4" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="confirmPin">Confirm New PIN</label>
+            <input type="password" class="form-control" id="confirmPin" placeholder="••••" maxlength="4" required />
+          </div>
+          <div id="confirmMsg" class="mb-3"></div>
+          <button type="submit" class="btn btn-primary w-100 mb-2" id="btnConfirmReset">
+            <span id="btnConfirmResetText"><i class="bi bi-check-lg me-1"></i> Confirm Reset</span>
+            <span id="btnConfirmResetSpinner" class="d-none spinner-border spinner-border-sm me-1"></span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="api.js"></script>
+    <script>
+      // ============================================
+      // Element references
+      // ============================================
+      const formLogin = document.getElementById('formLogin');
+      const formResetPin = document.getElementById('formResetPin');
+      const formConfirmResetPin = document.getElementById('formConfirmResetPin');
+      const loginForm = document.getElementById('loginForm');
+      const resetForm = document.getElementById('resetForm');
+      const confirmResetForm = document.getElementById('confirmResetForm');
+      const msg = document.getElementById('msg');
+      const resetMsg = document.getElementById('resetMsg');
+      const confirmMsg = document.getElementById('confirmMsg');
+
+      const btnLogin = document.getElementById('btnLogin');
+      const btnLoginText = document.getElementById('btnLoginText');
+      const btnLoginSpinner = document.getElementById('btnLoginSpinner');
+      const btnSendReset = document.getElementById('btnSendReset');
+      const btnSendResetText = document.getElementById('btnSendResetText');
+      const btnSendResetSpinner = document.getElementById('btnSendResetSpinner');
+      const btnConfirmReset = document.getElementById('btnConfirmReset');
+      const btnConfirmResetText = document.getElementById('btnConfirmResetText');
+      const btnConfirmResetSpinner = document.getElementById('btnConfirmResetSpinner');
+      const btnBackToLogin = document.getElementById('btnBackToLogin');
+      const btnBackToReset = document.getElementById('btnBackToReset');
+
+      // ============================================
+      // Helpers
+      // ============================================
+      function showMsg(text, type = 'danger') {
+        msg.innerHTML = '<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert">' +
+          text +
+          '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>';
+      }
+      function clearMsg() { msg.innerHTML = ''; }
+      function showForm(formName) {
+        loginForm.classList.add('d-none');
+        resetForm.classList.add('d-none');
+        confirmResetForm.classList.add('d-none');
+        clearMsg();
+        if (formName === 'login') loginForm.classList.remove('d-none');
+        if (formName === 'reset') resetForm.classList.remove('d-none');
+        if (formName === 'confirm') confirmResetForm.classList.remove('d-none');
+      }
+      function setLoading(btn, textEl, spinnerEl, isLoading) {
+        if (isLoading) {
+          btn.disabled = true;
+          textEl.classList.add('d-none');
+          spinnerEl.classList.remove('d-none');
+        } else {
+          btn.disabled = false;
+          textEl.classList.remove('d-none');
+          spinnerEl.classList.add('d-none');
+        }
+      }
+
+      // ============================================
+      // Navigation links
+      // ============================================
+      btnBackToReset.addEventListener('click', function (e) { e.preventDefault(); showForm('reset'); });
+      btnBackToLogin.addEventListener('click', function (e) { e.preventDefault(); showForm('login'); });
+
+      // ============================================
+      // Login
+      // ============================================
+      // ---- Fast input UX: no Tab or Enter needed to move fields / log in ----
+      const uIdField = document.getElementById('userId');
+      const pinField = document.getElementById('pin');
+
+      uIdField.addEventListener('input', function () {
+        if (/^\d{4}$/.test(this.value)) { pinField.focus(); }
+      });
+      pinField.addEventListener('input', function () {
+        if (/^\d{4}$/.test(this.value)) { formLogin.requestSubmit(); }
+      });
+      uIdField.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); pinField.focus(); }
+      });
+      pinField.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); formLogin.requestSubmit(); }
+      });
+
+      formLogin.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        clearMsg();
+        var userId = document.getElementById('userId').value.trim();
+        var pin = document.getElementById('pin').value.trim();
+        if (!/^\d{4}$/.test(userId)) { showMsg('User ID must be exactly 4 digits'); return; }
+        if (!/^\d{4}$/.test(pin)) { showMsg('PIN must be exactly 4 digits'); return; }
+        setLoading(btnLogin, btnLoginText, btnLoginSpinner, true);
+        try {
+          var result = await RECON_API.login(userId, pin);
+          if (result.status === 'success') {
+            // Store user object for Index.html session init
+            localStorage.setItem('recon_user_secure', JSON.stringify(result.data.user));
+            showMsg('Login successful! Redirecting...', 'success');
+            setTimeout(function () { window.location.href = 'index.html'; }, 800);
+          } else {
+            showMsg(result.message || 'Login failed');
+          }
+        } catch (err) {
+          showMsg(err.message || 'Login failed. Please try again.');
+        } finally {
+          setLoading(btnLogin, btnLoginText, btnLoginSpinner, false);
+        }
+      });
+
+      // ============================================
+      // Reset PIN - Send
+      // ============================================
+      formResetPin.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        clearMsg();
+        var email = document.getElementById('resetEmail').value.trim();
+        setLoading(btnSendReset, btnSendResetText, btnSendResetSpinner, true);
+        try {
+          var result = await RECON_API.resetPin(email);
+          if (result.status === 'success') {
+            showMsg(result.message, 'success');
+            setTimeout(function () { showForm('login'); }, 1500);
+          } else {
+            showMsg(result.message || 'Reset failed');
+          }
+        } catch (err) {
+          showMsg(err.message || 'Reset failed. Please try again.');
+        } finally {
+          setLoading(btnSendReset, btnSendResetText, btnSendResetSpinner, false);
+        }
+      });
+
+      // ============================================
+      // Reset PIN - Confirm
+      // ============================================
+      formConfirmResetPin.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        clearMsg();
+        var token = document.getElementById('resetToken').value;
+        var newPin = document.getElementById('newPin').value.trim();
+        var confirmPin = document.getElementById('confirmPin').value.trim();
+        if (!/^\d{4}$/.test(newPin)) { showMsg('New PIN must be exactly 4 digits'); return; }
+        if (newPin !== confirmPin) { showMsg('PINs do not match'); return; }
+        setLoading(btnConfirmReset, btnConfirmResetText, btnConfirmResetSpinner, true);
+        try {
+          var result = await RECON_API.confirmResetPin(token, newPin);
+          if (result.status === 'success') {
+            showMsg(result.message, 'success');
+            setTimeout(function () { showForm('login'); }, 1500);
+          } else {
+            showMsg(result.message || 'Reset failed');
+          }
+        } catch (err) {
+          showMsg(err.message || 'Reset failed. Please try again.');
+        } finally {
+          setLoading(btnConfirmReset, btnConfirmResetText, btnConfirmResetSpinner, false);
+        }
+      });
+
+      // ============================================
+      // Boot: reset token in URL or already logged in
+      // ============================================
+      var urlParams = new URLSearchParams(window.location.search);
+      var resetToken = urlParams.get('token');
+      if (resetToken) {
+        document.getElementById('resetToken').value = resetToken;
+        showForm('confirm');
+      }
+      var existingToken = localStorage.getItem('recon_user_secure');
+      if (existingToken) {
+        window.location.href = 'index.html';
+      }
+    </script>
+      <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>
+

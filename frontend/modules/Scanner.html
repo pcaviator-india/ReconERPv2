@@ -1,0 +1,153 @@
+<div class="container-fluid py-3">
+  <div id="scannerDashboard">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 data-i18n="scanner_stock_counts">Stock Counts</h4>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary shadow-sm" onclick="window.refreshCurrentModule()" title="Refresh">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        <button class="btn btn-primary shadow-sm" onclick="ScannerModule.start()" data-i18n="scanner_new_count">New Count</button>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex flex-wrap gap-2 align-items-end">
+          <div class="col-12 col-md-4">
+            <label class="form-label small fw-semibold text-muted mb-1" data-i18n="scanner_filter_by_site">Filter by site:</label>
+            <select id="scannerFilterSite" class="form-select form-select-sm">
+              <option value="all" data-i18n="scanner_filter_all_sites">All Sites</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small fw-semibold text-muted mb-1" data-i18n="scanner_filter_date_from">From</label>
+            <input type="date" id="scannerFilterFrom" class="form-control form-control-sm">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small fw-semibold text-muted mb-1" data-i18n="scanner_filter_date_to">To</label>
+            <input type="date" id="scannerFilterTo" class="form-control form-control-sm">
+          </div>
+          <div class="col-6 col-md-2 d-flex gap-1 align-items-end">
+            <button class="btn btn-sm btn-outline-danger flex-fill rounded-pill" onclick="ScannerModule.clearFilters()" title="Clear filters">
+              <i class="bi bi-x-lg"></i>
+            </button>
+            <button class="btn btn-sm btn-primary flex-fill rounded-pill" onclick="ScannerModule.applyFilters()">
+              <i class="bi bi-funnel"></i> <span data-i18n="scanner_filter_apply">Apply</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Notice Banner -->
+    <div id="scanner-filter-notice" class="alert alert-info d-none mb-3 small animate__animated animate__slideDown">
+      <i class="bi bi-info-circle"></i> 
+      <span id="scanner-filter-text"></span>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="table-responsive" style="max-height: 70vh;">
+        <table class="table table-hover">
+          <thead class="table-dark sticky-top">
+            <tr><th data-i18n="scanner_date">Date</th><th data-i18n="scanner_user">User</th><th data-i18n="scanner_location">Location</th><th data-i18n="scanner_status">Status</th><th data-i18n="scanner_actions">Actions</th></tr>
+          </thead>
+          <tbody id="countHistoryBody"></tbody>
+          <tfoot id="countHistoryFoot" class="table-group-divider"></tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="activeScanner" style="display:none;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <button class="btn btn-sm btn-outline-secondary" onclick="ScannerModule.cancel()">Cancel</button>
+      <div>
+       <button class="btn btn-outline-warning me-2" onclick="ScannerModule.saveAsDraft()" data-i18n="scanner_save_draft">Save Draft</button>
+       <button id="btn_save_scanner" class="btn btn-success" onclick="ScannerModule.save()" data-i18n="scanner_finish_save_btn">Finish Save</button>
+       </div>      
+    </div>
+
+    <div class="row g-2 mb-3">
+      <div class="col-12">
+        <label class="form-label small" for="scannerLocationSelect" data-i18n="scanner_location">Location</label>
+        <select id="scannerLocationSelect" class="form-select form-select-sm">
+          <option value="">Select location</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label small" for="scannerStockMode" data-i18n="scanner_stock_mode">Stock Update Mode</label>
+        <select id="scannerStockMode" class="form-select form-select-sm">
+          <option value="replace" data-i18n="scanner_mode_replace">Replace current stock</option>
+          <option value="add" data-i18n="scanner_mode_add">Add to current stock</option>
+        </select>
+        <div class="form-text small" id="scannerModeDesc" data-i18n="scanner_mode_replace_desc">Counted quantity will overwrite existing stock</div>
+      </div>
+    </div>
+
+    <div class="mb-3">
+        <input type="text" id="hiddenScanTrigger" class="form-control" data-i18n-placeholder="scanner_scan_here" placeholder="Scan here...">
+    </div>
+
+    <div id="activeItemCard" class="card shadow mb-3 text-center p-3">
+      <div class="text-muted small" id="displayBarcode" data-i18n="scanner_ready_scan">Ready...</div>
+      <h3 id="displayName">---</h3>
+      <div id="duplicateBadge" class="badge bg-warning text-dark d-none" data-i18n="scanner_duplicate">Duplicate</div>
+      <div class="row g-2 text-start small my-2">
+        <div class="col-6">
+          <div class="text-muted">Geocode</div>
+          <div id="displayGeo">---</div>
+        </div>
+        <div class="col-6">
+          <div class="text-muted">Product No.</div>
+          <div id="displayPn">---</div>
+        </div>
+        <div class="col-12">
+          <div class="text-muted">Desc EN</div>
+          <div id="displayEn">---</div>
+        </div>
+        <div class="col-12">
+          <div class="text-muted">Desc ES</div>
+          <div id="displayEs">---</div>
+        </div>
+      </div>
+      <div class="display-4 fw-bold" id="displayQty">0</div>
+    </div>
+
+    <div class="numpad-grid mx-auto mb-3" style="max-width: 320px;">
+      <div class="row g-2">
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(1)">1</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(2)">2</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(3)">3</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(4)">4</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(5)">5</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(6)">6</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(7)">7</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(8)">8</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(9)">9</button></div>
+        <div class="col-4"><button class="btn btn-danger w-100 py-3 border" onclick="ScannerModule.press('C')">C</button></div>
+        <div class="col-4"><button class="btn btn-light w-100 py-3 border" onclick="ScannerModule.press(0)">0</button></div>
+        <div class="col-4"><button class="btn btn-primary w-100 py-3 border" onclick="ScannerModule.commit()" data-i18n="btn_add">ADD</button></div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm p-2 bg-light" style="max-height: 200px; overflow-y: auto;">
+      <table class="table table-sm small mb-0">
+        <tbody id="sessionItemsList"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+  .duplicate-active { background-color: #fff3cd !important; border-color: #ffc107 !important; }
+
+
+  <!-- Load JavaScript modules -->
+  <script src="./ScannerJS.html"></script>
+
+</style>
+  </body>
+
+
+

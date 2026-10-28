@@ -1,0 +1,1894 @@
+/**
+ * Helper function to check if user has management role (Admin, Office, or Manager)
+ * @param {Object} user - User object from localStorage
+ * @returns {boolean}
+ */
+function isManagementRole(user) {
+  if (!user || !user.role) return false;
+  const role = user.role.toLowerCase();
+  return role === 'admin' || role === 'office' || role === 'manager';
+}
+
+/**
+ * Helper function to check if user has approval role (Admin or Manager only)
+ * Used for approving Requirements / Quotations — Office excluded.
+ * @param {Object} user - User object from localStorage
+ * @returns {boolean}
+ */
+function isApprovalRole(user) {
+  if (!user || !user.role) return false;
+  const role = user.role.toLowerCase();
+  return role === 'admin' || role === 'manager';
+}
+
+/**
+ * Sanitizer for the requirement notes (the "Additional Message (Body)" stored
+ * on the Ordenes "Notes" column at creation time). Shared with CreateReqJS when
+ * it is already loaded; otherwise a local copy is used so the notes can never
+ * inject markup into this screen.
+ */
+window.sanitizeNotesHtml = window.sanitizeNotesHtml || function(html) {
+  let s = String(html == null ? '' : html);
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  s = s.replace(/javascript\s*:/gi, '');
+  s = s.replace(/<\/?([a-zA-Z0-9]+)(\s[^<>]*)?>/g, function(m, tag) {
+    const t = String(tag).toLowerCase();
+    if (['b','strong','i','em','u','br','p','div','ul','ol','li','span','font'].indexOf(t) !== -1) return m;
+    return '';
+  });
+  return s.trim();
+};
+
+/**
+ * Renders stored notes as safe HTML: markup notes are sanitized, plain text
+ * notes (e.g. rows written before this feature) are escaped and keep newlines.
+ */
+window.notesToHtml = function(notes) {
+  const raw = String(notes == null ? '' : notes);
+  if (!raw.trim()) return '';
+  if (/<\/?[a-zA-Z][^>]*>/.test(raw)) return window.sanitizeNotesHtml(raw);
+  const escaped = window.escapeHtml
+    ? window.escapeHtml(raw)
+    : raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return escaped.replace(/\r?\n/g, '<br>');
+};
+
+/**
+ * Tag-free, single-line version of the notes (tooltips / quick summaries).
+ */
+window.notesToPlainText = function(notes, maxLen) {
+  const txt = String(notes == null ? '' : notes)
+    .replace(/<\s*br\s*\/?\s*>/gi, ' ')
+    .replace(/<\/?[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const limit = Number(maxLen) || 120;
+  return txt.length > limit ? txt.slice(0, limit) + '...' : txt;
+};
+
+// ============================================================
+// PER-ITEM PHOTO THUMBNAILS (requirement history + edit modal)
+// Guarded with `||` because CreateReqJS.html defines the canonical
+// versions app-wide; the local copies keep this module self-contained.
+// Drive file.getUrl() serves an HTML "view" page, never image bytes, so
+// <img> must use the thumbnail endpoint (same as the server-side email).
+// ============================================================
+window.reqDriveFileId_ = window.reqDriveFileId_ || function(url) {
+  const u = String(url || '').trim();
+  if (!u) return '';
+  let m = u.match(/\/file\/d\/([-\w]{10,})/i);
+  if (m && m[1]) return m[1];
+  m = u.match(/[?&](?:id|ids)=([-\w]{10,})/i);
+  return (m && m[1]) ? m[1] : '';
+};
+
+window.reqDriveThumbUrl_ = window.reqDriveThumbUrl_ || function(url) {
+  const id = window.reqDriveFileId_(url);
+  return id ? ('https://drive.google.com/thumbnail?id=' + id + '&sz=w200') : String(url || '');
+};
+
+window.reqDriveImgOnerror_ = window.reqDriveImgOnerror_ || function(url) {
+  const id = window.reqDriveFileId_(url);
+  if (!id) return '';
+  const alt = 'https://drive.google.com/uc?export=view&id=' + id;
+  return " onerror=\"if(this.dataset.fb){this.style.visibility='hidden';}else{this.dataset.fb='1';this.src='" + alt + "';}\"";
+};
+
+// Normalizes an "Item Images" cell (comma-separated), an array of {url,name}
+// or an array of URL strings into a deduplicated list of http(s) URLs.
+window.reqImageUrlsOf_ = function(raw) {
+  let list = [];
+  if (!raw) return list;
+  if (typeof raw === 'string') list = raw.split(/\s*,\s*/);
+  else if (Array.isArray(raw)) list = raw;
+  const out = [];
+  const seen = {};
+  list.forEach(function(im) {
+    if (!im) return;
+    const u = String(typeof im === 'string' ? im : (im.url || '')).trim();
+    if (!/^https?:\/\//i.test(u) || seen[u]) return;
+    seen[u] = true;
+    out.push(u);
+  });
+  return out;
+};
+
+// Read-only thumbnail strip for one requirement line's photos.
+// `asLinks` = true  -> every thumb is an <a> straight to the Drive file;
+// `asLinks` = false -> plain <img>s (the surrounding cell opens a gallery).
+window.reqThumbStripHtml_ = function(raw, escFn, px, asLinks) {
+  const urls = window.reqImageUrlsOf_(raw);
+  if (!urls.length) return '<span class="text-muted">&mdash;</span>';
+  const esc = escFn || window.escAttr || function(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+  const size = Number(px) || 30;
+  const thumbs = urls.map(function(u, i) {
+    const src = esc(window.reqDriveThumbUrl_(u));
+    const err = window.reqDriveImgOnerror_(u);
+    const img = '<img src="' + src + '" alt="Photo ' + (i + 1) + '" loading="lazy"' + err +
+      ' style="width:100%;height:100%;object-fit:cover;display:block;">';
+    const box = '<span style="display:inline-block;width:' + size + 'px;height:' + size +
+      'px;border:1px solid #dee2e6;border-radius:4px;overflow:hidden;margin:1px;vertical-align:middle;' +
+      (asLinks ? '' : 'cursor:zoom-in;') + '">' + img + '</span>';
+    if (!asLinks) return box;
+    return '<a href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(u) + '">' + box + '</a>';
+  }).join('');
+  return '<span class="req-img-strip" style="white-space:nowrap;display:inline-block;">' + thumbs + '</span>';
+};
+/**
+ * ─── Requirement status helpers (history table) ────────────────────────────
+ * The Ordenes "Estado" cell keeps the lifecycle stage AND every quote id raised
+ * for the line: updateQuotedStatus() appends them ("Quoted | COT-101, COT-102,
+ * COT-103"). Rendering that raw value made the Status column grow as wide as the
+ * longest quote list, so the table shows only the stage badge plus a collapsed
+ * "+N" handle for the ids. The full list stays available on hover (title) and in
+ * the click-through Swal (showReqCellFull -> kind 'status').
+ */
+
+/**
+ * Badge/label metadata for an internal stage key.
+ * @param {string} stage - key returned by window.reqStatusInfo
+ * @returns {{key:string, fallback:string, badge:string}|null}
+ */
+window.reqStageMeta = function(stage) {
+  const map = {
+    pending:    { key: 'status_pending',          fallback: 'Pending',        badge: 'bg-warning text-dark' },
+    'not quoted': { key: 'status_not_quoted',      fallback: 'Not Quoted',     badge: 'bg-secondary text-dark' },
+    quoted:     { key: 'status_quoted',           fallback: 'Quoted',         badge: 'bg-primary text-white' },
+    approved:   { key: 'status_approved',         fallback: 'Approved',       badge: 'bg-success text-white' },
+    sent:       { key: 'status_sent',             fallback: 'RFQ Issued',     badge: 'bg-success text-white' },
+    despatched: { key: 'status_despatched',       fallback: 'Despatched',     badge: 'bg-success text-white' },
+    final:      { key: 'status_final_received',   fallback: 'Final Received', badge: 'bg-success text-white' },
+    po:         { key: 'status_po',               fallback: 'PO Created',     badge: 'bg-dark text-white' },
+    deleted:    { key: 'status_deleted',          fallback: 'Deleted',        badge: 'bg-danger text-white' }
+  };
+  return map[String(stage || '').toLowerCase()] || null;
+};
+
+/** Localized label for an internal stage key (falls back to English). */
+window.reqStatusLabel = function(stage) {
+  const meta = window.reqStageMeta(stage);
+  if (!meta) return '';
+  if (typeof getI18nText === 'function') {
+    const txt = getI18nText(meta.key);
+    if (txt && txt !== meta.key) return txt;
+  }
+  return meta.fallback;
+};
+
+/**
+ * Split a raw Estado value into its stage and its list of quote references.
+ * Unknown values are returned verbatim as the label (secondary badge) so no
+ * status is ever hidden by the mapping.
+ * @param {string} estado - raw value from the Ordenes "Estado" column
+ * @returns {{raw:string, stage:string, label:string, badgeClass:string, refs:string[]}}
+ */
+window.reqStatusInfo = function(estado) {
+  const raw = String(estado == null ? '' : estado).trim();
+  const pipeIdx = raw.indexOf('|');
+  const head = (pipeIdx !== -1 ? raw.slice(0, pipeIdx) : raw).trim();
+  const refs = (pipeIdx !== -1 ? raw.slice(pipeIdx + 1) : '')
+    .split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
+
+  const s = head.toLowerCase();
+  let stage = '';
+  if (!s) stage = refs.length ? 'quoted' : 'pending';
+  else if (s.includes('delet') || s.includes('elimin')) stage = 'deleted';
+  else if (s.includes('pend')) stage = 'pending';
+  else if (s.includes('final') || s.includes('received') || s.includes('recib')) stage = 'final';
+  else if (s.includes('despatch') || s.includes('dispatch') || s.includes('despach')) stage = 'despatched';
+  else if (s.includes('approv') || s.includes('aprob')) stage = 'approved';
+  else if (s.includes('po') || s.includes('orden') || s.includes('comprad') || /\boc\b/.test(s)) stage = 'po';
+  else if (s.includes('rfq') || s.includes('sent') || s.includes('envi')) stage = 'sent';
+  else if (s.includes('quot') || s.includes('cotiz')) stage = 'quoted';
+  // Legacy rows whose Estado holds only the bare quote id (e.g. "COT-101",
+  // "Q-12"): treat as quoted and surface the id as a reference. Anything else
+  // unrecognised keeps its own text so no status is hidden.
+  else if (/^(cot|quote?|q)[-\s/#]*[\w\d]/i.test(head) && refs.length === 0) { stage = 'quoted'; refs.push(head); }
+  else stage = refs.length ? 'quoted' : 'custom';
+
+  const meta = window.reqStageMeta(stage);
+  return {
+    raw: raw,
+    stage: meta ? stage : 'custom',
+    label: meta ? window.reqStatusLabel(stage) : head,
+    badgeClass: meta ? meta.badge : 'bg-secondary text-white',
+    refs: refs
+  };
+};
+
+/**
+ * Populate the Site (Faena) filter dropdown from available sources.
+ * - Always keeps an "All Sites" (empty value) option.
+ * - Merges sites from cachedSites, loaded history, and the current user's
+ *   assigned site so the selected site is always a valid option.
+ */
+function populateFaenaDropdown() {
+  const el = document.getElementById('filterFaena');
+  if (!el) return;
+
+  const currentVal = el.value;
+  const siteSet = new Set();
+
+  if (window.cachedSites && Array.isArray(window.cachedSites)) {
+    window.cachedSites.forEach(s => { if (s && s.name) siteSet.add(String(s.name).trim()); });
+  }
+  (fullHistory || []).forEach(r => { if (r.faena) siteSet.add(String(r.faena).trim()); });
+
+  let user = null;
+  try { user = JSON.parse(localStorage.getItem('recon_user_secure') || 'null'); } catch (e) {}
+  if (user && user.site) siteSet.add(String(user.site).trim());
+
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  let html = `<option value="">${getI18nText('lbl_all_sites')}</option>`;
+  Array.from(siteSet).sort().forEach(name => {
+    html += `<option value="${esc(name)}">${esc(name)}</option>`;
+  });
+  el.innerHTML = html;
+
+  // Restore the previous selection if it still exists, otherwise "All Sites"
+  if (currentVal) {
+    const target = Array.from(el.options).find(o => o.value === currentVal);
+    if (target) el.value = currentVal;
+  }
+}
+
+/**
+ * Apply the site lock / auto-selection based on the current user's role.
+ * - Admin / Office / Manager: dropdown stays enabled (filters on demand).
+ * - Site users: forced to their assigned site, disabled (visual cue).
+ */
+function applySiteLockState() {
+  const el = document.getElementById('filterFaena');
+  if (!el) return;
+
+  let user = null;
+  try { user = JSON.parse(localStorage.getItem('recon_user_secure') || 'null'); } catch (e) {}
+  if (!user || !user.role) return;
+
+  const role = String(user.role || '').trim().toLowerCase();
+  if (role !== 'user') {
+    el.disabled = false;
+    el.style.backgroundColor = "";
+    el.style.cursor = "";
+    // All roles other than the site-user role default to All Sites.
+    el.value = "";
+  } else {
+    // Site users: force their assigned site (add option if missing) and lock it
+    if (user.site) {
+      el.value = user.site;
+      if (el.value !== user.site) {
+        el.insertAdjacentHTML('beforeend', `<option value="${user.site}">${user.site}</option>`);
+        el.value = user.site;
+      }
+    }
+    el.disabled = true;
+    el.style.backgroundColor = "#e9ecef";
+    el.style.cursor = "not-allowed";
+    console.log(`🔒 Site locked to: ${user.site}`);
+  }
+}
+
+ window.initViewReqModule = function() {
+  const tableBody = document.getElementById('historyTableBody');
+  const faenaSelect = document.getElementById('filterFaena');
+  const catSelect = document.getElementById('filterCategory');
+
+  // 1. Visual Feedback: Dim the table to show "Loading" state
+  if (tableBody) tableBody.style.opacity = "0.5";
+
+  // 2. Run both calls in parallel to ensure we have Master Categories + Order History
+  // We use two separate calls because they return different data structures
+  google.script.run.withSuccessHandler(function(historyData) {
+    google.script.run.withSuccessHandler(function(validationData) {
+      
+      // A. Update Global History Data
+      fullHistory = historyData || [];
+
+      // B. Populate Site (Faena) Dropdown — merge cached sites + history + user's site
+      if (faenaSelect) {
+        populateFaenaDropdown();
+        applySiteLockState();
+        if (typeof window.updateSubAreaFilter === 'function') window.updateSubAreaFilter();
+      }
+      // C. Populate Category Dropdown (From Master Validation Object)
+      if (catSelect) {
+        const currentCat = catSelect.value;
+        // Access the categories array from the object returned by getValidationData()
+        const masterCats = validationData.categories || [];
+        
+        let options = `<option value="">${getI18nText('lbl_all_cats')}</option>`;
+        
+        // Ensure "General" is always an option
+        if (!masterCats.find(c => c.name === "General")) {
+          options += '<option value="General">General</option>';
+        }
+
+        // Map the category names from the object
+        masterCats.forEach(cat => {
+          if (cat.name && cat.name !== "General") {
+            options += '<option value="' + cat.name + '">' + cat.name + '</option>';
+          }
+        });
+        
+        catSelect.innerHTML = options;
+        if (currentCat) catSelect.value = currentCat;
+      }
+
+      // D. Render Table and Restore Opacity (respects the current site/category filters)
+      if (window.renderHistoryTable) {
+        window.renderHistoryTable(window.getFilteredData());
+      }
+      
+      if (tableBody) tableBody.style.opacity = "1";
+      console.log("History and Categories synchronized.");
+      setTimeout(lockSiteSelector, 150);
+
+    }).getValidationData(); // Fetch Category Master List
+  }).withFailureHandler(function(err) {
+      if (tableBody) tableBody.style.opacity = "1";
+      alert("Failed to sync history: " + err);
+  }).getRequirementsHistory(); // Fetch Order Rows
+};
+
+window.lockSiteSelector = function() {
+  const el = document.getElementById('filterFaena');
+  if (!el) return; // Exit if the element isn't on the current page yet
+
+  // Re-apply role-based state (value + enabled/disabled) every time
+  applySiteLockState();
+
+  // Always render through the filters so the table matches the site selection
+  console.log("🔒 Site filter applied.");
+  window.filterHistory();
+};
+
+
+window.reqViewMode_ = function() {
+  try { return localStorage.getItem('recon_req_view_mode') || 'list'; }
+  catch (e) { return 'list'; }
+};
+
+/**
+ * Switch between list and card view. Persists the choice in localStorage,
+ * toggles the containers + button states, and re-renders through the
+ * current filters.
+ */
+window.setReqViewMode = function(mode) {
+  const m = (mode === 'cards') ? 'cards' : 'list';
+  try { localStorage.setItem('recon_req_view_mode', m); } catch (e) {}
+  window.applyReqViewVisibility_();
+  if (window.renderHistoryTable && typeof window.getFilteredData === 'function') {
+    window.renderHistoryTable(window.getFilteredData());
+  }
+};
+
+/** Show/hide the table vs. cards containers and sync toggle button state. */
+window.applyReqViewVisibility_ = function() {
+  const mode = window.reqViewMode_();
+  const isCards = mode === 'cards';
+  const tableWrap = document.getElementById('reqTableWrap');
+  const cardsBox = document.getElementById('reqCardsContainer');
+  if (tableWrap) tableWrap.classList.toggle('d-none', isCards);
+  if (cardsBox) cardsBox.classList.toggle('d-none', !isCards);
+  const listBtn = document.getElementById('reqViewListBtn');
+  const cardsBtn = document.getElementById('reqViewCardsBtn');
+  if (listBtn) listBtn.classList.toggle('active', !isCards);
+  if (cardsBtn) cardsBtn.classList.toggle('active', isCards);
+  if (typeof getI18nText === 'function') {
+    if (listBtn) listBtn.title = getI18nText('view_list');
+    if (cardsBtn) cardsBtn.title = getI18nText('view_cards');
+  }
+};
+
+/**
+ * Pencil icon on a card: open the edit modal directly (no selection needed
+ * in card view — the toolbar Edit button stays for list view).
+ */
+window.reqCardEdit = function(ev, orderId) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  orderId = String(orderId);
+  if (window.pendingEditOrderId === orderId) {
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Save in Progress',
+        text: 'This requirement is still being saved. Please wait for the save to complete before editing it again.',
+        confirmButtonColor: '#3085d6'
+      });
+    }
+    return;
+  }
+  if (typeof openEditModal === 'function') openEditModal(orderId);
+};
+
+/** Group flat history rows by order id (shared by list + card renderers). */
+window.groupReqByOrder_ = function(data) {
+  return (data || []).reduce((acc, item) => {
+    const id = item.order || item.orderId || item.id;
+    if (!id) return acc;
+    const strId = id.toString();
+    if (!acc[strId]) acc[strId] = { info: item, items: [] };
+    acc[strId].items.push(item);
+    return acc;
+  }, {});
+};
+
+/** Shared escapers (local copies keep renderers safe if globals load later). */
+window.reqEscAttr_ = window.reqEscAttr_ || function (v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+window.reqEscHtml_ = window.reqEscHtml_ || function (v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+};
+
+window.renderHistoryTable = function(data) {
+  window.applyReqViewVisibility_();
+  if (window.reqViewMode_() === 'cards' && document.getElementById('reqCardsContainer')) {
+    window.renderReqCards_(data);
+    return;
+  }
+  window.renderReqList_(data);
+};
+
+
+window.renderReqList_ = function(data) {
+  const tableBody = document.getElementById('historyTableBody');
+  if (!tableBody) return;
+  tableBody.innerHTML = '';
+  tableBody.style.opacity = "1";
+
+  if (!data || data.length === 0) {
+    tableBody.innerHTML = '<tr><td colspan="10" class="text-center py-4">No history found.</td></tr>';
+    return;
+  }
+
+  // Shared escapers (defined in other modules; local copies keep this render
+  // safe if they load later or are missing).
+  const escAttr = window.escAttr || function (v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  };
+  const escHtml = window.escapeHtml || function (v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  // 1. Group data by 'order'
+  const grouped = window.groupReqByOrder_(data);
+
+  // 2. Render Groups
+  Object.values(grouped).forEach(group => {
+    const main = group.info;
+    const orderId = (main.order || main.id).toString();
+    const isSelected = (typeof selectedOrders !== 'undefined' && selectedOrders.has(orderId));
+    const cfg = window.globalConfig?.systemConfig || {};
+
+    // --- HEADER ROW (The Requirement) ---
+    const headerRow = document.createElement('tr');
+    const isPending = window.pendingEditOrderId === orderId;
+    headerRow.className = `table-light fw-bold ${isPending ? 'text-muted' : ''} ${isSelected ? 'table-primary' : ''}`;
+    headerRow.style.opacity = isPending ? '0.5' : '1';
+    headerRow.style.cursor = isPending ? 'not-allowed' : 'pointer';
+    headerRow.style.borderTop = "2px solid #0d6efd";
+    headerRow.onclick = (e) => {
+      if (window.pendingEditOrderId === orderId) {
+        if (window.Swal) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Save in Progress',
+            text: 'This requirement is still being saved. Please wait for the save to complete.',
+            confirmButtonColor: '#3085d6'
+          });
+        }
+        return;
+      }
+      window.handleRowClick(e, orderId);
+    };
+
+    // Status summary for the header, counted by lifecycle STAGE. The raw Estado
+    // is never used as a key: a line quoted several times holds
+    // "Quoted | COT-101, COT-102, ..." and that listed every quote id in the
+    // header cell, making the Status column grow with the number of quotes.
+    const stageCounts = {};
+    const orderQuoteRefs = [];
+    group.items.forEach(item => {
+      const info = window.reqStatusInfo(item.estado || 'Pending');
+      stageCounts[info.label] = (stageCounts[info.label] || 0) + 1;
+      info.refs.forEach(ref => { if (orderQuoteRefs.indexOf(ref) === -1) orderQuoteRefs.push(ref); });
+    });
+
+    const statusSummary = Object.entries(stageCounts)
+      .map(([label, count]) => `${label}: ${count}`)
+      .join(', ');
+
+    // Compact "· 3 Quotes" hint instead of printing every quote id; the full
+    // list stays on hover.
+    const quotesLabel = typeof getI18nText === 'function' ? getI18nText('lbl_quotes') : 'Quotes';
+    const quotesSummary = orderQuoteRefs.length > 1
+      ? `<span class="text-primary ms-1" title="${escAttr(orderQuoteRefs.join(', '))}">&middot; ${orderQuoteRefs.length} ${escHtml(quotesLabel)}</span>`
+      : '';
+
+    headerRow.innerHTML = `
+      <td>
+        <i class="bi ${isSelected ? 'bi-check-circle-fill text-primary' : 'bi-circle text-muted'} me-2"></i>
+        #${orderId}
+        
+        <!-- PDF ICON LOGIC START -->
+        ${main.pdfUrl ? `
+          <a href="${main.pdfUrl}" target="_blank" class="ms-2 text-danger" title="Download Requirement PDF" onclick="event.stopPropagation()">
+            <i class="bi bi-file-pdf-fill" style="font-size: 1.1rem;"></i>
+          </a>
+        ` : ''}
+        <!-- PDF ICON LOGIC END -->
+
+        <!-- NOTES ICON: shown only when the requester left notes on the requirement -->
+        ${main.notes ? `
+          <i class="bi bi-sticky-fill text-warning ms-2" style="cursor:help;"
+             title="${(window.escAttr ? window.escAttr(window.notesToPlainText(main.notes, 160)) : window.notesToPlainText(main.notes, 160))}"
+             onclick="event.stopPropagation()"></i>
+        ` : ''}
+
+      </td>
+      <td class="small">${main.fecha || ''}</td>
+      <td class="small">
+        ${main.faena || ''}
+        ${main.subArea ? `<br><small class="text-muted"><i class="bi bi-geo-alt me-1"></i>${main.subArea}${main.subAreaNo ? ' #' + main.subAreaNo : ''}</small>` : ''}
+      </td>
+      <td class="text-primary text-uppercase">${main.user || main.solicitante || 'System'}</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td class="text-center small text-muted">${main.category || ''}</td>
+      <td class="text-center">---</td>
+      <td class="req-status-cell text-start">
+        <small class="text-muted">${statusSummary || 'No items'}</small>${quotesSummary}
+      </td>
+    `;
+    tableBody.appendChild(headerRow);
+
+    // --- ITEM ROWS (The Parts) ---
+    group.items.forEach(item => {
+      // LOOKUP: Uses 'inventory' or 'fullInventory' (whichever you named your global cache)
+      // Based on code.gs, keys are .geo, .es, .en
+      const inv = window.inventory || window.fullInventory || [];
+      const product = inv.find(p => String(p.geo) === String(item.geo));
+      
+      const descEs = product ? product.es : (item.desc || '');
+      const descEn = product ? product.en : '';
+
+      // Item-level status: stage badge + collapsed quote refs. The sheet value
+      // can be "Quoted | COT-101, COT-102, ..." (one entry per quote raised for
+      // the line), which used to be printed raw and stretched the Status column.
+      const itemStatus = item.estado || 'Pending';
+      const statusInfo = window.reqStatusInfo(itemStatus);
+
+      // Per-item workshop note (read-only here; editable in the modal for
+      // Admin/Manager). Rendered in its own "Item Notes" column, clamped to
+      // 2 lines; hover (title) and click ("more") reveal the full text.
+      const rawItemNotes = String(item.itemNotes || '').trim();
+      const notesPlain = rawItemNotes ? window.notesToPlainText(rawItemNotes, 10000) : '';
+      const notesFullHtml = rawItemNotes
+        ? (window.notesToHtml ? window.notesToHtml(item.itemNotes) : (window.escapeHtml ? window.escapeHtml(item.itemNotes) : rawItemNotes))
+        : '';
+      const escAttrFn = window.escAttr || function (s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      };
+      const escHtmlFn = window.escapeHtml || function (s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      };
+      const notesTooltip = rawItemNotes ? escAttrFn(window.notesToPlainText(rawItemNotes, 500)) : '';
+      const notesLong = notesPlain.length > 80;
+      // Descriptions clamped to 2 lines; hover (title) + click ("more") show full text.
+      const descEsPlain = String(descEs || '').trim();
+      const descEnPlain = String(descEn || '').trim();
+      const descTooltip = escAttrFn([descEsPlain, descEnPlain].filter(Boolean).join(' / ').slice(0, 500));
+      const descLong = (descEsPlain + ' ' + descEnPlain).trim().length > 90;
+      // Index into fullHistory uniquely identifies the row (order+geo may repeat).
+      const rowIdx = (typeof fullHistory !== 'undefined' && Array.isArray(fullHistory)) ? fullHistory.indexOf(item) : -1;
+      const moreLabel = typeof getI18nText === 'function' ? escHtmlFn(getI18nText('btn_more')) : 'more';
+      const notesMoreLink = rawItemNotes && notesLong
+        ? `<a class="req-more" onclick="window.showReqCellFull(event, ${rowIdx}, 'notes')">… ${moreLabel}</a>`
+        : '';
+      const itemNotesCell = rawItemNotes
+        ? `<div class="text-warning-emphasis req-clickable" style="font-size: 0.7rem;" title="${notesTooltip}" onclick="window.showReqCellFull(event, ${rowIdx}, 'notes')"><i class="bi bi-sticky me-1"></i><span class="req-clamp">${notesFullHtml}</span></div>${notesMoreLink}`
+        : '<span class="text-muted">—</span>';
+
+      // Supplier-facing note ("Supplier Notes"): the text that travels to the
+      // supplier inside the RFQ (quote request) email. Shown right beside the
+      // internal note so both are visible on the same row; clamped to 2 lines
+      // with the same hover / "… more" reveal UX as the internal note.
+      const rawSupplierNotes = String(item.supplierNotes || '').trim();
+      const supplierPlain = rawSupplierNotes ? window.notesToPlainText(rawSupplierNotes, 10000) : '';
+      const supplierFullHtml = rawSupplierNotes
+        ? (window.notesToHtml ? window.notesToHtml(item.supplierNotes) : escHtmlFn(item.supplierNotes))
+        : '';
+      const supplierTooltip = rawSupplierNotes ? escAttrFn(window.notesToPlainText(rawSupplierNotes, 500)) : '';
+      const supplierLong = supplierPlain.length > 80;
+      const supplierMoreLink = rawSupplierNotes && supplierLong
+        ? `<a class="req-more" onclick="window.showReqCellFull(event, ${rowIdx}, 'supplier')">… ${moreLabel}</a>`
+        : '';
+      const supplierNotesCell = rawSupplierNotes
+        ? `<div class="req-notes-text req-clickable" style="font-size: 0.7rem;" title="${supplierTooltip}" onclick="window.showReqCellFull(event, ${rowIdx}, 'supplier')"><i class="bi bi-send me-1"></i><span class="req-clamp">${supplierFullHtml}</span></div>${supplierMoreLink}`
+        : '<span class="text-muted">—</span>';
+
+      // Per-item photos ("Item Images" cell, comma-separated Drive URLs):
+      // read-only thumbnail strip. Clicking the cell opens a gallery with
+      // full-size links; images are never sent back on save, so the sheet
+      // column is untouched by edits.
+      const rawImages = item.images || '';
+      const imgCount = window.reqImageUrlsOf_ ? window.reqImageUrlsOf_(rawImages).length : 0;
+      const imagesCell = imgCount
+        ? `<div class="req-images-cell req-clickable" style="font-size: 0.7rem;" title="${escAttrFn(imgCount + (imgCount === 1 ? ' photo' : ' photos') + ' — click to enlarge')}" onclick="window.showReqCellFull(event, ${rowIdx}, 'images')">${window.reqThumbStripHtml_(rawImages, escAttrFn)}</div>`
+        : '<span class="text-muted">—</span>';
+
+      const descMoreLink = (descEsPlain || descEnPlain) && descLong
+        ? `<a class="req-more" onclick="window.showReqCellFull(event, ${rowIdx}, 'desc')">… ${moreLabel}</a>`
+        : '';
+
+      // Quote refs: show the first id and "+N"; the complete list is on hover
+      // (title) and in the Swal opened by clicking the link.
+      const statusRefsJoined = statusInfo.refs.join(', ');
+      const statusTip = escAttrFn(statusInfo.refs.length ? statusInfo.raw : (statusInfo.label || statusInfo.raw));
+      const statusRefsCell = statusInfo.refs.length
+        ? `<div class="req-status-refs"><a class="req-more" title="${escAttrFn(statusRefsJoined)}"
+               onclick="window.showReqCellFull(event, ${rowIdx}, 'status')">${escHtmlFn(statusInfo.refs[0])}${statusInfo.refs.length > 1 ? ` +${statusInfo.refs.length - 1}` : ''}</a></div>`
+        : '';
+
+      const itemRow = document.createElement('tr');
+      itemRow.className = `small text-muted border-0 ${isSelected ? 'table-primary' : ''}`;
+
+      itemRow.innerHTML = `
+        <td class="text-end pe-3" style="font-size: 0.75rem;">↳</td>
+        <td class="small">${item.pn || ''}</td>
+        <td></td> <td>
+          <div class="fw-bold text-dark req-clamp req-clickable" title="${descTooltip}" onclick="window.showReqCellFull(event, ${rowIdx}, 'desc')">${escHtmlFn(descEs)}</div>
+          ${descEn ? `<div class="text-muted req-clamp req-desc-en req-clickable" title="${descTooltip}" onclick="window.showReqCellFull(event, ${rowIdx}, 'desc')">${escHtmlFn(descEn)}</div>` : ''}
+          ${descMoreLink}
+        </td>
+        <td class="small req-notes-cell">${itemNotesCell}</td>
+        <td class="small req-supplier-cell">${supplierNotesCell}</td>
+        <td class="small req-images-cell">${imagesCell}</td>
+        <td class="fw-bold text-dark text-center">${item.geo || '---'}</td>
+        <td class="text-center">${item.cant || 0}</td>
+        <td class="req-status-cell text-start">
+          <span class="badge ${statusInfo.badgeClass} req-status-badge" title="${statusTip}">${escHtmlFn(statusInfo.label)}</span>
+          ${statusRefsCell}
+        </td> `;
+      tableBody.appendChild(itemRow);
+    });
+  });
+
+  if (typeof updateActionButtons === 'function') updateActionButtons();
+};
+
+
+/**
+ * Card view renderer (mirrors the quotes cards): one Bootstrap card per
+ * requirement order with header, meta, status badges and item rows.
+ * Click = select (same single/Ctrl+multi semantics as rows via
+ * handleRowClick); pencil icon = open edit modal directly.
+ * NOTE: implementation continues in renderReqCardsBody_ below.
+ */
+window.renderReqCards_ = function(data) {
+  window.renderReqCardsBody_(data || []);
+};
+
+
+window.renderReqCardsBody_ = function(data) {
+  const box = document.getElementById('reqCardsContainer');
+  if (!box) return;
+  box.innerHTML = '';
+
+  if (!data.length) {
+    box.innerHTML = '<div class="col-12"><div class="alert alert-info">No history found.</div></div>';
+    if (typeof updateActionButtons === 'function') updateActionButtons();
+    return;
+  }
+
+  const escAttr = window.reqEscAttr_;
+  const escHtml = window.reqEscHtml_;
+  const t = (typeof getI18nText === 'function') ? getI18nText : function (k) { return k; };
+  const grouped = window.groupReqByOrder_(data);
+
+  Object.values(grouped).forEach(function(group) {
+    const main = group.info;
+    const orderId = (main.order || main.id).toString();
+    const isSelected = (typeof selectedOrders !== 'undefined' && selectedOrders.has(orderId));
+    const isSaving = window.pendingEditOrderId === orderId;
+
+    // Status summary counted by lifecycle STAGE (same logic as list header).
+    const stageCounts = {};
+    const orderQuoteRefs = [];
+    // Overall stage for card tint: all-Pending (or empty) = yellow,
+    // anything further along the lifecycle = green.
+    let allPending = group.items.length > 0;
+    group.items.forEach(function(item) {
+      const info = window.reqStatusInfo(item.estado || 'Pending');
+      stageCounts[info.label] = (stageCounts[info.label] || 0) + 1;
+      info.refs.forEach(function(ref) { if (orderQuoteRefs.indexOf(ref) === -1) orderQuoteRefs.push(ref); });
+      if (info.stage !== 'pending') allPending = false;
+    });
+    const cardTintClass = allPending ? 'req-card-pending' : 'req-card-done';
+    let statusSummary = '';
+    Object.keys(stageCounts).forEach(function(label) { statusSummary += (statusSummary ? ', ' : '') + label + ': ' + stageCounts[label]; });
+    const quotesHtml = orderQuoteRefs.length
+      ? '<span class="text-primary ms-1" title="' + escAttr(orderQuoteRefs.join(', ')) + '">&middot; ' + orderQuoteRefs.length + ' ' + escHtml(t('lbl_quotes')) + '</span>'
+      : '';
+
+    const subAreaHtml = main.subArea
+      ? '<br><small class="text-muted"><i class="bi bi-geo-alt me-1"></i>' + escHtml(main.subArea) + (main.subAreaNo ? ' #' + escHtml(main.subAreaNo) : '') + '</small>'
+      : '';
+    const pdfBtn = main.pdfUrl
+      ? '<a href="' + main.pdfUrl + '" target="_blank" class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation()" title="PDF"><i class="bi bi-file-pdf"></i></a>'
+      : '';
+    const notesIcon = main.notes
+      ? '<i class="bi bi-sticky-fill text-warning ms-1" style="cursor:help;" title="' + escAttr(window.notesToPlainText(main.notes, 160)) + '" onclick="event.stopPropagation()"></i>'
+      : '';
+    const editBtn = isSaving
+      ? '<button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Save in Progress"><i class="bi bi-pencil"></i></button>'
+      : '<button type="button" class="btn btn-sm btn-outline-primary" onclick="window.reqCardEdit(event, \'' + escAttr(orderId) + '\')" title="' + escAttr(t('btn_edit')) + '"><i class="bi bi-pencil"></i></button>';
+
+    box.appendChild(window.buildReqCard_(group, {
+      orderId: orderId, main: main, isSelected: isSelected, isSaving: isSaving,
+      statusSummary: statusSummary, quotesHtml: quotesHtml, subAreaHtml: subAreaHtml,
+      pdfBtn: pdfBtn, notesIcon: notesIcon, editBtn: editBtn, escAttr: escAttr, escHtml: escHtml, t: t,
+      cardTintClass: cardTintClass
+    }));
+  });
+
+  if (typeof updateActionButtons === 'function') updateActionButtons();
+};
+
+
+/**
+ * Card click: open a read-only "full details" popup for the requirement
+ * (header + notes + all item rows with status badges, thumbs linking to
+ * Drive). No selection involved — editing stays on the pencil button.
+ */
+window.reqCardDetails = function(ev, orderId) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  orderId = String(orderId);
+  const rows = (typeof fullHistory !== 'undefined' && Array.isArray(fullHistory))
+    ? fullHistory.filter(function(r) { return String(r.order) === orderId; })
+    : [];
+  if (!rows.length || !window.Swal) return;
+  const main = rows[0];
+  const escAttr = window.reqEscAttr_;
+  const escHtml = window.reqEscHtml_;
+  const t = (typeof getI18nText === 'function') ? getI18nText : function (k) { return k; };
+  const inv = window.inventory || window.fullInventory || [];
+
+  const headHtml = '<div class="text-start small mb-2">'
+    + '<div><strong>#' + escHtml(orderId) + '</strong>'
+    + (main.pdfUrl ? ' &nbsp;<a href="' + main.pdfUrl + '" target="_blank">PDF</a>' : '') + '</div>'
+    + '<div class="text-muted">' + escHtml(main.fecha || '') + ' &middot; ' + escHtml(main.faena || '')
+    + (main.subArea ? ' &middot; ' + escHtml(main.subArea) + (main.subAreaNo ? ' #' + escHtml(main.subAreaNo) : '') : '')
+    + ' &middot; ' + escHtml(main.user || main.solicitante || 'System') + ' &middot; ' + escHtml(main.category || '') + '</div>'
+    + (main.notes ? '<div class="mt-1"><i class="bi bi-sticky-fill text-warning me-1"></i>' + (window.notesToHtml ? window.notesToHtml(main.notes) : escHtml(main.notes)) + '</div>' : '')
+    + '</div>';
+
+  const itemsHtml = rows.map(function(item) {
+    const product = inv.find(function(p) { return String(p.geo) === String(item.geo); });
+    const descEs = product ? (product.es || '') : (item.desc || '');
+    const descEn = product ? (product.en || '') : '';
+    const st = window.reqStatusInfo(item.estado || 'Pending');
+    const rowIdx = (typeof fullHistory !== 'undefined' && Array.isArray(fullHistory)) ? fullHistory.indexOf(item) : -1;
+    const notesHtml = String(item.itemNotes || '').trim()
+      ? '<div class="small text-warning-emphasis req-clickable" onclick="window.showReqCellFull(event, ' + rowIdx + ', \'notes\')"><i class="bi bi-sticky me-1"></i>'
+        + (window.notesToHtml ? window.notesToHtml(item.itemNotes) : escHtml(item.itemNotes)) + '</div>'
+      : '';
+    const suppHtml = String(item.supplierNotes || '').trim()
+      ? '<div class="small req-clickable" style="color:#1971c2;" onclick="window.showReqCellFull(event, ' + rowIdx + ', \'supplier\')"><i class="bi bi-send me-1"></i>'
+        + (window.notesToHtml ? window.notesToHtml(item.supplierNotes) : escHtml(item.supplierNotes)) + '</div>'
+      : '';
+    const thumbs = window.reqThumbStripHtml_
+      ? '<div class="mt-1">' + window.reqThumbStripHtml_(item.images, escAttr, 34, true) + '</div>' : '';
+    const refsHtml = st.refs.length
+      ? '<div class="small"><a class="req-more" onclick="window.showReqCellFull(event, ' + rowIdx + ', \'status\')">'
+        + escHtml(st.refs.join(', ')) + '</a></div>'
+      : '';
+    return '<div class="text-start border-top pt-2 mt-2">'
+      + '<div class="d-flex justify-content-between align-items-start gap-2">'
+      + '<div><strong>' + escHtml(item.geo || '---') + '</strong>'
+      + '<span class="text-muted small"> &middot; ' + escHtml(item.pn || '') + ' &middot; ' + escHtml(t('qty')) + ': ' + escHtml(item.cant || 0) + '</span></div>'
+      + '<span class="badge ' + st.badgeClass + '" title="' + escAttr(st.refs.length ? st.raw : st.label) + '">' + escHtml(st.label) + '</span>'
+      + '</div>'
+      + '<div class="small fw-bold">' + escHtml(descEs) + '</div>'
+      + (descEn ? '<div class="small text-muted fst-italic">' + escHtml(descEn) + '</div>' : '')
+      + notesHtml + suppHtml + thumbs + refsHtml
+      + '</div>';
+  }).join('');
+
+  window.Swal.fire({
+    title: '#' + escHtml(orderId) + ' — ' + escHtml(t('req_view_details_hint')),
+    html: '<div style="max-height:60vh;overflow-y:auto;">' + headHtml + itemsHtml + '</div>',
+    width: '640px',
+    confirmButtonColor: '#3085d6'
+  });
+};
+
+/** Build one requirement card element (summary only — no item rows). */
+window.buildReqCard_ = function(group, ctx) {
+  const escAttr = ctx.escAttr, escHtml = ctx.escHtml, t = ctx.t;
+  const n = group.items.length;
+  let totalQty = 0;
+  let notesCount = 0, suppCount = 0, imgCount = 0;
+  group.items.forEach(function(item) {
+    totalQty += Number(item.cant) || 0;
+    if (String(item.itemNotes || '').trim()) notesCount++;
+    if (String(item.supplierNotes || '').trim()) suppCount++;
+    if (window.reqImageUrlsOf_ && window.reqImageUrlsOf_(item.images).length) imgCount++;
+  });
+  const itemWord = t('item');
+  const dots = (notesCount ? ' <i class="bi bi-sticky-fill text-warning" title="' + escAttr(notesCount + ' / ' + n) + '"></i>' : '')
+    + (suppCount ? ' <i class="bi bi-send" style="color:#1971c2;" title="' + escAttr(suppCount + ' / ' + n) + '"></i>' : '')
+    + (imgCount ? ' <i class="bi bi-image text-muted" title="' + escAttr(imgCount + (imgCount === 1 ? ' photo' : ' photos')) + '"></i>' : '');
+
+  const col = document.createElement('div');
+  col.className = 'col-md-6 col-lg-4';
+  col.innerHTML = '<div class="card h-100 shadow-sm req-card ' + (ctx.cardTintClass || '') + '" role="button" tabindex="0"'
+    + (ctx.isSaving ? ' style="opacity:.55;cursor:not-allowed;"' : '')
+    + ' onclick="window.reqCardDetails(event, \'' + escAttr(ctx.orderId) + '\')">'
+    + '<div class="card-body">'
+    + '<div class="d-flex justify-content-between align-items-center gap-2 mb-1">'
+    + '<h6 class="fw-bold mb-0"><i class="bi bi-box-seam text-primary me-1"></i>#' + escHtml(ctx.orderId) + ctx.notesIcon + '</h6>'
+    + '<div class="d-flex gap-1 flex-shrink-0">' + ctx.pdfBtn + ctx.editBtn + '</div>'
+    + '</div>'
+    + '<div class="req-card-meta">' + escHtml(ctx.main.fecha || '') + ' &middot; ' + escHtml(ctx.main.faena || '') + ctx.subAreaHtml + '</div>'
+    + '<div class="small text-primary text-uppercase">' + escHtml(ctx.main.user || ctx.main.solicitante || 'System') + '</div>'
+    + '<div class="small"><span class="badge bg-light text-dark border">' + escHtml(ctx.main.category || '') + '</span></div>'
+    + '<div class="small text-muted mt-1">' + escHtml(ctx.statusSummary || t('no_items_found')) + ctx.quotesHtml + '</div>'
+    + '<hr class="my-2">'
+    + '<div class="small"><strong>' + n + ' ' + escHtml(itemWord) + (n === 1 ? '' : 's') + '</strong>'
+    + '<span class="text-muted"> &middot; ' + escHtml(t('qty')) + ': ' + totalQty + '</span>' + dots + '</div>'
+    + '<div class="req-card-hint mt-2" style="color:#0d6efd;font-size:.78rem;font-weight:600;letter-spacing:.02em;text-transform:uppercase;">'
+    + escHtml(t('req_view_details_hint')) + '</div>'
+    + '</div></div>';
+  return col;
+};
+
+
+/**
+ * Full-text viewer for clamped Description / Item Notes cells in the
+ * requirement history table. Hover (title attr) gives a quick preview;
+ * clicking the cell or its "… more" link opens this Swal with the complete
+ * sanitized content. stopPropagation prevents toggling row selection.
+ * @param {Event} ev - click event
+ * @param {number} rowIdx - index into fullHistory (unique per row)
+ * @param {string} kind - 'desc' | 'notes' | 'status'
+ */
+window.showReqCellFull = function(ev, rowIdx, kind) {
+  if (ev) {
+    if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+  }
+  const rows = (typeof fullHistory !== 'undefined' && Array.isArray(fullHistory)) ? fullHistory : [];
+  const row = rows[Number(rowIdx)];
+  if (!row) return;
+
+  const escHtml = window.escapeHtml || function (s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+  const t = (typeof getI18nText === 'function') ? getI18nText : function (k) { return k; };
+
+  if (kind === 'notes') {
+    const html = window.notesToHtml ? window.notesToHtml(row.itemNotes || '') : escHtml(row.itemNotes || '');
+    const title = '#' + escHtml(String(row.order || '')) + ' · ' + escHtml(String(row.geo || '')) + ' — ' + escHtml(t('item_notes'));
+    if (window.Swal && typeof window.Swal.fire === 'function') {
+      window.Swal.fire({ title: title, html: '<div class="text-start small" style="max-height:300px;overflow-y:auto;">' + (html || escHtml(t('req_notes_empty'))) + '</div>', confirmButtonColor: '#3085d6' });
+    }
+    return;
+  }
+
+  // kind === 'supplier': full text of the supplier-facing note (RFQ email).
+  if (kind === 'supplier') {
+    const html = window.notesToHtml ? window.notesToHtml(row.supplierNotes || '') : escHtml(row.supplierNotes || '');
+    const title = '#' + escHtml(String(row.order || '')) + ' · ' + escHtml(String(row.geo || '')) + ' — ' + escHtml(t('supplier_notes'));
+    if (window.Swal && typeof window.Swal.fire === 'function') {
+      window.Swal.fire({ title: title, html: '<div class="text-start small" style="max-height:300px;overflow-y:auto;">' + (html || escHtml(t('req_notes_empty'))) + '</div>', confirmButtonColor: '#3085d6' });
+    }
+    return;
+  }
+
+  // kind === 'images': enlarged gallery of the line's attached photos. Each
+  // thumbnail links to the full Drive file (link-shared view-only).
+  if (kind === 'images') {
+    const urls = window.reqImageUrlsOf_ ? window.reqImageUrlsOf_(row.images) : [];
+    if (urls.length) {
+      const escA = window.escAttr || escHtml;
+      const body = '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">' +
+        urls.map(function(u, i) {
+          const src = window.reqDriveThumbUrl_ ? window.reqDriveThumbUrl_(u) : u;
+          const err = window.reqDriveImgOnerror_ ? window.reqDriveImgOnerror_(u) : '';
+          return '<a href="' + escA(u) + '" target="_blank" rel="noopener" title="' + escA(u) + '">' +
+            '<img src="' + escA(src) + '" alt="Photo ' + (i + 1) + '"' + err +
+            ' style="width:150px;height:150px;object-fit:cover;border:1px solid #dee2e6;border-radius:6px;display:block;">' +
+            '</a>';
+        }).join('') + '</div>' +
+        '<div class="text-muted small text-center mt-2">' +
+        'Click a photo to open the full file in Drive</div>';
+      const imgTitle = '#' + escHtml(String(row.order || '')) + ' · ' + escHtml(String(row.geo || '')) + ' — ' + escHtml(t('item_images'));
+      if (window.Swal && typeof window.Swal.fire === 'function') {
+        window.Swal.fire({ title: imgTitle, html: body, width: '720px', confirmButtonColor: '#3085d6' });
+      }
+    }
+    return;
+  }
+
+  // kind === 'status': full quote list behind the collapsed "+N" handle
+  if (kind === 'status') {
+    const info = window.reqStatusInfo(row.estado || '');
+    const quotesLabel = t('lbl_quotes');
+    const body = '<div class="text-start">'
+      + '<div class="mb-2"><span class="badge ' + info.badgeClass + '">' + escHtml(info.label) + '</span></div>'
+      + (info.refs.length
+        ? '<div class="small text-muted mb-1">' + escHtml(quotesLabel) + ' (' + info.refs.length + ')</div>'
+          + '<ol class="small mb-0 ps-3">' + info.refs.map(function (ref) { return '<li>' + escHtml(ref) + '</li>'; }).join('') + '</ol>'
+        : '<div class="text-muted small">' + escHtml(info.raw || t('no_items_found')) + '</div>')
+      + '</div>';
+    const title = '#' + escHtml(String(row.order || '')) + ' · ' + escHtml(String(row.geo || '')) + ' — ' + escHtml(t('tbl_status'));
+    if (window.Swal && typeof window.Swal.fire === 'function') {
+      window.Swal.fire({ title: title, html: body, confirmButtonColor: '#3085d6', width: '420px' });
+    }
+    return;
+  }
+
+  // kind === 'desc': resolve catalog descriptions (same lookup as the table)
+  const inv = window.inventory || window.fullInventory || [];
+  const product = inv.find(function (p) { return String(p.geo) === String(row.geo); });
+  const es = product ? (product.es || '') : (row.desc || '');
+  const en = product ? (product.en || '') : '';
+  const body = '<div class="text-start">'
+    + (es ? '<div class="fw-bold mb-1">' + escHtml(es) + '</div>' : '')
+    + (en ? '<div class="text-muted fst-italic small">' + escHtml(en) + '</div>' : '')
+    + '<div class="text-muted small mt-2">GEO: ' + escHtml(String(row.geo || '')) + ' · P/N: ' + escHtml(String(row.pn || '')) + '</div>'
+    + '</div>';
+  const title = '#' + escHtml(String(row.order || '')) + ' — ' + escHtml(t('desc'));
+  if (window.Swal && typeof window.Swal.fire === 'function') {
+    window.Swal.fire({ title: title, html: body, confirmButtonColor: '#3085d6', width: '480px' });
+  }
+};
+
+window.handleRowClick = function(event, orderId) {
+  event.stopPropagation();
+  
+  orderId = orderId.toString();
+  // We need to know the state BEFORE we start modifying the set
+  const wasSelected = selectedOrders.has(orderId);
+  
+  // Behavior A: Normal Click (No Ctrl/Cmd)
+  if (!event.ctrlKey && !event.metaKey) {
+    const totalSelected = selectedOrders.size;
+    
+    // Clear all previous selections
+    selectedOrders.clear();
+    
+    // If it was already selected and was the ONLY one, leave it cleared (deselect)
+    if (wasSelected && totalSelected === 1) {
+      window.selectedReqOrderId = null; 
+    } else {
+      // Otherwise, select this one
+      selectedOrders.add(orderId);
+      window.selectedReqOrderId = orderId;
+    }
+  } 
+  // Behavior B: Ctrl + Click (Toggle)
+  else {
+    if (wasSelected) {
+      selectedOrders.delete(orderId);
+      // If we just deleted the "active" ID, clear the global reference
+      if (window.selectedReqOrderId === orderId) window.selectedReqOrderId = null;
+    } else {
+      selectedOrders.add(orderId);
+      window.selectedReqOrderId = orderId;
+    }
+  }
+
+  // Use your filtered data to re-render the view
+  if (window.renderHistoryTable && typeof window.getFilteredData === 'function') {
+    window.renderHistoryTable(window.getFilteredData());
+  }
+};
+
+
+window.filterHistory = function() {
+  if (typeof window.updateSubAreaFilter === 'function') window.updateSubAreaFilter();
+  window.renderHistoryTable(window.getFilteredData());
+};
+
+/**
+ * Shows/hides + populates the SubArea history filter (visible only when the
+ * selected site is "Workshop" - SubAreas belong to the Workshop site).
+ */
+window.updateSubAreaFilter = function() {
+  const wrap = document.getElementById('filterSubAreaWrap');
+  const sel = document.getElementById('filterSubArea');
+  const faenaSel = document.getElementById('filterFaena');
+  if (!wrap || !sel) return;
+
+  const site = faenaSel ? String(faenaSel.value || '').trim() : '';
+
+  if (site.toLowerCase() !== 'workshop') {
+    wrap.classList.add('d-none');
+    sel.value = '';
+    return;
+  }
+
+  const populate = function(subAreas) {
+    const options = (subAreas || [])
+      .filter(function (sa) { return sa && String(sa.site || '').trim().toLowerCase() === 'workshop'; })
+      .map(function (sa) {
+        const name = String(sa.name || '').replace(/"/g, '&quot;');
+        return `<option value="${name}">${name}</option>`;
+      })
+      .join('');
+    const current = sel.value;
+    sel.innerHTML = `<option value="" data-i18n="all_sub_areas">All Sub Areas</option>` + options;
+    if (current) sel.value = current;
+    wrap.classList.remove('d-none');
+    if (typeof updateUI === 'function') updateUI();
+  };
+
+  if (window.CachedDataVal && Array.isArray(window.CachedDataVal.subAreas)) {
+    populate(window.CachedDataVal.subAreas);
+  } else {
+    google.script.run
+      .withSuccessHandler(function (data) {
+        window.CachedDataVal = data || {};
+        populate((data && data.subAreas) || []);
+      })
+      .withFailureHandler(function (err) {
+        console.warn("Failed to load Sub Areas for history filter:", err);
+      })
+      .getValidationData();
+  }
+};
+
+window.getFilteredData = function() {
+  if (!fullHistory || !Array.isArray(fullHistory)) return []; 
+
+  const searchTerm = (document.getElementById('historySearch')?.value || "").toString().toLowerCase().trim();
+  const faena = (document.getElementById('filterFaena')?.value || "").toString().toLowerCase().trim();
+  const status = (document.getElementById('filterStatus')?.value || "").toString().toLowerCase().trim();
+  const category = (document.getElementById('filterCategory')?.value || "").toString().toLowerCase().trim();
+  const subAreaF = (document.getElementById('filterSubArea')?.value || "").toString().toLowerCase().trim();
+
+  return fullHistory.filter(r => {
+    const rowFaena = String(r.faena || "").trim().toLowerCase();
+    const rowStatus = String(r.estado || "").toLowerCase();
+    const rowCategory = String(r.category || "General").toLowerCase().trim(); // NEW
+    const rowSubArea = String(r.subArea || "").trim().toLowerCase();
+
+    const matchesSearch = !searchTerm || 
+      [r.order, r.geo, r.pn, r.desc].some(val => String(val || "").toLowerCase().includes(searchTerm));
+    const matchesFaena = !faena || rowFaena === faena;
+    const matchesStatus = !status || rowStatus.includes(status);
+    const matchesCategory = !category || rowCategory === category; // NEW
+    const matchesSubArea = !subAreaF || rowSubArea === subAreaF;
+
+    return matchesSearch && matchesFaena && matchesStatus && matchesCategory && matchesSubArea;
+  });
+};
+
+window.clearSelection = function() {
+  selectedOrders.clear();
+  window.selectedReqOrderId = null;
+  window.renderHistoryTable(window.getFilteredData());
+};
+
+
+window.updateActionButtons = function() {
+  const editBtn = document.getElementById('editBtn');
+  const selectionBadge = document.getElementById('selectionBadge');
+  const selectedCount = selectedOrders && typeof selectedOrders.size === 'number' ? selectedOrders.size : 0;
+
+  if (editBtn) {
+    editBtn.disabled = selectedCount !== 1;
+  }
+
+  if (selectionBadge) {
+    if (selectedCount > 0) {
+      selectionBadge.textContent = `${selectedCount} Order${selectedCount === 1 ? '' : 's'} Selected`;
+      selectionBadge.classList.remove('d-none');
+    } else {
+      selectionBadge.textContent = '0 Orders Selected';
+      selectionBadge.classList.add('d-none');
+    }
+  }
+};
+
+window.saveRequirementChanges = function() {
+  const orderId = document.getElementById('editModalOrderNum').innerText;
+  window.pendingEditOrderId = orderId;
+  const saveBtn = document.querySelector('button[onclick="saveRequirementChanges()"]');
+  const spinner = document.getElementById('saveBtnSpinner');
+  
+  const user = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure'));
+  const userName = user ? (user.name || user.displayName || "Unknown") : "System Edit";
+  
+  const itemRows = document.querySelectorAll('#editItemsTableBody tr');
+  
+  // --- ADDITION: Map items with catalog lookup AND item-level status ---
+  const updatedItems = Array.from(itemRows).map(row => {
+    const geoCode = row.querySelector('.item-geo').value;
+    
+    // Find the item in your frontend inventory cache
+    const invItem = (window.fullInventory || []).find(i => String(i.geo) === String(geoCode));
+    
+    // Get item-level status from the dropdown
+    const itemStatus = row.querySelector('.item-status') ? row.querySelector('.item-status').value : "Pending";
+
+    // Per-item notes input exists only for Admin/Manager (editable); other
+    // roles render a read-only div -> leave undefined so the server keeps it.
+    const notesInput = row.querySelector('.item-notes');
+    // Supplier-facing note input exists only for Admin/Manager (editable); other
+    // roles render a read-only div -> leave undefined so the server keeps it.
+    const supplierNotesInput = row.querySelector('.item-supplier-notes');
+
+    const item = {
+      geo: geoCode, 
+      pn: row.querySelector('.item-pn').value,
+      desc: row.querySelector('.item-desc').value, // Current UI description
+      cant: row.querySelector('.item-qty').value,
+      estado: itemStatus, // Item-level status
+      itemNotes: notesInput ? notesInput.value : undefined,
+      supplierNotes: supplierNotesInput ? supplierNotesInput.value : undefined,
+      // --- GRAB DESCRIPTIONS FROM CACHE ---
+      es: invItem ? invItem.es : "", 
+      en: invItem ? invItem.en : ""
+    };
+    // Physical sheet row this row was loaded from — lets the server pair each
+    // item to the exact row (history is newest-first, so index pairing wrote
+    // fields to the wrong rows). Manually added rows carry no rowNum.
+    const rowNumAttr = row.getAttribute('data-row-num');
+    if (rowNumAttr) item.rowNum = Number(rowNumAttr);
+    return item;
+  });
+
+  const editSubAreaEl = document.getElementById('editSubArea');
+  const editEmailsEl = document.getElementById('editEmails');
+  const updatedHeader = {
+    faena: document.getElementById('editFaena').value,
+    userName: userName,
+    subArea: editSubAreaEl ? editSubAreaEl.value : "",
+    emails: editEmailsEl ? editEmailsEl.value : ""
+    // estado removed from header - now handled per-item
+  };
+
+  if (updatedItems.length === 0) return alert("Requirement must have at least one item.");
+
+  if (spinner) spinner.classList.remove('d-none');
+  saveBtn.disabled = true;
+
+  // Non-blocking save: fire the slow server work in background and free the
+  // UI immediately. The bubble (bottom-right) polls live progress via
+  // bgGetJobs while the user moves on to the next requirement.
+  var __useBg = !!(window.BgJobs && window.bgFireAndForget);
+  if (__useBg) {
+    var __userEmail = "";
+    try { __userEmail = (user && (user.email || user.userEmail)) || ""; } catch (e) {}
+    window.bgFireAndForget({
+      fn: "updateRequirementOnSheetWithItemStatuses",
+      // jobId is the fire-and-forget channel arg (5th param server-side also
+      // accepted: orderId, header, items, customRecipient, jobId).
+      args: [orderId, updatedHeader, updatedItems, null],
+      kind: "REQ", refId: orderId,
+      title: "Req #" + orderId + " — approve/edit",
+      userEmail: __userEmail,
+      onDone: function (job) {
+        try {
+          if (job.status === "DONE") {
+            if (window.initViewReqModule) window.initViewReqModule();
+            if (job.pdfUrl) {
+              if (window.Swal) Swal.fire({ icon: "success", title: "Req #" + orderId + " finished", html: '<a href="' + job.pdfUrl + '" target="_blank">View PDF</a>', timer: 5000, showConfirmButton: true });
+            }
+          } else if (window.Swal) {
+            Swal.fire({ icon: "error", title: "Req #" + orderId + " failed", text: String(job.error || job.step || "Background job failed") });
+          }
+        } catch (e) {}
+      }
+    }).then(function (fired) {
+      if (spinner) spinner.classList.add('d-none');
+      if (saveBtn) saveBtn.disabled = false;
+      // Enqueue/launch failed: keep the modal open and let the user retry
+      // instead of silently closing without anything running.
+      if (!fired || !fired.ok || !fired.jobId) {
+        if (window.Swal) Swal.fire({ icon: "error", title: "Error", text: "Could not start the background save. Please try again." });
+        return;
+      }
+      // Modal closes NOW — no waiting for PDF/email. Re-enable + refresh list.
+      try {
+        var modalElement = document.getElementById('editReqModal');
+        if (modalElement) {
+          var modalInstance = bootstrap.Modal.getInstance(modalElement);
+          if (modalInstance) modalInstance.hide();
+        }
+      } catch (e) {}
+      window.pendingEditOrderId = null;
+      if (window.initViewReqModule) window.initViewReqModule();
+      // The slow call still needs its completion handler for the
+      // requiresConfirmation branch (missing recipients) — poll it once.
+      if (fired && fired.jobId) {
+        var __tries = 0;
+        var __iv = setInterval(function () {
+          __tries++;
+          try {
+            google.script.run.withSuccessHandler(function (list) {
+              var s = (list && list[0]) || {};
+              if (s.status === "ERROR" && String(s.error || "").indexOf("confirm recipients") !== -1) {
+                clearInterval(__iv);
+                window.showRecipientConfirmationModal(orderId, updatedHeader, updatedItems, { message: s.error });
+              } else if (s.status === "DONE" || s.status === "ERROR" || __tries > 40) {
+                clearInterval(__iv);
+              }
+            }).bgGetJobs([fired.jobId]);
+          } catch (e) { clearInterval(__iv); }
+        }, 3000);
+      }
+    });
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(function(response) {
+        if (spinner) spinner.classList.add('d-none');
+
+        // CHECK: If confirmation needed for missing recipients
+        if (response.requiresConfirmation && response.recipientWarning) {
+          // Show confirmation modal for recipient email
+          window.showRecipientConfirmationModal(orderId, updatedHeader, updatedItems, response);
+          return;
+        }
+
+        // Only re-enable button if NO confirmation needed
+        if (saveBtn) saveBtn.disabled = false;
+
+        // Build message based on email status
+        let message = `Requirement #${orderId} updated successfully!`;
+        let icon = 'success';
+        
+        if (response.emailSent) {
+          message += `<br><span class="badge bg-success">✓ Email Sent via ${response.emailService}</span>`;
+          if (response.emailCc) {
+            message += `<br><small>CC: ${response.emailCc}</small>`;
+          }
+        } else if (response.emailError) {
+          message += `<br><span class="badge bg-warning">⚠️ Email Failed</span>`;
+          message += `<br><small>${response.emailError}</small>`;
+        }
+
+        // Show Swal confirmation FIRST, then close modal in .then() callback
+        Swal.fire({
+          icon: icon,
+          title: 'Updated',
+          html: message,
+          confirmButtonColor: '#3085d6'
+        }).then((result) => {
+          // Close modal AFTER user confirms Swal
+          const modalElement = document.getElementById('editReqModal');
+          console.log("DEBUG: Modal close (post-Swal) - Modal element found:", !!modalElement);
+          
+          if (modalElement) {
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+            console.log("DEBUG: Modal close (post-Swal) - Modal instance:", !!modalInstance);
+            
+            if (modalInstance) {
+              modalInstance.hide();
+              console.log("DEBUG: Modal closed via Bootstrap.Modal.hide() after Swal");
+            } else {
+              // Backup method if Bootstrap fails
+              modalElement.classList.remove('show');
+              modalElement.style.display = 'none';
+              document.body.classList.remove('modal-open');
+              const backdrop = document.querySelector('.modal-backdrop');
+              if (backdrop) backdrop.remove();
+              console.log("DEBUG: Modal closed via backup method after Swal");
+            }
+          }
+          
+          window.pendingEditOrderId = null;
+          if (window.initViewReqModule) window.initViewReqModule();
+        });
+    })
+    .withFailureHandler(function(err) {
+        if (spinner) spinner.classList.add('d-none');
+        if (saveBtn) saveBtn.disabled = false;
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: "Error saving: " + err.message
+        });
+    })
+    .updateRequirementOnSheetWithItemStatuses(orderId, updatedHeader, updatedItems);
+}
+
+/**
+ * Bulk approve all items in the requirement
+ */
+window.approveAllItems = function() {
+  const user = JSON.parse(localStorage.getItem('recon_user_secure'));
+  
+  if (!isApprovalRole(user)) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Access Denied',
+      text: 'Only Managers, Admins can approve items.',
+      confirmButtonColor: '#3085d6'
+    });
+    return;
+  }
+  
+  const itemRows = document.querySelectorAll('#editItemsTableBody tr');
+  itemRows.forEach(row => {
+    const statusSelect = row.querySelector('.item-status');
+    if (statusSelect) {
+      statusSelect.value = 'Approved';
+    }
+  });
+  
+  Swal.fire({
+    icon: 'success',
+    title: 'All Items Approved',
+    text: 'All items have been set to Approved status. Click Save Changes to persist.',
+    timer: 2000,
+    showConfirmButton: false
+  });
+};
+
+/**
+ * Bulk delete (soft delete) all items in the requirement
+ */
+window.deleteAllItems = function() {
+  const user = JSON.parse(localStorage.getItem('recon_user_secure'));
+  
+  if (!isManagementRole(user)) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Access Denied',
+      text: 'Only Managers, Admins, and Office staff can delete items.',
+      confirmButtonColor: '#3085d6'
+    });
+    return;
+  }
+  
+  Swal.fire({
+    title: 'Delete All Items?',
+    text: 'This will mark all items as "Deleted" (soft delete). This action can be undone by changing status back to Pending.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#d33',
+    cancelButtonColor: '#3085d6',
+    confirmButtonText: 'Yes, Delete All'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      const itemRows = document.querySelectorAll('#editItemsTableBody tr');
+      itemRows.forEach(row => {
+        const statusSelect = row.querySelector('.item-status');
+        if (statusSelect) {
+          statusSelect.value = 'Deleted';
+        }
+      });
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'All Items Marked Deleted',
+        text: 'All items have been set to Deleted status. Click Save Changes to persist.',
+        timer: 2000,
+        showConfirmButton: false
+      });
+    }
+  });
+};
+
+// Track the order currently being edited (background save in progress)
+window.pendingEditOrderId = null;
+
+window.openEditModal = function(orderId) {
+  // Guard: block re-edit if this order's background save is still in progress
+  if (window.pendingEditOrderId === orderId) {
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Save in Progress',
+        text: 'This requirement is still being saved. Please wait for the save to complete before editing it again.',
+        confirmButtonColor: '#3085d6'
+      });
+    }
+    return;
+  }
+  // 1. Get all items belonging to this order
+  const orderItems = fullHistory.filter(r => r.order.toString() === orderId.toString());
+  if (orderItems.length === 0) return;
+
+  window.currentEditingCategory = orderItems[0].category || ""; 
+  console.log("Edit Session Locked to Category:", window.currentEditingCategory);
+
+  window.viewReqEditModalOpen = true;
+
+  // 2. Identify the User
+  const user = JSON.parse(localStorage.getItem('recon_user_secure'));
+  const isManagement = isManagementRole(user); // Admin/Office/Manager: can edit & delete
+  const canApprove = isApprovalRole(user);     // Admin/Manager only: can approve
+
+  // 3. CHECK: Does the order contain ANY non-pending items?
+  const hasProcessedItems = orderItems.some(item => {
+    const status = (item.estado || "").trim().toLowerCase();
+    return status !== "pending" && status !== ""; 
+  });
+
+  // 4. THE GATEKEEPER
+  if (hasProcessedItems) {
+    if (!isManagement) {
+      // HARD BLOCK for Site Users
+      Swal.fire({
+        icon: 'warning',
+        title: 'Order Locked',
+        text: 'One or more items in this order are already being processed (Quoted/Approved). Site staff cannot edit locked orders. Please contact the Office.',
+        confirmButtonColor: '#3085d6'
+      });
+      return; 
+    } else {
+      // WARNING for Admin/Office
+      const proceed = confirm("⚠️ ADMIN NOTICE: Some items in this order are no longer 'Pending'. Editing may affect active quotes. Proceed anyway?");
+      if (!proceed) return;
+    }
+  }
+
+  // --- REST OF YOUR MODAL CODE ---
+  document.getElementById('editModalOrderNum').innerText = orderId;
+  document.getElementById('editFaena').value = orderItems[0].faena || "";
+  const editSubAreaEl = document.getElementById('editSubArea');
+  if (editSubAreaEl) editSubAreaEl.value = orderItems[0].subArea || "";
+  const editSubAreaNoEl = document.getElementById('editSubAreaNo');
+  if (editSubAreaNoEl) editSubAreaNoEl.value = orderItems[0].subAreaNo || "";
+  const editEmailsEl = document.getElementById('editEmails');
+  if (editEmailsEl) editEmailsEl.value = orderItems[0].emails || "";
+
+  // Notes: the "Additional Message (Body)" typed when the requirement was
+  // created. Read-only for everyone; it is what the approver reviews.
+  const notesHtml = (typeof window.notesToHtml === 'function')
+    ? window.notesToHtml(orderItems[0].notes || "")
+    : "";
+  const editNotesEl = document.getElementById('editNotes');
+  const editNotesEmptyEl = document.getElementById('editNotesEmpty');
+  if (editNotesEl) {
+    editNotesEl.innerHTML = notesHtml;
+    editNotesEl.style.display = notesHtml ? 'block' : 'none';
+  }
+  if (editNotesEmptyEl) editNotesEmptyEl.style.display = notesHtml ? 'none' : 'block';
+  
+  // Remove reference to global editStatus dropdown - now using item-level status
+  // document.getElementById('editStatus').value = orderItems[0].estado || "Pending";
+
+  const tbody = document.getElementById('editItemsTableBody');
+  tbody.innerHTML = '';
+  
+  orderItems.forEach(item => {
+    // Pass item-level status + per-item notes to addEditRow
+    addEditRow(item.pn, item.desc, item.cant, item.geo, item.estado || "Pending", item.itemNotes || "", item.rowNum, item.supplierNotes || "", item.images || "");
+  });
+
+  // Show/hide bulk action buttons based on user role
+  const btnApproveAll = document.getElementById('btnApproveAll');
+  const btnDeleteAll = document.getElementById('btnDeleteAll');
+  if (btnApproveAll) btnApproveAll.style.display = canApprove ? 'inline-flex' : 'none'; // Approve = Admin/Manager only
+  if (btnDeleteAll) btnDeleteAll.style.display = isManagement ? 'inline-flex' : 'none'; // Delete = Admin/Office/Manager
+
+  const modalElement = document.getElementById('editReqModal');
+  modalElement.addEventListener('hidden.bs.modal', function () {
+    window.viewReqEditModalOpen = false;
+    window.currentEditingCategory = null;
+  }, { once: true });
+
+  // Translate dynamically injected modal content (labels, status options, etc.)
+  if (typeof updateUI === 'function') updateUI();
+
+  new bootstrap.Modal(modalElement).show();
+};
+
+
+
+
+
+// Replace your existing window.handleEditClick with this:
+window.handleEditClickReq = function(event) {
+ 
+  console.log(window.selectedReqOrderId);
+  // 1. Safely stop propagation if an event exists
+  if (event && typeof event.stopPropagation === 'function') {
+    event.stopPropagation();
+  }
+
+  // 2. Identify the Order ID
+  const orderId = (window.selectedReqOrderId || (selectedOrders.size === 1 ? Array.from(selectedOrders)[0] : null));
+  
+  if (!orderId) {
+    return alert("Select exactly one order to edit");
+  }
+
+  // Guard: block re-edit if this order's background save is still in progress
+  if (window.pendingEditOrderId === orderId) {
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Save in Progress',
+        text: 'This requirement is still being saved. Please wait for the save to complete before editing it again.',
+        confirmButtonColor: '#3085d6'
+      });
+    }
+    return;
+  }
+
+  // 3. Logic to open the modal
+  selectedOrders.clear();
+  selectedOrders.add(orderId.toString());
+  window.viewReqEditModalOpen = true;
+  
+  // Call your existing modal opener
+  if (typeof openEditModal === 'function') {
+    openEditModal(orderId);
+  }
+};
+
+
+
+window.handleEditSearch = function(val) {
+  const query = val.toLowerCase().trim();
+  const resUl = document.getElementById('editSearchResults');
+  
+  if (!resUl) return;
+
+  if (query.length < 2) {
+    resUl.classList.add('d-none');
+    return;
+  }
+
+  // DEBUG: Check in the browser console if this number is 25000
+  console.log("Searching through: " + (window.fullInventory ? window.fullInventory.length : 0) + " items");
+
+  // Category of the requirement being edited.
+  // Normalized (trim + lowercase) and defaulted to "General" so comparisons are reliable
+  // regardless of case (requirements are stored UPPERCASE at creation) or empty values.
+  const editCat = (String(window.currentEditingCategory || "") || "General").trim().toLowerCase();
+
+  const matches = (window.fullInventory || []).filter(i => {
+    // Only allow products of the SAME category as the requirement.
+    // Uncategorized Master items are treated as "General" (matches creation logic).
+    const itemCat = (String(i.category || "") || "General").trim().toLowerCase();
+    if (itemCat !== editCat) {
+      return false;
+    }
+    const term = (String(i.geo) + " " + String(i.pn) + " " + String(i.es || "") + " " + String(i.en || "")).toLowerCase();
+    return term.indexOf(query) !== -1;
+  }).slice(0, 10);
+
+  // Show which category this search is locked to, so the restriction is visible
+  const catLabel = editCat === 'general' ? 'General' : String(window.currentEditingCategory).trim().toUpperCase();
+  const infoLine = `<li class="list-group-item list-group-item-secondary small fw-bold">
+                      <i class="bi bi-lock-fill me-1"></i> Adding to Category: ${catLabel}
+                    </li>`;
+
+  if (matches.length === 0) {
+    resUl.innerHTML = infoLine + `
+      <li class="list-group-item small text-muted text-center">
+        No matches found in this category.<br>
+        <small>(Catalog Size: ${window.fullInventory ? window.fullInventory.length : 0})</small>
+       </li>`;
+  } else {
+    resUl.innerHTML = infoLine + matches.map(i => `
+      <li class="list-group-item list-group-item-action p-2" 
+          style="cursor:pointer" 
+          onclick="window.selectItemForEdit('${i.pn}', '${(i.es || i.en || "").replace(/'/g,"")}', '${i.geo}')">
+        <div class="d-flex justify-content-between">
+          <span class="fw-bold text-primary">${i.geo}</span>
+          <span class="small text-muted">${i.pn}</span>
+        </div>
+        <div class="small text-truncate">${i.es || i.en || ""}</div>
+      </li>
+    `).join('');
+  }
+  resUl.classList.remove('d-none');
+};
+
+
+window.handleExport = function(moduleType, format, event) {
+  // 1. KILL the browser event immediately
+  if (event) {
+    if (typeof event.preventDefault === 'function') event.preventDefault();
+    if (typeof event.stopPropagation === 'function') event.stopPropagation();
+  }
+
+  // 2. Data Configuration
+  var configs = {
+    'REQ': {
+      name: 'Requirements',
+      data: (selectedOrders && selectedOrders.size > 0) 
+            ? fullHistory.filter(function(r) { return selectedOrders.has(r.order.toString()); }) 
+            : (window.getFilteredData ? window.getFilteredData() : []),
+      headers: ["Order #", "Date", "Site", "Geo", "P/N", "Description", "Qty", "Status"],
+      keys: ["order", "fecha", "faena", "geo", "pn", "desc", "cant", "estado"]
+    }
+  };
+
+  var config = configs[moduleType];
+  if (!config || !config.data || config.data.length === 0) {
+    alert("Please select or filter data first.");
+    return;
+  }
+
+  // 3. UI Feedback (Using simple text to avoid HTML parsing errors)
+  var btn = document.getElementById('exportDropdownBtn');
+  var originalText = "Export";
+  if (btn) {
+    originalText = btn.innerText;
+    btn.innerText = "Processing...";
+    btn.disabled = true;
+  }
+
+  // 4. Server Call
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) {
+        btn.innerText = originalText;
+        btn.disabled = false;
+      }
+      alert("✅ " + getI18nText('msg_export_success') + " (" + res.fileName + ")");
+    })
+    .withFailureHandler(function(err) {
+      if (btn) {
+        btn.innerText = originalText;
+        btn.disabled = false;
+      }
+      alert(getI18nText('msg_sys_error') + " " + err);
+    })
+    .master_ExportToDrive(config.data, config.headers, config.keys, config.name, format);
+};
+
+
+window.selectItemForEdit = function(pn, desc, geo) {
+  addEditRow(pn || '', desc, 1, geo); // Pass the individual Geo Code here 
+  document.getElementById('editItemSearch').value = '';
+  document.getElementById('editSearchResults').classList.add('d-none');
+};
+
+
+
+
+window.addEditRow = function(pn = '', desc = '', cant = 1, geo = '', status = 'Pending', itemNotes = '', rowNum = '', supplierNotes = '', images = '') {
+  const tbody = document.getElementById('editItemsTableBody');
+  const row = document.createElement('tr');
+  // Remember the physical sheet row this row came from so save can pair items
+  // back to the correct row server-side (manually added rows have no rowNum).
+  if (rowNum !== '' && rowNum !== undefined && rowNum !== null) {
+    row.setAttribute('data-row-num', String(rowNum));
+  }
+  
+  // Get current user role to determine if status dropdown should be editable
+  const user = JSON.parse(localStorage.getItem('recon_user_secure'));
+  const isManager = isManagementRole(user);   // Admin/Office/Manager: dropdown editable (e.g. mark Deleted)
+  const canApprove = isApprovalRole(user);    // Admin/Manager only: may select Approved
+  // Item notes: Admin/Manager edit them; everyone else sees them read-only.
+  // Stored per-requirement (see req_typed_notes label for consolidated views).
+  const canEditNotes = typeof isApprovalRole === 'function' ? isApprovalRole(user) : false;
+  const safeNotes = String(itemNotes == null ? '' : itemNotes)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const notesCell = canEditNotes
+    ? `<input type="text" class="form-control form-control-sm item-notes" maxlength="500" placeholder="${getI18nText('item_notes_placeholder')}" value="${safeNotes}">`
+    : `<div class="small text-muted item-notes-text">${window.notesToHtml ? window.notesToHtml(itemNotes || '') : safeNotes}</div>`;
+  // Supplier-facing note: editable for the same roles as the internal note
+  // (Admin/Manager), read-only for everyone else. Persisted server-side.
+  const safeSupplierNotes = String(supplierNotes == null ? '' : supplierNotes)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const supplierNotesCell = canEditNotes
+    ? `<input type="text" class="form-control form-control-sm item-supplier-notes" maxlength="500" placeholder="${getI18nText('supplier_notes_placeholder')}" value="${safeSupplierNotes}">`
+    : `<div class="small item-supplier-notes-text" style="color:#1971c2 !important;">${window.notesToHtml ? window.notesToHtml(supplierNotes || '') : safeSupplierNotes}</div>`;
+  // Per-item photos ("Item Images"): read-only thumbnail strip, thumbs linking
+  // to the full Drive files. Never an input — images are not editable and are
+  // not sent back on save, so the sheet column stays untouched by edits.
+  const imagesCell = `<div class="small">${window.reqThumbStripHtml_ ? window.reqThumbStripHtml_(images, null, 28, true) : ''}</div>`;
+  
+  const statusOptions = `
+    <option value="Pending" ${status === 'Pending' ? 'selected' : ''}>${getI18nText('status_pending')}</option>
+    <option value="Approved" ${status === 'Approved' ? 'selected' : ''}${canApprove ? '' : ' disabled'}${canApprove ? '' : ` title="${getI18nText('status_approved_tooltip')}"`}>${getI18nText('status_approved')}</option>
+    <option value="Deleted" ${status === 'Deleted' ? 'selected' : ''}>${getI18nText('status_deleted')}</option>
+  `;
+  
+  row.innerHTML = `
+    <td><input type="text" class="form-control form-control-sm item-geo" value="${geo}"></td>
+    <td><input type="text" class="form-control form-control-sm item-pn" value="${pn}"></td>
+    <td><input type="text" class="form-control form-control-sm item-desc" value="${desc}"></td>
+    <td><input type="number" class="form-control form-control-sm item-qty" value="${cant}"></td>
+    <td>${notesCell}</td>
+    <td>${supplierNotesCell}</td>
+    <td>${imagesCell}</td>
+    <td>
+      <select class="form-select form-select-sm item-status" ${!isManager ? 'disabled' : ''}>
+        ${statusOptions}
+      </select>
+    </td>
+    <td><button type="button" class="btn btn-sm text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+  `;
+  tbody.appendChild(row);
+};
+
+/**
+ * Show recipient confirmation modal when email recipients not found
+ */
+window.showRecipientConfirmationModal = function(orderId, header, items, originalResponse) {
+  // Create modal HTML
+  const modalHtml = `
+    <div class="modal fade" id="recipientConfirmModal" tabindex="-1" role="dialog">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header bg-warning text-dark">
+            <h5 class="modal-title">⚠️ Confirm Email Recipient</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span>&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p><strong>Category:</strong> <span id="recipientCategory"></span></p>
+            <p style="color: #d9534f;"><strong>No recipients configured for this category.</strong></p>
+            <p>Please specify the email address to send the modification notification:</p>
+            
+            <div class="form-group">
+              <label for="recipientEmailInput">Email Address:</label>
+              <input 
+                type="email" 
+                id="recipientEmailInput" 
+                class="form-control" 
+                placeholder="procurement@example.com"
+                value=""
+              >
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="window.sendWithConfirmedRecipient()">Send Email</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Remove if exists and add new modal
+  const existingModal = document.getElementById('recipientConfirmModal');
+  if (existingModal) existingModal.remove();
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  // Populate category info
+  document.getElementById('recipientCategory').innerText = originalResponse.category || "Unknown";
+
+  // Prefill with the Emails list stored on the requirement row (if any)
+  try {
+    const storedRow = (fullHistory || []).find(function (r) { return String(r.order) === String(orderId); });
+    const storedEmailsPrefill = storedRow ? String(storedRow.emails || "").trim() : "";
+    if (storedEmailsPrefill) document.getElementById('recipientEmailInput').value = storedEmailsPrefill;
+  } catch (e) { /* ignore prefill errors */ }
+
+  // Store data for later use
+  window.pendingEditData = {
+    orderId: orderId,
+    header: header,
+    items: items,
+    originalResponse: originalResponse
+  };
+
+  // Show modal
+  const modal = new bootstrap.Modal(document.getElementById('recipientConfirmModal'));
+  modal.show();
+};
+
+/**
+ * Submit edit with confirmed recipient email
+ */
+window.sendWithConfirmedRecipient = function() {
+  const email = document.getElementById('recipientEmailInput').value.trim();
+  
+  if (!email) {
+    alert("Please enter a valid email address.");
+    return;
+  }
+
+  // Validate email format
+  if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+    alert("Please enter a valid email address format.");
+    return;
+  }
+
+  // Close modal
+  const modal = bootstrap.Modal.getInstance(document.getElementById('recipientConfirmModal'));
+  if (modal) modal.hide();
+
+  const data = window.pendingEditData;
+  
+  // Call backend with confirmed recipient email
+  google.script.run
+    .withSuccessHandler(function(response) {
+      // Build success message
+      let message = `Requirement #${data.orderId} updated successfully!`;
+      let icon = 'success';
+      
+      if (response.emailSent) {
+        message += `<br><span class="badge bg-success">✓ Email Sent via ${response.emailService}</span>`;
+        message += `<br><small>To: ${email}</small>`;
+        if (response.emailCc) {
+          message += `<br><small>CC: ${response.emailCc}</small>`;
+        }
+      } else if (response.emailError) {
+        message += `<br><span class="badge bg-warning">⚠️ Email Failed</span>`;
+        message += `<br><small>${response.emailError}</small>`;
+        icon = 'warning';
+      }
+
+      // Show Swal FIRST, then close modals in .then() callback
+      Swal.fire({
+        icon: icon,
+        title: 'Updated',
+        html: message,
+        confirmButtonColor: '#3085d6'
+      }).then((result) => {
+        // Close the main edit modal AFTER Swal is dismissed
+        const editModalElement = document.getElementById('editReqModal');
+        if (editModalElement) {
+          const modalInstance = bootstrap.Modal.getInstance(editModalElement);
+          if (modalInstance) {
+            modalInstance.hide();
+            console.log("DEBUG sendWithConfirmedRecipient: Edit modal closed after Swal");
+          }
+        }
+        
+        // Reload table
+        if (window.initViewReqModule) {
+          window.initViewReqModule();
+          console.log("DEBUG sendWithConfirmedRecipient: Table reloaded");
+        }
+      });
+    })
+    .withFailureHandler(function(err) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: "Error: " + err.message
+      });
+    })
+    .updateRequirementOnSheetWithRecipient(
+      data.orderId,
+      data.header,
+      data.items,
+      email  // ← Pass confirmed recipient
+    );
+};

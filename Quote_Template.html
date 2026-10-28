@@ -1,0 +1,300 @@
+<!doctype html>
+<html>
+  <head>
+    <style>
+      * {
+        -webkit-print-color-adjust: exact;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        color: #111;
+        margin: 0;
+        padding: 18px 22px;
+      }
+      .page {
+        width: 100%;
+      }
+      .topbar {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 10px;
+      }
+      .topbar td {
+        vertical-align: top;
+      }
+      .header-grid {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+        margin-bottom: 14px;
+      }
+      .header-grid td {
+        border: 2px solid #111;
+        padding: 4px 6px;
+      }
+      .header-label {
+        background: #d9d9d9;
+        font-weight: bold;
+        width: 38%;
+      }
+      .header-value {
+        text-align: center;
+        font-weight: bold;
+        width: 24%;
+      }
+      .block-title {
+        font-weight: bold;
+        font-size: 12px;
+        margin: 8px 0 4px;
+      }
+      .party-grid {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 10px;
+      }
+      .party-grid td {
+        width: 50%;
+        vertical-align: top;
+      }
+      .box {
+        border: 2px solid #111;
+        padding: 8px;
+        min-height: 112px;
+        font-size: 11px;
+      }
+      .box strong {
+        font-size: 12px;
+      }
+      .middle-grid {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 0;
+        font-size: 11px;
+      }
+      .middle-grid td {
+        border: 2px solid #111;
+        padding: 4px 6px;
+        text-align: center;
+      }
+      .items {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+        margin-top: 0;
+      }
+      .items th,
+      .items td {
+        border: 2px solid #111;
+        padding: 5px 4px;
+      }
+      .items th {
+        background: #d9d9d9;
+        text-align: center;
+      }
+      .items td {
+        vertical-align: middle;
+      }
+      .notes-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      .notes-table td {
+        vertical-align: top;
+      }
+      .notes-box {
+        border: 2px solid #111;
+        min-height: 90px;
+        padding: 6px 8px;
+        font-size: 11px;
+      }
+      .totals {
+        width: 42%;
+        border-collapse: collapse;
+        margin-top: 0;
+        float: right;
+        font-size: 11px;
+      }
+      .totals td {
+        border: 2px solid #111;
+        padding: 4px 6px;
+      }
+      .totals .label {
+        background: #d9d9d9;
+        font-weight: bold;
+        width: 55%;
+      }
+      .signature {
+        clear: both;
+        width: 100%;
+        margin-top: 28px;
+        text-align: center;
+        font-size: 11px;
+      }
+      .signature-line {
+        display: inline-block;
+        width: 190px;
+        border-top: 2px solid #111;
+        margin-bottom: 6px;
+      }
+      .muted {
+        color: #333;
+      }
+      .center {
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <table class="topbar">
+        <tr>
+          <td style="width: 38%"><?!= LOGO_BASE64 ?></td>
+          <td style="width: 62%; padding-left: 12px">
+            <table class="header-grid">
+              <tr>
+                <td class="header-label">No. Cotización</td>
+                <td class="header-label">QUOTATION No.</td>
+                <td class="header-value"><?!= QUOTE_ID ?></td>
+              </tr>
+              <tr>
+                <td class="header-label">Fecha</td>
+                <td class="header-label">DATE</td>
+                <td class="header-value"><?!= QUOTE_DATE ?></td>
+              </tr>
+              <tr>
+                <td class="header-label">Fecha acordada</td>
+                <td class="header-label">PROMISED DATE</td>
+                <td class="header-value"><?!= PROMISED_DATE ?></td>
+              </tr>
+              <tr>
+                <td class="header-label">Comprador</td>
+                <td class="header-label">BUYER</td>
+                <td class="header-value"><?!= BUYER ?></td>
+              </tr>
+              <tr>
+                <td class="header-label">Moneda</td>
+                <td class="header-label">CURRENCY</td>
+                <td class="header-value"><?!= CURRENCY ?></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+      <table class="party-grid">
+        <tr>
+          <td style="padding-right: 8px">
+            <div class="block-title">Proveedor/Supplier:</div>
+            <div class="box">
+              <strong><?!= SUPPLIER_NAME ?></strong><br /><br />
+              <?!= SUPPLIER_ADDRESS ?><br />
+              <? if (SUPPLIER_RUT) { ?>RUT: <?!= SUPPLIER_RUT ?><br /><? } ?>
+              <? if (SUPPLIER_EMAIL) { ?><?!= SUPPLIER_EMAIL ?><br /><? } ?>
+              <? if (SUPPLIER_TERMS) { ?><?!= SUPPLIER_TERMS ?><? } ?>
+            </div>
+          </td>
+          <td style="padding-left: 8px">
+            <div class="block-title">Enviar a/Ship To:</div>
+            <div class="box">
+              <strong>RECON DRILLING CHILE SPA</strong><br />
+              ARRAYAN 2750 OFICINA 802 PISO 8 COMUNA PROVIDENCIA<br />
+              SANTIAGO<br />
+              RUT 77.634.636-5
+            </div>
+          </td>
+        </tr>
+      </table>
+
+      <table class="middle-grid">
+        <tr>
+          <td style="width: 28%; background: #d9d9d9; font-weight: bold">
+            Metodo de envio
+          </td>
+          <td style="width: 18%; background: #d9d9d9; font-weight: bold">
+            Terminos de pago
+          </td>
+          <td style="width: 12%; background: #d9d9d9; font-weight: bold">
+            Terminos
+          </td>
+          <td style="width: 28%; background: #d9d9d9; font-weight: bold">
+            Solicitado Por
+          </td>
+          <td style="width: 14%; background: #d9d9d9; font-weight: bold">
+            Pagina
+          </td>
+        </tr>
+        <tr>
+          <td><?!= SHIPPING_METHOD ?></td>
+          <td><?!= PAYMENT_TERMS ?></td>
+          <td><?!= TERMS ?></td>
+          <td><?!= REQ_BY ?></td>
+          <td><?!= PAGE_NO ?></td>
+        </tr>
+      </table>
+
+      <table class="items">
+        <thead>
+          <tr>
+            <th style="width: 5%">Linea No</th>
+            <th style="width: 10%">Geo Code</th>
+            <th style="width: 14%">
+              Recon No. de Parte<br /><span class="muted"
+                >No. de parte del proveed</span
+              >
+            </th>
+            <th style="width: 30%">Descripcion</th>
+            <th style="width: 6%">U/M</th>
+            <th style="width: 8%">Cantidad</th>
+            <th style="width: 12%">Precio Unitario</th>
+            <th style="width: 15%">Precio total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?!= ITEM_ROWS ?>
+        </tbody>
+      </table>
+
+      <table class="notes-table">
+        <tr>
+          <td style="width: 55%; padding-right: 8px">
+            <div class="block-title">NOTAS:</div>
+            <div class="notes-box"><?!= NOTES ?></div>
+          </td>
+          <td style="width: 45%; padding-left: 8px">
+            <table class="totals">
+              <tr>
+                <td class="label">Subtotal</td>
+                <td><?!= SUBTOTAL ?></td>
+              </tr>
+              <tr>
+                <td class="label">Descuento</td>
+                <td><?!= DISCOUNT ?></td>
+              </tr>
+              <tr>
+                <td class="label">Cargo</td>
+                <td><?!= FREIGHT ?></td>
+              </tr>
+              <tr>
+                <td class="label">IVA</td>
+                <td><?!= IVA ?></td>
+              </tr>
+              <tr>
+                <td class="label">Total</td>
+                <td><?!= TOTAL ?></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+      <div class="signature">
+        <div class="signature-line"></div>
+        <br />
+        FIRMA AUTORIZADA<br />
+        AUTHORIZED SIGNATURE
+      </div>
+    </div>
+  </body>
+</html>
