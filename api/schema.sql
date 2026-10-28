@@ -500,3 +500,120 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_requisition_items_req ON requisition_items(requisition_id);
+
+
+-- Rack Config (replaces RackConfig sheet)
+CREATE TABLE IF NOT EXISTS rack_config (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  location_id TEXT NOT NULL,
+  rack_id TEXT NOT NULL,
+  has_sides INTEGER DEFAULT 0,
+  no_of_shelves INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(location_id, rack_id)
+);
+
+-- Quote change logs (replaces QuoteLog sheet)
+CREATE TABLE IF NOT EXISTS quote_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+  quote_id TEXT,
+  order_id TEXT,
+  editor_email TEXT,
+  change_details_json TEXT,
+  mod_count INTEGER DEFAULT 0,
+  pdf_regenerated INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Invoice Import logs (replaces Invoice_Import_Log sheet)
+CREATE TABLE IF NOT EXISTS invoice_import_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  import_id TEXT,
+  supplier TEXT,
+  invoice_no TEXT,
+  line_no INTEGER,
+  raw_description TEXT,
+  suggested_match TEXT,
+  final_match TEXT,
+  user_changed INTEGER DEFAULT 0,
+  imported_by TEXT,
+  timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Supplier Item Aliases (replaces Supplier_Item_Alias sheet)
+CREATE TABLE IF NOT EXISTS supplier_item_aliases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier TEXT,
+  supplier_text TEXT,
+  manufacturer_pn TEXT,
+  matched_geo TEXT,
+  confidence REAL,
+  usage_count INTEGER DEFAULT 1,
+  last_used TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Compras historical purchasing records (replaces Compras sheet)
+CREATE TABLE IF NOT EXISTS compras (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  document_date TEXT,
+  po_number TEXT,
+  rct TEXT,
+  ep TEXT,
+  invoice TEXT,
+  item_description TEXT,
+  barcode TEXT,
+  supplier TEXT,
+  qty INTEGER,
+  unit_cost_usd REAL,
+  unit_cost_clp REAL,
+  extended_cost_usd REAL,
+  extended_cost_clp REAL,
+  qty_deliver INTEGER,
+  back_order INTEGER,
+  eta TEXT,
+  document_status TEXT,
+  approved_by TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Operational Sphere Drilling Rigs & Personnel (replaces Op_* sheets)
+CREATE TABLE IF NOT EXISTS op_rigs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  country TEXT,
+  site TEXT,
+  rig_id TEXT UNIQUE,
+  status TEXT,
+  lat REAL,
+  lng REAL,
+  last_report TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS op_personnel (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rig_id TEXT,
+  name TEXT,
+  role TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS op_operations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rig_id TEXT,
+  date TEXT,
+  description TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS op_safety_cameras (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rig_id TEXT,
+  safety_score INTEGER,
+  incidents INTEGER,
+  last_incident TEXT,
+  cam1_status TEXT,
+  cam2_status TEXT,
+  cam3_status TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);

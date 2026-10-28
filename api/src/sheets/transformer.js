@@ -2,6 +2,7 @@
 
 /**
  * transformer.js — Normalization and Parent-Child splitting for legacy Google Sheets
+ * Full 32-tab coverage with complete column mappings for all legacy GAS sheets.
  */
 
 const SCHEMA_DEFINITIONS = {
@@ -19,26 +20,55 @@ const SCHEMA_DEFINITIONS = {
       { field: 'site', label: 'Site / Faena' },
       { field: 'status', label: 'Status / Estado' },
       { field: 'requested_by', label: 'Requested By / User' },
+      { field: 'quote_id', label: 'Quote ID' },
+      { field: 'po_status', label: 'PO Status' },
+      { field: 'po_no', label: 'PO Number' },
+      { field: 'category', label: 'Category' },
+      { field: 'pdf_url', label: 'Req PDF Link' },
+      { field: 'quo_pdf_url', label: 'Quote PDF Link' },
+      { field: 'last_modified_by', label: 'Last Modified By' },
+      { field: 'last_modified_date', label: 'Last Modified Date' },
+      { field: 'mod_count', label: 'Mod Count', type: 'number' },
+      { field: 'emails', label: 'Notification Emails' },
+      { field: 'sub_area', label: 'SubArea' },
+      { field: 'sub_area_no', label: 'SubArea No' },
       { field: 'notes', label: 'Order Notes' },
     ],
     childFields: [
       { field: 'geo', label: 'GEO Code (Item)', required: true },
       { field: 'pn', label: 'Part Number (P/N)' },
+      { field: 'description_es', label: 'Description (Spanish)' },
       { field: 'quantity_requested', label: 'Quantity Requested', type: 'number' },
-      { field: 'item_notes', label: 'Item Notes / Description' },
+      { field: 'item_notes', label: 'Item Notes' },
+      { field: 'supplier_notes', label: 'Supplier Notes' },
+      { field: 'images', label: 'Item Images (URLs)' },
     ],
     defaultMapping: {
       'Order': 'parent.requisition_no',
       'Fecha/Hora': 'parent.created_at',
+      'P/N': 'child.pn',
+      'Geo Code': 'child.geo',
       'Faena': 'parent.site',
+      'Desc Es': 'child.description_es',
+      'Cantidad': 'child.quantity_requested',
       'Estado': 'parent.status',
       'User': 'parent.requested_by',
+      'Quote ID': 'parent.quote_id',
+      'PO Status': 'parent.po_status',
+      'PO No.': 'parent.po_no',
+      'Category': 'parent.category',
+      'Req PDF Link': 'parent.pdf_url',
+      'Quo PDF Link': 'parent.quo_pdf_url',
+      'lastModifiedBy': 'parent.last_modified_by',
+      'lastModifiedDate': 'parent.last_modified_date',
+      'modCount': 'parent.mod_count',
+      'Emails': 'parent.emails',
+      'SubArea': 'parent.sub_area',
+      'SubArea No': 'parent.sub_area_no',
       'Notes': 'parent.notes',
-      'Geo Code': 'child.geo',
-      'P/N': 'child.pn',
-      'Cantidad': 'child.quantity_requested',
-      'Desc Es': 'child.item_notes',
-      'Item Notes': 'child.item_notes'
+      'Item Notes': 'child.item_notes',
+      'Supplier Notes': 'child.supplier_notes',
+      'Item Images': 'child.images'
     }
   },
 
@@ -52,13 +82,27 @@ const SCHEMA_DEFINITIONS = {
     childTable: 'quote_items',
     parentFields: [
       { field: 'quote_no', label: 'Quote / RFQ Number (Unique Key)', required: true },
-      { field: 'requisition_no', label: 'Associated Requisition No' },
-      { field: 'supplier', label: 'Supplier Name' },
+      { field: 'ref_id', label: 'Associated Requisition No (Ref ID)' },
       { field: 'created_at', label: 'Quote Date' },
+      { field: 'supplier', label: 'Supplier Name' },
+      { field: 'site', label: 'Site / Faena' },
+      { field: 'ref_cotiz', label: 'Supplier Quote Ref (Ref Cotiz.)' },
       { field: 'status', label: 'Quote Status' },
+      { field: 'pdf_url', label: 'Quote PDF Link' },
+      { field: 'fecha_acordada', label: 'Agreed Delivery Date' },
+      { field: 'comprador', label: 'Buyer (Comprador)' },
       { field: 'currency', label: 'Currency (CLP/USD)' },
-      { field: 'total', label: 'Total Amount', type: 'number' },
-      { field: 'pdf_url', label: 'PDF Document Link' },
+      { field: 'exchange_rate', label: 'Exchange Rate (Tipo Cambio)', type: 'number' },
+      { field: 'comments', label: 'Comments' },
+      { field: 'iva_inc', label: 'IVA Inclusion (Neto/Bruto)' },
+      { field: 'condicion_pago', label: 'Payment Terms (Condicion Pago)' },
+      { field: 'category', label: 'Category' },
+      { field: 'last_modified_by', label: 'Last Modified By' },
+      { field: 'last_modified_date', label: 'Last Modified Date' },
+      { field: 'mod_count', label: 'Mod Count', type: 'number' },
+      { field: 'emails', label: 'Distribution Emails' },
+      { field: 'created_by', label: 'Created By User' },
+      { field: 'quoted_doc_url', label: 'Quoted Document Link' },
     ],
     childFields: [
       { field: 'geo', label: 'GEO Code', required: true },
@@ -67,21 +111,47 @@ const SCHEMA_DEFINITIONS = {
       { field: 'quantity', label: 'Quantity', type: 'number' },
       { field: 'unit_price', label: 'Unit Price', type: 'number' },
       { field: 'total_price', label: 'Net Total Price', type: 'number' },
+      { field: 'sub_category', label: 'SubCategory' },
+      { field: 'received_qty', label: 'Quantity Received', type: 'number' },
+      { field: 'approved_qty', label: 'Quantity Approved', type: 'number' },
+      { field: 'discount_pct', label: 'Discount %', type: 'number' },
+      { field: 'freight', label: 'Transport / Freight', type: 'number' },
     ],
     defaultMapping: {
-      'Quote ID': 'parent.quote_no',
-      'Ref ID': 'parent.requisition_no',
-      'Proveedor': 'parent.supplier',
+      'Ref ID': 'parent.ref_id',
       'Fecha': 'parent.created_at',
-      'Estado': 'parent.status',
-      'Moneda': 'parent.currency',
-      'PDF Link': 'parent.pdf_url',
+      'Proveedor': 'parent.supplier',
+      'Faena': 'parent.site',
       'Geo Code': 'child.geo',
       'P/N': 'child.pn',
       'Descripción': 'child.description_es',
       'Cant.': 'child.quantity',
       'Precio Unit.': 'child.unit_price',
-      'Total Neto': 'child.total_price'
+      'Total Neto': 'child.total_price',
+      'Quote ID': 'parent.quote_no',
+      'Ref Cotiz.': 'parent.ref_cotiz',
+      'Estado': 'parent.status',
+      'PDF Link': 'parent.pdf_url',
+      'Fecha Acordada': 'parent.fecha_acordada',
+      'Comprador': 'parent.comprador',
+      'Moneda': 'parent.currency',
+      'Comments': 'parent.comments',
+      'IVA INC': 'parent.iva_inc',
+      'Condicion Pago': 'parent.condicion_pago',
+      'Category': 'parent.category',
+      'SubCategory': 'child.sub_category',
+      'Created Date': 'parent.created_at',
+      'Last Modified By': 'parent.last_modified_by',
+      'Last Modified Date': 'parent.last_modified_date',
+      'Mod Count': 'parent.mod_count',
+      'Emails': 'parent.emails',
+      'Cant. Recibido': 'child.received_qty',
+      'Created By': 'parent.created_by',
+      'Quoted Doc Link': 'parent.quoted_doc_url',
+      'Tipo Cambio': 'parent.exchange_rate',
+      'Cant. Aprobado': 'child.approved_qty',
+      'Descuento %': 'child.discount_pct',
+      'Transporte': 'child.freight'
     }
   },
 
@@ -92,7 +162,7 @@ const SCHEMA_DEFINITIONS = {
     isSplit: false,
     table: 'stock',
     fields: [
-      { field: 'item_id', label: 'Item ID / GEO Code', required: true },
+      { field: 'geo', label: 'GEO Code (Item ID)', required: true },
       { field: 'product_name', label: 'Product Name' },
       { field: 'location_type', label: 'Location / Sector Type' },
       { field: 'location_id', label: 'Location / Sector ID' },
@@ -103,7 +173,7 @@ const SCHEMA_DEFINITIONS = {
       { field: 'updated_by', label: 'Updated By User' },
     ],
     defaultMapping: {
-      'ItemID': 'item_id',
+      'ItemID': 'geo',
       'ProductName': 'product_name',
       'SectorType': 'location_type',
       'SectorID': 'location_id',
@@ -112,6 +182,46 @@ const SCHEMA_DEFINITIONS = {
       'AvailableQty': 'available_qty',
       'LastUpdated': 'last_updated',
       'UpdatedBy': 'updated_by'
+    }
+  },
+
+  stockLedger: {
+    key: 'stockLedger',
+    label: 'Stock Ledger (Audit Log)',
+    gasSheet: 'StockLedger',
+    isSplit: false,
+    table: 'stock_ledger',
+    fields: [
+      { field: 'ledger_id', label: 'Ledger ID', required: true },
+      { field: 'created_at', label: 'Date / Time' },
+      { field: 'geo', label: 'GEO Code' },
+      { field: 'product_name', label: 'Product Name' },
+      { field: 'sector_from', label: 'Sector From' },
+      { field: 'sector_to', label: 'Sector To' },
+      { field: 'qty_change', label: 'Quantity Change', type: 'number' },
+      { field: 'new_balance', label: 'New Balance', type: 'number' },
+      { field: 'transaction_type', label: 'Transaction Type' },
+      { field: 'reference_id', label: 'Reference ID' },
+      { field: 'reference_type', label: 'Reference Type' },
+      { field: 'user_name', label: 'User Name' },
+      { field: 'comments', label: 'Comments' },
+      { field: 'condition', label: 'Condition' },
+    ],
+    defaultMapping: {
+      'LedgerID': 'ledger_id',
+      'DateTime': 'created_at',
+      'ItemID': 'geo',
+      'ProductName': 'product_name',
+      'SectorFrom': 'sector_from',
+      'SectorTo': 'sector_to',
+      'QtyChange': 'qty_change',
+      'NewBalance': 'new_balance',
+      'TransactionType': 'transaction_type',
+      'ReferenceID': 'reference_id',
+      'ReferenceType': 'reference_type',
+      'UserName': 'user_name',
+      'Comments': 'comments',
+      'Condition': 'condition'
     }
   },
 
@@ -150,6 +260,80 @@ const SCHEMA_DEFINITIONS = {
       'Condition': 'condition',
       'Comments': 'comments',
       'Site': 'site'
+    }
+  },
+
+  people: {
+    key: 'people',
+    label: 'People & Personnel',
+    gasSheet: 'People',
+    isSplit: false,
+    table: 'people',
+    fields: [
+      { field: 'id', label: 'Person ID (RD-xxx)', required: true },
+      { field: 'name', label: 'Full Name' },
+      { field: 'department', label: 'Department' },
+      { field: 'active', label: 'Active (1/0)', type: 'number' },
+      { field: 'sector', label: 'Default Sector' },
+      { field: 'position', label: 'Position' },
+      { field: 'rut', label: 'RUT' },
+      { field: 'biometric_template', label: 'Biometric Template' },
+      { field: 'email', label: 'Email' },
+      { field: 'ingreso_date', label: 'Entry Date (Ingreso)' },
+    ],
+    defaultMapping: {
+      'Person ID': 'id',
+      'Name': 'name',
+      'Department': 'department',
+      'Active': 'active',
+      'Default Sector': 'sector',
+      'Position': 'position',
+      'RUT': 'rut',
+      'BiometricTemplate': 'biometric_template',
+      'Email': 'email',
+      'INGRESO': 'ingreso_date'
+    }
+  },
+
+  rackConfig: {
+    key: 'rackConfig',
+    label: 'Rack Configuration',
+    gasSheet: 'RackConfig',
+    isSplit: false,
+    table: 'rack_config',
+    fields: [
+      { field: 'location_id', label: 'Location ID / Sector', required: true },
+      { field: 'rack_id', label: 'Rack ID', required: true },
+      { field: 'has_sides', label: 'Has Sides (1/0)', type: 'number' },
+      { field: 'no_of_shelves', label: 'Number of Shelves', type: 'number' },
+    ],
+    defaultMapping: {
+      'LocationID': 'location_id',
+      'Rack': 'rack_id',
+      'Side': 'has_sides',
+      'Shelves': 'no_of_shelves'
+    }
+  },
+
+  itemLocationMap: {
+    key: 'itemLocationMap',
+    label: 'Item Location Map',
+    gasSheet: 'ItemLocationMap',
+    isSplit: false,
+    table: 'item_location_map',
+    fields: [
+      { field: 'location_id', label: 'Location ID' },
+      { field: 'rack_id', label: 'Rack ID' },
+      { field: 'side_code', label: 'Side Code' },
+      { field: 'shelf_level', label: 'Shelf Level' },
+      { field: 'item_id', label: 'Item ID (GEO Code)', required: true },
+    ],
+    defaultMapping: {
+      'LocationID': 'location_id',
+      'RackID': 'rack_id',
+      'SideCode': 'side_code',
+      'ShelfLevel': 'shelf_level',
+      'ItemID': 'item_id'
     }
   },
 
@@ -194,12 +378,12 @@ const SCHEMA_DEFINITIONS = {
       { field: 'user_email', label: 'User' },
     ],
     defaultMapping: {
-      'Date': 'entry_date',
+      'Fecha': 'entry_date',
       'Proyecto': 'proyecto',
-      'TipoActivo': 'tipo_activo',
-      'ID/Patente': 'asset_id',
-      'Litros': 'liters',
-      'KM': 'odometer_km',
+      'TipoVehiculo': 'tipo_activo',
+      'Patente': 'asset_id',
+      'CantidadLitro': 'liters',
+      'Kilometraje': 'odometer_km',
       'Nombre': 'vehicle',
       'User': 'user_email'
     }
@@ -219,11 +403,11 @@ const SCHEMA_DEFINITIONS = {
       { field: 'user_name', label: 'User Name' },
     ],
     defaultMapping: {
-      'Date': 'purchase_date',
+      'Fecha': 'purchase_date',
       'Proveedor': 'proveedor',
       'Litros': 'litros',
       'Factura': 'factura',
-      'User': 'user_name'
+      'Usuario': 'user_name'
     }
   },
 
@@ -248,6 +432,32 @@ const SCHEMA_DEFINITIONS = {
       'Max': 'max_qty',
       'LastUpdated': 'last_updated',
       'UpdatedBy': 'updated_by'
+    }
+  },
+
+  quoteLog: {
+    key: 'quoteLog',
+    label: 'Quote Change Audit Log',
+    gasSheet: 'QuoteLog',
+    isSplit: false,
+    table: 'quote_logs',
+    fields: [
+      { field: 'timestamp', label: 'Timestamp' },
+      { field: 'quote_id', label: 'Quote ID', required: true },
+      { field: 'order_id', label: 'Order ID' },
+      { field: 'editor_email', label: 'Editor Email' },
+      { field: 'change_details_json', label: 'Change Details JSON' },
+      { field: 'mod_count', label: 'Mod Count', type: 'number' },
+      { field: 'pdf_regenerated', label: 'PDF Regenerated (1/0)', type: 'number' },
+    ],
+    defaultMapping: {
+      'Timestamp': 'timestamp',
+      'Quote ID': 'quote_id',
+      'Order ID': 'order_id',
+      'Editor Email': 'editor_email',
+      'ChangeDetailsJSON': 'change_details_json',
+      'Mod Count': 'mod_count',
+      'PdfRegenerated': 'pdf_regenerated'
     }
   }
 };
@@ -279,7 +489,7 @@ function parseCSVLine(line) {
 function parseCSV(text) {
   const lines = String(text || '').split(/\r?\n/).filter(l => l.trim().length > 0);
   if (!lines.length) return { headers: [], rows: [] };
-  const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, ''));
+  const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
   const rows = lines.slice(1).map(parseCSVLine);
   return { headers, rows };
 }
@@ -299,79 +509,89 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
   const def = SCHEMA_DEFINITIONS[sheetKey];
   if (!def) throw new Error('Unknown sheet definition: ' + sheetKey);
 
-  const headerToIdx = {};
-  headers.forEach((h, i) => {
-    headerToIdx[h] = i;
-    headerToIdx[h.toLowerCase()] = i;
+  const headerIndexMap = {};
+  headers.forEach((h, idx) => {
+    headerIndexMap[h.trim()] = idx;
   });
 
-  // Effective mapping: user mapping overrides defaultMapping
-  const effective = { ...(def.defaultMapping || {}), ...(mapping || {}) };
+  const activeMapping = Object.assign({}, def.defaultMapping, mapping);
 
   if (def.isSplit) {
-    const parentMap = new Map(); // key: groupKeyValue -> { header: {...}, items: [...] }
+    const parentMap = new Map();
+    const groupKeyField = def.groupKeyField;
 
-    for (const r of rows) {
-      const parentRecord = {};
-      const childRecord = {};
+    rows.forEach(row => {
+      const parentObj = {};
+      const childObj = {};
 
-      Object.entries(effective).forEach(([srcCol, targetField]) => {
-        if (!targetField || targetField === 'ignore') return;
-        const colIdx = headerToIdx[srcCol] !== undefined ? headerToIdx[srcCol] : (headerToIdx[srcCol.toLowerCase()] !== undefined ? headerToIdx[srcCol.toLowerCase()] : parseInt(srcCol, 10));
-        if (isNaN(colIdx) || colIdx < 0 || colIdx >= r.length) return;
-        const rawVal = r[colIdx];
+      Object.entries(activeMapping).forEach(([sheetHeader, targetPath]) => {
+        const colIdx = headerIndexMap[sheetHeader];
+        if (colIdx === undefined || colIdx >= row.length) return;
 
-        if (targetField.startsWith('parent.')) {
-          const fName = targetField.replace('parent.', '');
-          const fDef = def.parentFields.find(f => f.field === fName);
-          parentRecord[fName] = cleanVal(rawVal, fDef ? fDef.type : 'string');
-        } else if (targetField.startsWith('child.')) {
-          const fName = targetField.replace('child.', '');
-          const fDef = def.childFields.find(f => f.field === fName);
-          childRecord[fName] = cleanVal(rawVal, fDef ? fDef.type : 'string');
+        const rawVal = row[colIdx];
+        if (targetPath.startsWith('parent.')) {
+          const fieldName = targetPath.replace('parent.', '');
+          const fieldDef = def.parentFields.find(f => f.field === fieldName);
+          parentObj[fieldName] = cleanVal(rawVal, fieldDef ? fieldDef.type : 'string');
+        } else if (targetPath.startsWith('child.')) {
+          const fieldName = targetPath.replace('child.', '');
+          const fieldDef = def.childFields.find(f => f.field === fieldName);
+          childObj[fieldName] = cleanVal(rawVal, fieldDef ? fieldDef.type : 'string');
         }
       });
 
-      const groupKey = parentRecord[def.groupKeyField];
-      if (!groupKey) continue; // Skip lines with missing primary order/quote number
+      const groupKeyValue = parentObj[groupKeyField];
+      if (!groupKeyValue) return;
 
-      if (!parentMap.has(groupKey)) {
-        parentMap.set(groupKey, {
-          parent: parentRecord,
-          items: []
+      if (!parentMap.has(groupKeyValue)) {
+        parentMap.set(groupKeyValue, {
+          parent: parentObj,
+          children: []
         });
       }
 
-      // Add child item if child has content (e.g. geo code or quantity)
-      if (childRecord.geo || childRecord.geo_code || childRecord.quantity || childRecord.quantity_requested) {
-        parentMap.get(groupKey).items.push(childRecord);
+      // Merge non-null parent fields
+      const existing = parentMap.get(groupKeyValue);
+      Object.keys(parentObj).forEach(k => {
+        if (parentObj[k] !== null && parentObj[k] !== undefined && existing.parent[k] == null) {
+          existing.parent[k] = parentObj[k];
+        }
+      });
+
+      // Add child record if at least one meaningful field exists
+      const hasChildContent = Object.values(childObj).some(v => v !== null && v !== undefined && v !== '');
+      if (hasChildContent) {
+        existing.children.push(childObj);
       }
-    }
+    });
 
     return {
       isSplit: true,
       records: Array.from(parentMap.values())
     };
   } else {
-    // Flat table transformation
-    const out = [];
-    for (const r of rows) {
+    const flatRecords = [];
+
+    rows.forEach(row => {
       const record = {};
-      Object.entries(effective).forEach(([srcCol, targetField]) => {
-        if (!targetField || targetField === 'ignore') return;
-        const colIdx = headerToIdx[srcCol] !== undefined ? headerToIdx[srcCol] : (headerToIdx[srcCol.toLowerCase()] !== undefined ? headerToIdx[srcCol.toLowerCase()] : parseInt(srcCol, 10));
-        if (isNaN(colIdx) || colIdx < 0 || colIdx >= r.length) return;
-        const rawVal = r[colIdx];
-        const fDef = def.fields.find(f => f.field === targetField);
-        record[targetField] = cleanVal(rawVal, fDef ? fDef.type : 'string');
+      Object.entries(activeMapping).forEach(([sheetHeader, targetField]) => {
+        const colIdx = headerIndexMap[sheetHeader];
+        if (colIdx === undefined || colIdx >= row.length) return;
+
+        const rawVal = row[colIdx];
+        const fieldDef = def.fields.find(f => f.field === targetField);
+        record[targetField] = cleanVal(rawVal, fieldDef ? fieldDef.type : 'string');
       });
-      if (Object.keys(record).length > 0) {
-        out.push(record);
+
+      const hasContent = Object.values(record).some(v => v !== null && v !== undefined && v !== '');
+      if (hasContent) {
+        flatRecords.push(record);
       }
-    }
+    });
+
     return {
       isSplit: false,
-      records: out
+      records: flatRecords
     };
   }
 }
@@ -379,7 +599,5 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
 module.exports = {
   SCHEMA_DEFINITIONS,
   parseCSV,
-  parseCSVLine,
   transformRows
 };
-

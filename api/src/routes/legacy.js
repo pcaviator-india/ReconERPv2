@@ -221,15 +221,19 @@ const IMPLEMENTED = {
     const rows = await queryAll(db, `
       SELECT r.id, r.requisition_no, r.created_at, r.updated_at,
              r.requested_by, r.status AS req_status, r.notes AS req_notes,
+             r.site, r.pdf_url, r.sub_area, r.sub_area_no, r.emails,
+             r.last_modified_by, r.last_modified_date, r.mod_count,
+             r.category AS req_category,
              s.name AS site_name,
              ri.id AS item_id, ri.quantity_requested, ri.status AS item_status,
-             ri.notes AS item_notes,
+             ri.notes AS item_notes_legacy, ri.item_notes, ri.supplier_notes, ri.images,
+             ri.geo AS ri_geo, ri.pn AS ri_pn, ri.description_es AS ri_desc_es,
              p.geo, p.pn, p.name AS product_name, p.description,
              c.name AS category_name
       FROM requisitions r
       JOIN requisition_items ri ON ri.requisition_id = r.id
       LEFT JOIN sites s ON s.id = r.site_id
-      LEFT JOIN products p ON p.id = ri.product_id
+      LEFT JOIN products p ON p.id = ri.product_id OR p.geo = ri.geo
       LEFT JOIN categories c ON c.id = p.category_id
       ORDER BY r.created_at DESC, ri.id ASC
     `);
@@ -253,28 +257,28 @@ const IMPLEMENTED = {
         order,
         fecha: validDate ? validDate.toLocaleString() : '',
         fechaIso: validDate ? validDate.toISOString() : '',
-        pn: row.pn || '',
-        geo: row.geo || '',
-        faena: row.site_name || '',
-        desc: row.description || row.product_name || '',
+        pn: row.ri_pn || row.pn || '',
+        geo: row.ri_geo || row.geo || '',
+        faena: row.site || row.site_name || '',
+        desc: row.ri_desc_es || row.description || row.product_name || '',
         cant: row.quantity_requested != null ? row.quantity_requested : 0,
         estado,
         user: row.requested_by || '',
-        category: row.category_name || 'General',
-        pdfUrl: '',
-        subArea: '',
-        emails: '',
-        subAreaNo: '',
+        category: row.req_category || row.category_name || 'General',
+        pdfUrl: row.pdf_url || '',
+        subArea: row.sub_area || '',
+        emails: row.emails || '',
+        subAreaNo: row.sub_area_no || '',
         notes: row.req_notes || '',
-        itemNotes: row.item_notes || '',
-        supplierNotes: '',
-        images: '',
-        reqLastModifiedBy: '',
-        reqLastModified: validMod
+        itemNotes: row.item_notes || row.item_notes_legacy || '',
+        supplierNotes: row.supplier_notes || '',
+        images: row.images || '',
+        reqLastModifiedBy: row.last_modified_by || '',
+        reqLastModified: row.last_modified_date || (validMod
           ? `${String(validMod.getDate()).padStart(2, '0')}-${String(validMod.getMonth() + 1).padStart(2, '0')}-${validMod.getFullYear()} ${String(validMod.getHours()).padStart(2, '0')}:${String(validMod.getMinutes()).padStart(2, '0')}`
-          : '',
+          : ''),
         reqLastModifiedIso: validMod ? validMod.toISOString() : '',
-        reqModCount: 0
+        reqModCount: Number(row.mod_count) || 0
       });
     });
     return out;
@@ -817,7 +821,8 @@ const IMPLEMENTED = {
     if (!oid) return empty;
 
     const req = await queryOne(db, `
-      SELECT requisition_no, created_at, updated_at, requested_by
+      SELECT requisition_no, created_at, updated_at, requested_by,
+             last_modified_by, last_modified_date, mod_count
       FROM requisitions
       WHERE requisition_no = ? OR id = ?
       LIMIT 1
@@ -829,11 +834,14 @@ const IMPLEMENTED = {
 
     const quotes = await queryAll(db, `
       SELECT q.id, q.quote_no, q.requisition_id, q.status, q.total,
-             q.created_at, q.updated_at, q.created_by, s.name AS supplier
+             q.created_at, q.updated_at, q.created_by,
+             q.last_modified_by, q.last_modified_date, q.mod_count,
+             COALESCE(q.supplier, s.name) AS supplier
       FROM quotes q
       LEFT JOIN suppliers s ON s.id = q.supplier_id
       WHERE q.requisition_id = ?
          OR q.requisition_id IN (SELECT id FROM requisitions WHERE requisition_no = ?)
+         OR q.ref_id = ?
       ORDER BY q.created_at ASC
     `, [oid, oid]);
 
@@ -855,9 +863,9 @@ const IMPLEMENTED = {
           quoteId: q.quote_no || q.id,
           createdDate: qc && !isNaN(qc.getTime()) ? qc.toISOString() : '',
           createdBy: q.created_by || '',
-          lastModifiedDate: qm && !isNaN(qm.getTime()) ? qm.toISOString() : '',
-          lastModifiedBy: q.created_by || '',
-          modCount: 0,
+          lastModifiedDate: q.last_modified_date || (qm && !isNaN(qm.getTime()) ? qm.toISOString() : ''),
+          lastModifiedBy: q.last_modified_by || q.created_by || '',
+          modCount: Number(q.mod_count) || 0,
           uploadedDate: '',
           uploadedBy: '',
           approvedBy: '',
