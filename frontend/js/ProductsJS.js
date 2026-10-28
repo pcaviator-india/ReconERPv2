@@ -4,7 +4,8 @@
 
 let currentPage = 1;
 const rowsPerPage = 50;
-let fullInventory = [];     // local cache of fetched products
+window.fullInventory = window.fullInventory || [];
+let fullInventory = window.fullInventory;     // local cache of fetched products
 let isLoading     = false;
 let searchTimer   = null;
 
@@ -21,7 +22,8 @@ async function loadProducts(params = {}) {
   try {
     const resp = await RECON_API.getProducts(params);
     // resp.data is the array; resp.pagination carries totals
-    fullInventory = (resp.data || []).map(normalise);
+    window.fullInventory = (resp.data || []).map(normalise);
+    fullInventory = window.fullInventory;
     currentPage   = 1;
     renderProducts();
     updateSyncStatus(fullInventory.length, (resp.pagination || {}).total || fullInventory.length, true);
@@ -42,6 +44,7 @@ async function loadProducts(params = {}) {
 // Map API field names → internal field names used in render
 function normalise(p) {
   return {
+    id           : p.geo         || '',
     geo          : p.geo         || '',
     pn           : p.pn          || '',
     en           : p.description || '',          // English description
