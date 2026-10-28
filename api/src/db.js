@@ -111,7 +111,9 @@ class D1Statement {
 
   bind(...values) {
     this._bindings = values;
-    this.stmt.bind(...values);
+    if (this.stmt && typeof this.stmt.bind === 'function') {
+      this.stmt = this.stmt.bind(...values);
+    }
     return this;
   }
 

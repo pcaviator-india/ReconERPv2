@@ -9,7 +9,7 @@
 
   var API_BASE = null;
   function apiBase() {
-    if (!API_BASE) API_BASE = window.RECON_API_BASE_URL || '/api/v1';
+    if (!API_BASE) API_BASE = window.RECON_API_BASE_URL || (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '/api/v1' : 'https://recon-erp-api.reconerp.workers.dev/api/v1');
     return API_BASE;
   }
 

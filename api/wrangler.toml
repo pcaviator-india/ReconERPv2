@@ -1,7 +1,7 @@
 name = "recon-erp-api"
 main = "src/worker.js"
-compatibility_date = "2024-09-23"
-compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat", "enable_nodejs_http_modules", "enable_nodejs_http_server_modules"]
 
 [[d1_databases]]
 binding = "DB"
@@ -9,9 +9,9 @@ database_name = "recon-erp"
 database_id = "1a7d3b6c-1808-4c81-baae-f5c06dc414c0"
 
 [vars]
-JWT_SECRET = "change-me-in-production"
+API_BASE_URL = "https://recon-erp-api.reconerp.workers.dev"
 JWT_EXPIRES_IN = "7d"
-API_BASE_URL = "https://recon-erp-api.your-domain.com"
+JWT_SECRET = "recon-drilling-jwt-secret-token1"
 
 [observability]
 enabled = true

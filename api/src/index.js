@@ -96,13 +96,12 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  res.status(500).json({ status: 'error', message: 'Internal server error' });
+  res.status(500).json({ status: 'error', message: err.message || 'Internal server error' });
 });
 
-// For Cloudflare Workers, export the app
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = app;
-}
+// Export for both CommonJS (local dev) and ES Modules (Cloudflare Worker bundling)
+module.exports = app;
+module.exports.default = app;
 
 // For local development
 if (require.main === module) {
