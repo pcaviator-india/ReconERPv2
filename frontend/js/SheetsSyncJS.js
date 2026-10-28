@@ -513,32 +513,87 @@
     }
   }
 
-  async function pasteConfirm() {
+    async function pasteConfirm() {
     if (!lastPaste.key || !lastPaste.text) { alertBox('warning', 'Please check and validate the pasted data first.'); return; }
     var n = lastPaste.preview ? lastPaste.preview.total : 0;
     var ok = window.confirm('Are you sure you want to import ' + n + ' rows into "' + lastPaste.key + '"? Existing records will be updated.');
     if (!ok) return;
-    setBusy('ssPasteConfirmBtn', true, 'Importing ' + n + ' rows to ' + lastPaste.key + '...');
+
+    var hasHdr = lastPaste.hasHeaderRow !== undefined ? lastPaste.hasHeaderRow : (el('ssHasHeaderRow') ? el('ssHasHeaderRow').checked : true);
+    var mapping = lastPaste.mapping || currentMapping || {};
+
+    // Split text into lines
+    var allLines = lastPaste.text.split(/\r?\n/).filter(function (l) { return l.trim().length > 0; });
+    if (!allLines.length) { alertBox('warning', 'No data rows found.'); return; }
+
+    var headerLine = hasHdr ? allLines[0] : null;
+    var dataLines = hasHdr ? allLines.slice(1) : allLines;
+    var totalRows = dataLines.length;
+
+    if (totalRows === 0) { alertBox('warning', 'No data rows to import.'); return; }
+
+    // Batch settings (100 rows per batch ensures Cloudflare Workers subrequest limits are never hit)
+    var BATCH_SIZE = 100;
+    var batches = [];
+    for (var i = 0; i < totalRows; i += BATCH_SIZE) {
+      batches.push(dataLines.slice(i, i + BATCH_SIZE));
+    }
+
+    var progressCard = el('ssPasteProgressCard');
+    var progressTitle = el('ssProgressTitle');
+    var progressDetail = el('ssProgressDetail');
+    var progressBarFill = el('ssProgressBarFill');
+    var resultCard = el('ssPasteResultCard');
+    var resultBox = el('ssPasteResultBox');
+
+    if (progressCard) progressCard.classList.remove('d-none');
+    if (resultCard) resultCard.classList.add('d-none');
+
+    var totalImported = 0;
+    var allErrors = [];
+    var lastTable = lastPaste.key;
+
+    setBusy('ssPasteConfirmBtn', true, 'Importing...');
+
     try {
-      var hasHdr = lastPaste.hasHeaderRow !== undefined ? lastPaste.hasHeaderRow : (el('ssHasHeaderRow') ? el('ssHasHeaderRow').checked : true);
-      var res = await window.RECON_API.importPasted(lastPaste.key, lastPaste.text, lastPaste.mapping || currentMapping || {}, hasHdr);
-      var d = res.data || {};
-      var errs = d.errors || [];
-      var card = el('ssPasteResultCard');
-      var rbox = el('ssPasteResultBox');
-      if (card) card.classList.remove('d-none');
-      if (rbox) {
-        rbox.innerHTML = '<div class="alert alert-' + (errs.length ? 'warning' : 'success') + ' mb-2">'
-          + '<h6 class="alert-heading fw-bold mb-1"><i class="bi bi-check-circle-fill me-1"></i>Import Completed Successfully</h6>'
-          + 'Imported <b>' + (d.imported || 0) + '</b> records into table <code>' + esc(d.table || lastPaste.key) + '</code>.'
-          + (errs.length ? ' <span class="badge bg-danger ms-2">' + errs.length + ' errors</span>' : '') + '</div>'
-          + (errs.length ? '<ul class="small text-danger mb-0">' + errs.slice(0, 10).map(function(e) { return '<li>' + esc(e.message || JSON.stringify(e)) + '</li>'; }).join('') + '</ul>' : '');
+      for (var b = 0; b < batches.length; b++) {
+        var chunk = batches[b];
+        var chunkText = headerLine ? [headerLine].concat(chunk).join('\n') : chunk.join('\n');
+        var processedSoFar = Math.min((b + 1) * BATCH_SIZE, totalRows);
+        var pct = Math.round((processedSoFar / totalRows) * 100);
+
+        if (progressTitle) progressTitle.innerHTML = '<i class="bi bi-arrow-repeat me-1 spin"></i> Processing batch ' + (b + 1) + ' of ' + batches.length + '...';
+        if (progressDetail) progressDetail.textContent = processedSoFar + ' / ' + totalRows + ' rows (' + pct + '%)';
+        if (progressBarFill) {
+          progressBarFill.style.width = pct + '%';
+          progressBarFill.textContent = pct + '%';
+        }
+        setBusy('ssPasteConfirmBtn', true, 'Batch ' + (b + 1) + '/' + batches.length + ' (' + pct + '%)...');
+
+        var res = await window.RECON_API.importPasted(lastPaste.key, chunkText, mapping, Boolean(headerLine));
+        var d = res.data || {};
+        totalImported += (d.imported || 0);
+        if (d.table) lastTable = d.table;
+        if (d.errors && d.errors.length) {
+          allErrors = allErrors.concat(d.errors);
+        }
       }
-      alertBox('success', '<b>Import Complete!</b> Successfully saved <b>' + (d.imported || 0) + '</b> records into <b>' + esc(d.key || lastPaste.key) + '</b>.');
+
+      if (progressCard) progressCard.classList.add('d-none');
+      if (resultCard) resultCard.classList.remove('d-none');
+      if (resultBox) {
+        resultBox.innerHTML = '<div class="alert alert-' + (allErrors.length ? 'warning' : 'success') + ' mb-2">'
+          + '<h6 class="alert-heading fw-bold mb-1"><i class="bi bi-check-circle-fill me-1"></i>Import Completed Successfully</h6>'
+          + 'Successfully imported <b>' + totalImported + '</b> records into table <code>' + esc(lastTable) + '</code>.'
+          + (allErrors.length ? ' <span class="badge bg-danger ms-2">' + allErrors.length + ' errors</span>' : '') + '</div>'
+          + (allErrors.length ? '<ul class="small text-danger mb-0">' + allErrors.slice(0, 10).map(function(e) { return '<li>' + esc(e.message || JSON.stringify(e)) + '</li>'; }).join('') + '</ul>' : '');
+      }
+      alertBox('success', '<b>Import Complete!</b> Successfully saved <b>' + totalImported + '</b> records into <b>' + esc(lastPaste.key) + '</b> in ' + batches.length + ' batches.');
       pasteClear();
-      if (card) card.scrollIntoView({ behavior: 'smooth' });
+      if (resultCard) resultCard.scrollIntoView({ behavior: 'smooth' });
     } catch (err) {
-      alertBox('danger', 'Import failed: ' + esc(err.message));
+      if (progressCard) progressCard.classList.add('d-none');
+      alertBox('danger', 'Import failed during batch processing: ' + esc(err.message));
     } finally {
       var cb2 = el('ssPasteConfirmBtn');
       if (cb2) {

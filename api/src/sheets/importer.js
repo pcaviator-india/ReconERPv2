@@ -52,19 +52,38 @@ function mapRow(meta, row, columnMap) {
   return record;
 }
 
+const refCache = new Map();
+
 async function refId(db, table, name, create) {
   if (!name) return null;
   const clean = String(name).trim();
   if (!clean) return null;
+  const cacheKey = `${table}:${clean.toLowerCase()}`;
+  if (refCache.has(cacheKey)) {
+    return refCache.get(cacheKey);
+  }
   const stmt = await db.prepare('SELECT id FROM ' + ident(table) + ' WHERE name = ? LIMIT 1');
   const row = await stmt.bind(clean).first();
-  if (row) return row.id;
+  if (row) {
+    refCache.set(cacheKey, row.id);
+    return row.id;
+  }
   if (create) {
-    const ins = await db.prepare('INSERT INTO ' + ident(table) + ' (name) VALUES (?)');
-    const res = await ins.bind(clean).run();
-    if (res && res.meta && res.meta.last_row_id) return res.meta.last_row_id;
+    try {
+      const ins = await db.prepare('INSERT INTO ' + ident(table) + ' (name) VALUES (?)');
+      const res = await ins.bind(clean).run();
+      const newId = res && res.meta && res.meta.last_row_id ? res.meta.last_row_id : null;
+      if (newId) {
+        refCache.set(cacheKey, newId);
+        return newId;
+      }
+    } catch (e) {
+      // Ignore conflict / concurrent insert
+    }
     const retry = await (await db.prepare('SELECT id FROM ' + ident(table) + ' WHERE name = ? LIMIT 1')).bind(clean).first();
-    return retry ? retry.id : null;
+    const finalId = retry ? retry.id : null;
+    if (finalId) refCache.set(cacheKey, finalId);
+    return finalId;
   }
   return null;
 }
@@ -274,16 +293,21 @@ class Importer {
     const parsed = parsePasted(text, hasHeaderRow);
     if (!parsed.headers.length) throw new Error('No data detected — paste the sheet data');
     const headerCheck = hasHeaderRow ? checkHeaders(meta, parsed.headers) : { ok: true, mismatches: [] };
-    const items = await runHandler(this.db, key, meta, parsed.rows, { createRefs: true, columnMap });
-    const valid = items.filter((i) => i && Object.keys(i.record || {}).length);
-    let inserts = 0;
-    let updates = 0;
-    for (const item of valid) {
+
+    // Optimize preview for large datasets: sample only the first 20 rows to avoid subrequest limits
+    const sampleRows = parsed.rows.slice(0, 20);
+    const sampleItems = await runHandler(this.db, key, meta, sampleRows, { createRefs: false, columnMap });
+    const sampleValid = sampleItems.filter((i) => i && Object.keys(i.record || {}).length);
+
+    let sampleInserts = 0;
+    let sampleUpdates = 0;
+    for (const item of sampleValid) {
       try {
         const existing = await findByKeys(this.db, item.table, item.record, item.keys || []);
-        if (existing) updates++; else inserts++;
-      } catch (e) { inserts++; }
+        if (existing) sampleUpdates++; else sampleInserts++;
+      } catch (e) { sampleInserts++; }
     }
+
     return {
       key,
       gasSheet: meta.gasSheet,
@@ -291,11 +315,11 @@ class Importer {
       source: 'pasted',
       headers: parsed.headers,
       headerCheck,
-      total: valid.length,
+      total: parsed.rows.length,
       rawRows: parsed.rows.length,
-      inserts,
-      updates,
-      sample: valid.slice(0, 10).map((i) => i.record),
+      inserts: sampleInserts,
+      updates: sampleUpdates,
+      sample: sampleValid.slice(0, 10).map((i) => i.record),
     };
   }
 
