@@ -216,12 +216,16 @@ async function runHandler(db, key, meta, rows, opts = {}) {
       const brand = toValue(r[getIdx('brand', 'brand_id', 'marca')]);
       const sup = toValue(r[getIdx('supplier', 'supplier_id', 'proveedor')]);
 
+      const nameVal = toValue(r[getIdx('name', 'nombre')]) || toValue(r[getIdx('description', 'description_en', 'descripcion')]) || '';
+      const rawActive = toValue(r[getIdx('is_active', 'isactive', 'active')]);
+      const isActive = rawActive !== undefined && rawActive !== null && rawActive !== '' ? (Number(rawActive) || 1) : 1;
+
       out.push({
         table: meta.dbTable,
         record: {
           geo: toValue(r[getIdx('geo', 'id')]),
           pn: toValue(r[getIdx('pn', 'part_number', 'p/n')]),
-          name: toValue(r[getIdx('name', 'nombre')]),
+          name: nameVal,
           description: toValue(r[getIdx('description', 'description_en', 'descripcion')]),
           description_es: toValue(r[getIdx('description_es', 'descripcion_es')]),
           category_id: await refId(db, 'categories', cat, create),
@@ -236,6 +240,7 @@ async function runHandler(db, key, meta, rows, opts = {}) {
           cost: toValue(r[getIdx('cost', 'costo')], Number),
           min_qty: toValue(r[getIdx('min_qty', 'minqty')], Number),
           max_qty: toValue(r[getIdx('max_qty', 'maxqty')], Number),
+          is_active: isActive,
         },
         keys: meta.naturalKey,
       });
