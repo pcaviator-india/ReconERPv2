@@ -1,5 +1,12 @@
 {
   "dependencies": {
     "googleapis": "^186.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.154.0"
+  },
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   }
 }
