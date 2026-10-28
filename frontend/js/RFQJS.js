@@ -2138,7 +2138,7 @@ window.sendIndividualRFQ('${escapeJsArg_(supplierName)}', '${order.id}')">
             text: response.graphError || "Microsoft Graph could not send the email. Please check the system configuration.",
           });
           return;
-        }}
+        }
 
         if (response.success) {
           console.log(

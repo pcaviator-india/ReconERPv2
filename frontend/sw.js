@@ -2,7 +2,7 @@
  * RECON ERP — Progressive Web App Service Worker
  */
 
-const CACHE_NAME = 'recon-erp-v3';
+const CACHE_NAME = 'recon-erp-v4';
 
 const STATIC_ASSETS = [
   '/',
