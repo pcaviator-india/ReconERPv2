@@ -185,6 +185,90 @@ const SCHEMA_DEFINITIONS = {
     }
   },
 
+  sites: {
+    key: 'sites',
+    label: 'Sites / Faenas',
+    gasSheet: 'Validation',
+    isSplit: false,
+    table: 'sites',
+    fields: [
+      { field: 'site_id', label: 'Site ID / Suffix', required: true },
+      { field: 'name', label: 'Site Name', required: true },
+      { field: 'email', label: 'Email' },
+      { field: 'active', label: 'Active (1/0)', type: 'number' },
+    ],
+    defaultMapping: {
+      'Site name': 'name',
+      'Suffix': 'site_id',
+      'Email': 'email',
+    }
+  },
+
+  categories: {
+    key: 'categories',
+    label: 'Categories',
+    gasSheet: 'Validation',
+    isSplit: false,
+    table: 'categories',
+    fields: [
+      { field: 'name', label: 'Category Name', required: true },
+      { field: 'active', label: 'Active (1/0)', type: 'number' },
+    ],
+    defaultMapping: {
+      'Category': 'name',
+    }
+  },
+
+  sub_categories: {
+    key: 'sub_categories',
+    label: 'Sub Categories',
+    gasSheet: 'Validation',
+    isSplit: false,
+    table: 'sub_categories',
+    fields: [
+      { field: 'name', label: 'Sub Category Name', required: true },
+      { field: 'category_name', label: 'Parent Category Name' },
+      { field: 'active', label: 'Active (1/0)', type: 'number' },
+    ],
+    defaultMapping: {
+      'SubCategory': 'name',
+      'Category': 'category_name',
+    }
+  },
+
+  brands: {
+    key: 'brands',
+    label: 'Brands',
+    gasSheet: 'Validation',
+    isSplit: false,
+    table: 'brands',
+    fields: [
+      { field: 'name', label: 'Brand Name', required: true },
+      { field: 'active', label: 'Active (1/0)', type: 'number' },
+    ],
+    defaultMapping: {
+      'Brand': 'name',
+    }
+  },
+
+  suppliers: {
+    key: 'suppliers',
+    label: 'Suppliers / Proveedores',
+    gasSheet: 'Validation',
+    isSplit: false,
+    table: 'suppliers',
+    fields: [
+      { field: 'name', label: 'Supplier Name', required: true },
+      { field: 'email', label: 'Email' },
+      { field: 'contact_person', label: 'Contact Person' },
+      { field: 'active', label: 'Active (1/0)', type: 'number' },
+    ],
+    defaultMapping: {
+      'Supplier': 'name',
+      'Email': 'email',
+    }
+  },
+
   stockLedger: {
     key: 'stockLedger',
     label: 'Stock Ledger (Audit Log)',
@@ -375,6 +459,7 @@ const SCHEMA_DEFINITIONS = {
       { field: 'liters', label: 'Liters', type: 'number' },
       { field: 'odometer_km', label: 'Odometer KM', type: 'number' },
       { field: 'vehicle', label: 'Vehicle Name' },
+      { field: 'driver', label: 'Driver / Person Name' },
       { field: 'user_email', label: 'User' },
     ],
     defaultMapping: {
@@ -384,7 +469,7 @@ const SCHEMA_DEFINITIONS = {
       'Patente': 'asset_id',
       'CantidadLitro': 'liters',
       'Kilometraje': 'odometer_km',
-      'Nombre': 'vehicle',
+      'Nombre': 'driver',
       'User': 'user_email'
     }
   },

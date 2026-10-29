@@ -591,7 +591,7 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       for (const r of transformed.records || []) {
         if (!r.geo) continue;
         const stmt = await db.prepare(`
-          INSERT INTO stock (geo, product_name, location_type, location_id, quantity, reserved_qty, available_qty, last_updated, updated_by)
+          INSERT INTO stock (item_id, product_name, location_type, location_id, quantity, reserved_qty, available_qty, last_updated, updated_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmts.push(stmt.bind(
@@ -711,6 +711,85 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         stmts.push(stmt.bind(
           r.purchase_date || new Date().toISOString(), r.proveedor || null, r.litros || 0,
           r.factura || null, r.user_name || null
+        ));
+      }
+    } else if (sheetKey === 'sites') {
+      for (const r of transformed.records || []) {
+        if (!r.name) continue;
+        const stmt = await db.prepare(`
+          INSERT INTO sites (site_id, name, email, active)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(site_id) DO UPDATE SET
+            name = excluded.name,
+            email = excluded.email,
+            active = excluded.active,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+        stmts.push(stmt.bind(
+          r.site_id || null, r.name || null, r.email || null, r.active != null ? r.active : 1
+        ));
+      }
+    } else if (sheetKey === 'categories') {
+      for (const r of transformed.records || []) {
+        if (!r.name) continue;
+        const stmt = await db.prepare(`
+          INSERT INTO categories (name, active)
+          VALUES (?, ?)
+          ON CONFLICT(name) DO UPDATE SET
+            active = excluded.active,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+        stmts.push(stmt.bind(
+          r.name || null, r.active != null ? r.active : 1
+        ));
+      }
+    } else if (sheetKey === 'sub_categories') {
+      const catMap = {};
+      const cats = await db.prepare('SELECT id, name FROM categories').all();
+      for (const c of cats.results || cats || []) {
+        catMap[String(c.name).trim().toLowerCase()] = c.id;
+      }
+      for (const r of transformed.records || []) {
+        if (!r.name) continue;
+        const categoryName = String(r.category_name || '').trim();
+        const categoryId = categoryName ? catMap[categoryName.toLowerCase()] : null;
+        if (!categoryId) continue;
+        const stmt = await db.prepare(`
+          INSERT INTO sub_categories (category_id, name, active)
+          VALUES (?, ?, ?)
+        `);
+        stmts.push(stmt.bind(
+          categoryId, r.name || null, r.active != null ? r.active : 1
+        ));
+      }
+    } else if (sheetKey === 'brands') {
+      for (const r of transformed.records || []) {
+        if (!r.name) continue;
+        const stmt = await db.prepare(`
+          INSERT INTO brands (name, active)
+          VALUES (?, ?)
+          ON CONFLICT(name) DO UPDATE SET
+            active = excluded.active,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+        stmts.push(stmt.bind(
+          r.name || null, r.active != null ? r.active : 1
+        ));
+      }
+    } else if (sheetKey === 'suppliers') {
+      for (const r of transformed.records || []) {
+        if (!r.name) continue;
+        const stmt = await db.prepare(`
+          INSERT INTO suppliers (name, email, contact_person, active)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(name) DO UPDATE SET
+            email = excluded.email,
+            contact_person = excluded.contact_person,
+            active = excluded.active,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+        stmts.push(stmt.bind(
+          r.name || null, r.email || null, r.contact_person || null, r.active != null ? r.active : 1
         ));
       }
     } else if (sheetKey === 'minMax') {
