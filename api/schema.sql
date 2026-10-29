@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS sites (
   site_id TEXT UNIQUE,
   name TEXT NOT NULL,
   code TEXT,
+  email TEXT,
   active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

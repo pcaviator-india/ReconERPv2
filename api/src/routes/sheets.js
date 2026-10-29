@@ -717,15 +717,15 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       for (const r of transformed.records || []) {
         if (!r.name) continue;
         const stmt = await db.prepare(`
-          INSERT INTO sites (site_id, name, code, active)
+          INSERT INTO sites (site_id, name, email, active)
           VALUES (?, ?, ?, ?)
           ON CONFLICT(site_id) DO UPDATE SET
             name = excluded.name,
-            code = excluded.code,
+            email = excluded.email,
             active = excluded.active
         `);
         stmts.push(stmt.bind(
-          r.site_id || null, r.name || null, r.site_id || null, r.active != null ? r.active : 1
+          r.site_id || null, r.name || null, r.email || null, r.active != null ? r.active : 1
         ));
       }
     } else if (sheetKey === 'categories') {
