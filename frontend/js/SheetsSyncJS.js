@@ -289,7 +289,7 @@
     try {
       await window.RECON_API.saveColumnMapping(key, mapping);
       var span = el('ssMappingStatus');
-      if (span) { span.classList.remove('d-none'); setTimeout(function(){ span.classList.add('d-none'); }, 2500); }
+      if (span) { span.classList.remove('d-none'); setTimeout(function () { span.classList.add('d-none'); }, 2500); }
       alertBox('success', 'Column mapping saved for <b>' + esc(key) + '</b>. Updating preview...');
       // Automatically re-apply mapping to update preview and enable the import button immediately!
       await applyMapping();
@@ -306,7 +306,7 @@
     if (list) list.innerHTML = '';
     var box = el('ssMappingBox');
     if (box) box.classList.add('d-none');
-    try { window.RECON_API.saveColumnMapping(key, {}); } catch (e) {}
+    try { window.RECON_API.saveColumnMapping(key, {}); } catch (e) { }
     alertBox('info', 'Mapping preference cleared.');
   }
 
@@ -322,7 +322,7 @@
       var cleanH = String(h || '').trim();
       var normH = cleanH.toLowerCase().replace(/[\s\-_()\/]/g, '');
 
-      var fieldOptions = (expectedFields || []).map(function(f) {
+      var fieldOptions = (expectedFields || []).map(function (f) {
         if (typeof f === 'object' && f !== null) {
           return { label: f.header || f.dbField, value: f.dbField || f.header };
         }
@@ -449,12 +449,12 @@
       var hasHdr = el('ssHasHeaderRow') ? el('ssHasHeaderRow').checked : true;
       var res = await window.RECON_API.previewPastedWithMap(key, text, currentMapping || {}, hasHdr);
       var d = res.data || {};
-      var parsedHeaders = text.split(/\r?\n/).filter(function(l){return l.trim().length>0;});
+      var parsedHeaders = text.split(/\r?\n/).filter(function (l) { return l.trim().length > 0; });
       var firstLine = parsedHeaders[0] || '';
       var delim = (firstLine.match(/\t/g) || []).length >= (firstLine.match(/,/g) || []).length ? '\t' : ',';
-      var pastedHeaders = firstLine.split(delim).map(function(c){return c.trim();});
+      var pastedHeaders = firstLine.split(delim).map(function (c) { return c.trim(); });
       var sheetListData = await sheetList();
-      var m = sheetListData.filter(function(s){return s.key===key;})[0];
+      var m = sheetListData.filter(function (s) { return s.key === key; })[0];
       var expectedFields = m && (m.fields || m.expectedHeaders) ? (m.fields || m.expectedHeaders) : [];
 
       // Show mapping UI if there are column mismatches
@@ -513,7 +513,7 @@
     }
   }
 
-    async function pasteConfirm() {
+  async function pasteConfirm() {
     if (!lastPaste.key || !lastPaste.text) { alertBox('warning', 'Please check and validate the pasted data first.'); return; }
     var n = lastPaste.preview ? lastPaste.preview.total : 0;
     var ok = window.confirm('Are you sure you want to import ' + n + ' rows into "' + lastPaste.key + '"? Existing records will be updated.');
@@ -586,7 +586,7 @@
           + '<h6 class="alert-heading fw-bold mb-1"><i class="bi bi-check-circle-fill me-1"></i>Import Completed Successfully</h6>'
           + 'Successfully imported <b>' + totalImported + '</b> records into table <code>' + esc(lastTable) + '</code>.'
           + (allErrors.length ? ' <span class="badge bg-danger ms-2">' + allErrors.length + ' errors</span>' : '') + '</div>'
-          + (allErrors.length ? '<ul class="small text-danger mb-0">' + allErrors.slice(0, 10).map(function(e) { return '<li>' + esc(e.message || JSON.stringify(e)) + '</li>'; }).join('') + '</ul>' : '');
+          + (allErrors.length ? '<ul class="small text-danger mb-0">' + allErrors.slice(0, 10).map(function (e) { return '<li>' + esc(e.message || JSON.stringify(e)) + '</li>'; }).join('') + '</ul>' : '');
       }
       alertBox('success', '<b>Import Complete!</b> Successfully saved <b>' + totalImported + '</b> records into <b>' + esc(lastPaste.key) + '</b> in ' + batches.length + ' batches.');
       pasteClear();
@@ -716,7 +716,7 @@
       try {
         var rawPref = localStorage.getItem('recon_sheetsync_mapping_' + key);
         if (rawPref) savedPref = JSON.parse(rawPref);
-      } catch (e) {}
+      } catch (e) { }
 
       var mapping = {};
       var defaultMapping = def.defaultMapping || {};
@@ -892,7 +892,14 @@
 
     try {
       var res = await window.RECON_API.previewTransformed(key, data.headers, data.sampleRows, studioState.activeMapping);
-      var previewData = res.data;
+      // API returns { preview: { isSplit, records } } — unwrap the preview wrapper
+      var previewData = (res.data && res.data.preview) ? res.data.preview : res.data;
+
+      // No sample rows to transform — nothing to preview yet
+      if (!data.sampleRows || !data.sampleRows.length) {
+        previewBody.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle me-2"></i>No sample rows available to preview. Please fetch the sheet first (Step 1) to load sample data.</div>';
+        return;
+      }
 
       if (!previewData || !previewData.records || !previewData.records.length) {
         previewBody.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle me-2"></i>No records were generated from the sample rows. Please verify your column mappings.</div>';
@@ -906,7 +913,7 @@
 
         previewData.records.slice(0, 3).forEach(function (rec, idx) {
           var p = rec.parent || {};
-          var items = rec.items || [];
+          var items = rec.children || rec.items || [];
           var groupKey = p[def.groupKeyField] || ('Parent #' + (idx + 1));
 
           html += '<div class="card border shadow-none">';

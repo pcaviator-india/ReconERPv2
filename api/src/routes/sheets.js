@@ -383,6 +383,15 @@ router.post('/preview-transformed', authenticateToken, (req, res) => {
     }
 
     const preview = transformRows(sheetKey, headers, sampleRows, mapping || {});
+    const recordCount = preview.records ? preview.records.length : 0;
+    console.log('preview-transformed:', {
+      sheetKey,
+      headersCount: Array.isArray(headers) ? headers.length : 0,
+      headers: headers,
+      sampleRowsCount: Array.isArray(sampleRows) ? sampleRows.length : 0,
+      mappingKeys: mapping ? Object.keys(mapping) : [],
+      recordCount
+    });
     res.json({
       status: 'success',
       data: { preview }

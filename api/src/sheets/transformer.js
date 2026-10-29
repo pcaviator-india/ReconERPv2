@@ -511,8 +511,21 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
 
   const headerIndexMap = {};
   headers.forEach((h, idx) => {
-    headerIndexMap[h.trim()] = idx;
+    const key = (h || '').trim();
+    if (!key) return;
+    // exact (trimmed) header -> column index
+    if (headerIndexMap[key] === undefined) headerIndexMap[key] = idx;
+    // case-insensitive alias -> column index (first occurrence wins)
+    const lower = key.toLowerCase();
+    if (headerIndexMap[lower] === undefined) headerIndexMap[lower] = idx;
   });
+
+  function resolveColIdx(sheetHeader) {
+    if (sheetHeader == null) return undefined;
+    const key = String(sheetHeader).trim();
+    if (headerIndexMap[key] !== undefined) return headerIndexMap[key];
+    return headerIndexMap[key.toLowerCase()];
+  }
 
   const activeMapping = Object.assign({}, def.defaultMapping, mapping);
 
@@ -525,7 +538,7 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
       const childObj = {};
 
       Object.entries(activeMapping).forEach(([sheetHeader, targetPath]) => {
-        const colIdx = headerIndexMap[sheetHeader];
+        const colIdx = resolveColIdx(sheetHeader);
         if (colIdx === undefined || colIdx >= row.length) return;
 
         const rawVal = row[colIdx];
@@ -575,7 +588,7 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
     rows.forEach(row => {
       const record = {};
       Object.entries(activeMapping).forEach(([sheetHeader, targetField]) => {
-        const colIdx = headerIndexMap[sheetHeader];
+        const colIdx = resolveColIdx(sheetHeader);
         if (colIdx === undefined || colIdx >= row.length) return;
 
         const rawVal = row[colIdx];

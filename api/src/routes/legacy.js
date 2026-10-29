@@ -843,7 +843,7 @@ const IMPLEMENTED = {
          OR q.requisition_id IN (SELECT id FROM requisitions WHERE requisition_no = ?)
          OR q.ref_id = ?
       ORDER BY q.created_at ASC
-    `, [oid, oid]);
+    `, [oid, oid, oid]);
 
     return {
       orderId: oid,
