@@ -487,7 +487,30 @@ function parseCSVLine(line) {
 }
 
 function parseCSV(text) {
-  const lines = String(text || '').split(/\r?\n/).filter(l => l.trim().length > 0);
+  const s = String(text || '');
+  const lines = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    const next = s[i + 1];
+    if (c === '"') {
+      if (inQuotes && next === '"') {
+        cur += '""';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+        cur += c;
+      }
+    } else if ((c === '\n' || c === '\r') && !inQuotes) {
+      if (c === '\r' && next === '\n') i++;
+      if (cur.trim().length > 0) lines.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  if (cur.trim().length > 0) lines.push(cur);
   if (!lines.length) return { headers: [], rows: [] };
   const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
   const rows = lines.slice(1).map(parseCSVLine);
