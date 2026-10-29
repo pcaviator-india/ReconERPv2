@@ -199,8 +199,12 @@ const SCHEMA_DEFINITIONS = {
     ],
     defaultMapping: {
       'Site name': 'name',
-      'Suffix': 'site_id',
+      'Name': 'name',
+      'Site Email': 'email',
       'Email': 'email',
+      'Suffix': 'site_id',
+      'Site Suffix': 'site_id',
+      'Site ID': 'site_id',
     }
   },
 
