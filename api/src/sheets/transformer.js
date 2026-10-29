@@ -194,13 +194,11 @@ const SCHEMA_DEFINITIONS = {
     fields: [
       { field: 'site_id', label: 'Site ID / Suffix', required: true },
       { field: 'name', label: 'Site Name', required: true },
-      { field: 'email', label: 'Email' },
       { field: 'active', label: 'Active (1/0)', type: 'number' },
     ],
     defaultMapping: {
       'Site name': 'name',
       'Suffix': 'site_id',
-      'Email': 'email',
     }
   },
 
