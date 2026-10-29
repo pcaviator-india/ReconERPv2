@@ -650,6 +650,7 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
       const childObj = {};
 
       Object.entries(activeMapping).forEach(([sheetHeader, targetPath]) => {
+        if (!targetPath) return;
         const colIdx = resolveColIdx(sheetHeader);
         if (colIdx === undefined || colIdx >= row.length) return;
 
@@ -700,6 +701,7 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
     rows.forEach(row => {
       const record = {};
       Object.entries(activeMapping).forEach(([sheetHeader, targetField]) => {
+        if (!targetField) return;
         const colIdx = resolveColIdx(sheetHeader);
         if (colIdx === undefined || colIdx >= row.length) return;
 
