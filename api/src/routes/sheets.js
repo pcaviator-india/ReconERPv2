@@ -528,6 +528,13 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
           if (s.name) supMap[String(s.name).trim().toLowerCase()] = s.id;
         });
       } catch (e) { /* suppliers table may not exist yet */ }
+      const reqMap = {};
+      try {
+        const reqRows = await db.prepare('SELECT id, requisition_no FROM requisitions').all();
+        (reqRows.results || reqRows || []).forEach((r) => {
+          if (r.requisition_no) reqMap[String(r.requisition_no).trim()] = r.id;
+        });
+      } catch (e) { /* requisitions table may not exist yet */ }
       for (const rec of records) {
         const p = rec.parent;
         const children = rec.children || [];
@@ -561,7 +568,7 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         stmts.push(stmtParent.bind(
           quoteId,
           p.quote_no || null,
-          p.ref_id || null,
+          reqMap[String(p.ref_id || "").trim()] || null,
           supplierId,
           p.created_by || null,
           p.comments || null,
