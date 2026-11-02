@@ -521,69 +521,87 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       }
     } else if (sheetKey === 'quotes') {
       const records = transformed.records || [];
+      const supMap = {};
+      try {
+        const supRows = await db.prepare('SELECT id, name FROM suppliers').all();
+        (supRows.results || supRows || []).forEach((s) => {
+          if (s.name) supMap[String(s.name).trim().toLowerCase()] = s.id;
+        });
+      } catch (e) { /* suppliers table may not exist yet */ }
       for (const rec of records) {
         const p = rec.parent;
+        const children = rec.children || [];
         const quoteId = genId('quo');
+        const subtotal = children.reduce((sum, c) => sum + (Number(c.total_price) || 0), 0);
+        const freight = children.reduce((sum, c) => sum + (Number(c.freight) || 0), 0);
+        const total = subtotal + freight;
+        const ivaInc = String(p.iva_inc || 'Neto').toUpperCase();
+        const iva = ivaInc === 'BRUTO' ? 0 : Math.round((total * 0.19) * 100) / 100;
+        const supplierId = p.supplier ? supMap[String(p.supplier).trim().toLowerCase()] || null : null;
         const stmtParent = await db.prepare(`
           INSERT INTO quotes (
-            id, quote_no, ref_id, created_at, supplier, site, ref_cotiz,
-            status, pdf_url, fecha_acordada, comprador, currency, exchange_rate,
-            comments, iva_inc, condicion_pago, category, last_modified_by,
-            last_modified_date, mod_count, emails, created_by, quoted_doc_url, total
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, quote_no, requisition_id, supplier_id, created_by, notes, status,
+            currency, subtotal, discount, freight, iva, total, pdf_url, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(quote_no) DO UPDATE SET
-            ref_id = excluded.ref_id,
-            supplier = excluded.supplier,
-            site = excluded.site,
-            ref_cotiz = excluded.ref_cotiz,
+            requisition_id = excluded.requisition_id,
+            supplier_id = excluded.supplier_id,
+            created_by = excluded.created_by,
+            notes = excluded.notes,
             status = excluded.status,
-            pdf_url = excluded.pdf_url,
-            fecha_acordada = excluded.fecha_acordada,
-            comprador = excluded.comprador,
             currency = excluded.currency,
-            exchange_rate = excluded.exchange_rate,
-            comments = excluded.comments,
-            iva_inc = excluded.iva_inc,
-            condicion_pago = excluded.condicion_pago,
-            category = excluded.category,
-            last_modified_by = excluded.last_modified_by,
-            last_modified_date = excluded.last_modified_date,
-            mod_count = excluded.mod_count,
-            emails = excluded.emails,
-            quoted_doc_url = excluded.quoted_doc_url,
+            subtotal = excluded.subtotal,
+            discount = excluded.discount,
+            freight = excluded.freight,
+            iva = excluded.iva,
+            total = excluded.total,
+            pdf_url = excluded.pdf_url,
             updated_at = CURRENT_TIMESTAMP
         `);
         stmts.push(stmtParent.bind(
-          quoteId, p.quote_no, p.ref_id || null, p.created_at || new Date().toISOString(),
-          p.supplier || null, p.site || null, p.ref_cotiz || null, p.status || 'Pending',
-          p.pdf_url || null, p.fecha_acordada || null, p.comprador || null, p.currency || 'CLP',
-          p.exchange_rate || 1, p.comments || null, p.iva_inc || 'Neto', p.condicion_pago || null,
-          p.category || null, p.last_modified_by || null, p.last_modified_date || null,
-          p.mod_count || 0, p.emails || null, p.created_by || null, p.quoted_doc_url || null, 0
+          quoteId,
+          p.quote_no || null,
+          p.ref_id || null,
+          supplierId,
+          p.created_by || null,
+          p.comments || null,
+          p.status || 'Pending',
+          p.currency || 'CLP',
+          subtotal || 0,
+          0,
+          freight || 0,
+          iva || 0,
+          total || 0,
+          p.pdf_url || null,
+          p.created_at || new Date().toISOString()
         ));
-
-        // Delete old items for this quote
         const stmtDelChildren = await db.prepare(`
           DELETE FROM quote_items WHERE quote_id = ? OR quote_id = (SELECT id FROM quotes WHERE quote_no = ?)
         `);
         stmts.push(stmtDelChildren.bind(quoteId, p.quote_no));
-
-        for (const c of rec.children || []) {
+        for (const c of children) {
           const stmtChild = await db.prepare(`
             INSERT INTO quote_items (
-              quote_id, geo, pn, description_es, quantity, unit_price,
-              total_price, sub_category, received_qty, approved_qty,
-              discount_pct, freight
+              quote_id, product_id, quantity, unit_price, total_price,
+              geo, pn, description_es, description_en, supplier, category, created_at
             ) VALUES (
               (SELECT id FROM quotes WHERE quote_no = ?),
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
           `);
           stmts.push(stmtChild.bind(
-            p.quote_no, c.geo || null, c.pn || null, c.description_es || null,
-            c.quantity || 0, c.unit_price || 0, c.total_price || 0,
-            c.sub_category || null, c.received_qty || 0, c.approved_qty || 0,
-            c.discount_pct || 0, c.freight || 0
+            p.quote_no,
+            NULL,
+            c.quantity || 0,
+            c.unit_price || 0,
+            c.total_price || 0,
+            c.geo || null,
+            c.pn || null,
+            c.description_es || null,
+            c.description_es || null,
+            p.supplier || null,
+            p.category || null,
+            p.created_at || new Date().toISOString()
           ));
         }
       }

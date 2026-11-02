@@ -1395,101 +1395,110 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   };
 
   window.loadQuoteData = function (onDone) {
-    google.script.run
-      .withSuccessHandler(function (data) {
-        const rawQuotes = Array.isArray(data) ? data : [];
-        // Only the "User" role is hard-scoped to their assigned category. For other
-        // roles the category is just a primary/default (changeable), so load ALL
-        // categories into allQuotesRaw and let the filter dropdown control display.
+    RECON_API.getQuotes()
+      .then(function (res) {
+        const apiData = (res && res.data) || [];
+        const rawQuotes = Array.isArray(apiData) ? apiData : [];
+        rawQuotes = rawQuotes.map(function (q) {
+          return {
+            orderId: q.requisition_no || '',
+            quoteId: q.quote_no || q.id || '',
+            quoteID: q.quote_no || q.id || '',
+            'Quote ID': q.quote_no || q.id || '',
+            supplier: q.supplier_name || '',
+            category: q.category || '',
+            subCategory: '',
+            site: '',
+            faena: '',
+            geo: '',
+            pn: '',
+            desc: '',
+            es: '',
+            en: '',
+            estado: q.status || '',
+            status: q.status || '',
+            currency: q.currency || 'CLP',
+            quoteLink: q.pdf_url || '',
+            quotedDocUrl: '',
+            createdBy: q.created_by || '',
+            createdDate: q.created_at || '',
+            createdByName: q.created_by_name || '',
+            reqItemNotes: [],
+            reqSupplierNotes: [],
+            total: q.total || 0,
+          };
+        });
         let isUserRole = false;
         try {
-          const u = JSON.parse(localStorage.getItem("recon_user_secure") || "null");
-          isUserRole = u && String(u.role || "").trim().toLowerCase() === "user";
+          const u = JSON.parse(localStorage.getItem('recon_user_secure') || 'null');
+          isUserRole = u && String(u.role || '').trim().toLowerCase() === 'user';
         } catch (e) { /* ignore */ }
-        const lockedCategory = isUserRole ? String(window.quoteAllowedCategory || "").trim() : "";
+        const lockedCategory = isUserRole ? String(window.quoteAllowedCategory || '').trim() : '';
         const scopedQuotes = lockedCategory
           ? rawQuotes.filter(
-              (item) => String(item.category || "").trim().toUpperCase() === lockedCategory.toUpperCase(),
+              (item) => String(item.category || '').trim().toUpperCase() === lockedCategory.toUpperCase(),
             )
           : rawQuotes;
-
         allQuotesRaw = scopedQuotes;
-
-        // Ensure each item has origGeo and origPn set (for matching during edits)
         scopedQuotes.forEach((item) => {
-          // 🔴 CRITICAL: map quoteId from backend
-          item.quoteId = item.quoteId || item.quoteID || item["Quote ID"] || "";
-          if (!item.origGeo) item.origGeo = item.geo || "";
-          if (!item.origPn) item.origPn = item.pn || item.p || "";
+          item.quoteId = item.quoteId || item.quoteID || item['Quote ID'] || '';
+          if (!item.origGeo) item.origGeo = item.geo || '';
+          if (!item.origPn) item.origPn = item.pn || item.p || '';
         });
-
-        // Populate subcategories from validation cache (same as Products page)
-        const subCatSel = document.getElementById("filterQuoteSubCat");
-        const catSel = document.getElementById("filterQuoteCat");
-        const selectedCat = catSel ? catSel.value : "";
-        
+        const subCatSel = document.getElementById('filterQuoteSubCat');
+        const catSel = document.getElementById('filterQuoteCat');
+        const selectedCat = catSel ? catSel.value : '';
         if (subCatSel && window.CachedDataVal) {
           const allSubCats = (window.CachedDataVal.subCategories || []).filter(
             (s) => !selectedCat || s.parent === selectedCat
           );
           subCatSel.innerHTML =
-            `<option value="">${window.t ? window.t('p_all_subcats') : 'All Sub Categories'}</option>` +
+            `<option value=''>${window.t ? window.t('p_all_subcats') : 'All Sub Categories'}</option>` +
             allSubCats
-              .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-              .map((s) => `<option value="${s.name}">${s.name}</option>`)
-              .join("");
+              .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+              .map((s) => `<option value='${s.name}'>${s.name}</option>`)
+              .join('');
           subCatSel.disabled = !selectedCat;
         }
-
-        // Re-populate subcategories when category changes
         if (catSel && !catSel._subcatBound) {
           catSel._subcatBound = true;
-          catSel.addEventListener("change", function () {
+          catSel.addEventListener('change', function () {
             const selCat = this.value;
-            const subSel = document.getElementById("filterQuoteSubCat");
+            const subSel = document.getElementById('filterQuoteSubCat');
             if (subSel && window.CachedDataVal) {
               const filtered = (window.CachedDataVal.subCategories || []).filter(
                 (s) => !selCat || s.parent === selCat
               );
               subSel.innerHTML =
-                `<option value="">${window.t ? window.t('p_all_subcats') : 'All Sub Categories'}</option>` +
+                `<option value=''>${window.t ? window.t('p_all_subcats') : 'All Sub Categories'}</option>` +
                 filtered
-                  .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-                  .map((s) => `<option value="${s.name}">${s.name}</option>`)
-                  .join("");
+                  .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                  .map((s) => `<option value='${s.name}'>${s.name}</option>`)
+                  .join('');
               subSel.disabled = !selCat;
             }
           });
         }
-
-        // ONE card per requirement + supplier + category (quoteGroupKey): grouping
-        // on the Quote ID used to split a single supplier quote into several
-        // "duplicate" cards whenever its rows carried different/blank IDs.
         groupedQuotes = buildQuoteGroups(scopedQuotes);
-        // Honor the user's current filters (they survive in the DOM) so a
-        // reload after delete/approve/resync doesn't silently show everything.
         renderQuoteView_(groupedQuotes);
-        const quoteLoaderEl = document.getElementById("quoteLoader");
-        if (quoteLoaderEl) quoteLoaderEl.classList.add("d-none");
-        const quoteContainerEl = document.getElementById("quoteContainer");
-        if (quoteContainerEl) quoteContainerEl.classList.remove("d-none");
-        if (typeof onDone === "function") { try { onDone(); } catch (e) { console.warn("loadQuoteData onDone failed:", e); } }
+        const quoteLoaderEl = document.getElementById('quoteLoader');
+        if (quoteLoaderEl) quoteLoaderEl.classList.add('d-none');
+        const quoteContainerEl = document.getElementById('quoteContainer');
+        if (quoteContainerEl) quoteContainerEl.classList.remove('d-none');
+        if (typeof onDone === 'function') { try { onDone(); } catch (e) { console.warn('loadQuoteData onDone failed:', e); } }
       })
-      .withFailureHandler(function (err) {
-        console.error("loadQuoteData failed:", err);
+      .catch(function (err) {
+        console.error('loadQuoteData failed:', err);
         allQuotesRaw = [];
         groupedQuotes = [];
         renderQuoteCards([]);
-        const quoteLoaderEl = document.getElementById("quoteLoader");
-        if (quoteLoaderEl) quoteLoaderEl.classList.add("d-none");
-        const quoteContainerEl = document.getElementById("quoteContainer");
-        if (quoteContainerEl) quoteContainerEl.classList.remove("d-none");
-        if (typeof onDone === "function") { try { onDone(); } catch (e) { console.warn("loadQuoteData onDone failed:", e); } }
-      })
-      .getHistoryData();
-  };
-
-  // IDs of every control that filterQuotes() reads. Keep in sync with it.
+        const quoteLoaderEl = document.getElementById('quoteLoader');
+        if (quoteLoaderEl) quoteLoaderEl.classList.add('d-none');
+        const quoteContainerEl = document.getElementById('quoteContainer');
+        if (quoteContainerEl) quoteContainerEl.classList.remove('d-none');
+        if (typeof onDone === 'function') { try { onDone(); } catch (e) { console.warn('loadQuoteData onDone failed:', e); } }
+      });
+  };// IDs of every control that filterQuotes() reads. Keep in sync with it.
   const QUOTE_FILTER_IDS_ = [
     "filterQuoteSite",
     "filterQuoteSupplier",
