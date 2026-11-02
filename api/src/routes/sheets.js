@@ -591,7 +591,7 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
           `);
           stmts.push(stmtChild.bind(
             p.quote_no,
-            NULL,
+            null,
             c.quantity || 0,
             c.unit_price || 0,
             c.total_price || 0,
