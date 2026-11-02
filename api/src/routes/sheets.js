@@ -593,7 +593,7 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
               geo, pn, description_es, description_en, supplier, category, created_at
             ) VALUES (
               (SELECT id FROM quotes WHERE quote_no = ?),
-              NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
           `);
           stmts.push(stmtChild.bind(
