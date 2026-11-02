@@ -1398,7 +1398,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     RECON_API.getQuotes()
       .then(function (res) {
         const apiData = (res && res.data) || [];
-        const rawQuotes = Array.isArray(apiData) ? apiData : [];
+        let rawQuotes = Array.isArray(apiData) ? apiData : [];
         rawQuotes = rawQuotes.map(function (q) {
           return {
             orderId: q.requisition_no || '',
@@ -6126,3 +6126,4 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => { applyTranslations(); if (typeof renderQuoteStatusLegend === "function") renderQuoteStatusLegend(); }, 100);
   });
+
