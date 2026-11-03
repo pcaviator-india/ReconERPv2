@@ -6,6 +6,113 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
 
+let graphTokenCache = { token: null, expiresAt: 0 };
+
+async function nextRequisitionNumber(db) {
+  await (await db.prepare(`
+    CREATE TABLE IF NOT EXISTS requisition_sequences (
+      sequence_key TEXT PRIMARY KEY,
+      last_number INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)).run();
+  const existing = await (await db.prepare(
+    "SELECT last_number FROM requisition_sequences WHERE sequence_key = 'requisition_no'"
+  )).first();
+  if (!existing) {
+    const config = await (await db.prepare(
+      "SELECT value FROM config WHERE key = 'req_no_counter' LIMIT 1"
+    )).first();
+    const rows = await (await db.prepare('SELECT requisition_no FROM requisitions')).all();
+    const configured = Number.parseInt(config && config.value, 10);
+    const maxExisting = (rows.results || rows).reduce((max, row) => {
+      const match = String(row.requisition_no || '').match(/^REQ-(\d+)/i);
+      return match ? Math.max(max, Number.parseInt(match[1], 10)) : max;
+    }, 0);
+    const initial = Number.isFinite(configured) ? Math.max(configured, maxExisting) : maxExisting;
+    await (await db.prepare(`
+      INSERT OR IGNORE INTO requisition_sequences (sequence_key, last_number)
+      VALUES ('requisition_no', ?)
+    `)).bind(initial).run();
+  }
+  const result = await (await db.prepare(`
+    UPDATE requisition_sequences
+    SET last_number = last_number + 1, updated_at = CURRENT_TIMESTAMP
+    WHERE sequence_key = 'requisition_no'
+    RETURNING last_number
+  `)).first();
+  if (!result) throw new Error('Unable to allocate requisition number');
+  return `REQ-${String(result.last_number).padStart(6, '0')}`;
+}
+
+async function getGraphAccessToken() {
+  if (graphTokenCache.token && Date.now() < graphTokenCache.expiresAt) return graphTokenCache.token;
+  const tenantId = process.env.GRAPH_TENANT_ID;
+  const clientId = process.env.GRAPH_CLIENT_ID;
+  const clientSecret = process.env.GRAPH_CLIENT_SECRET;
+  if (!tenantId || !clientId || !clientSecret) return null;
+
+  const response = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      scope: 'https://graph.microsoft.com/.default',
+      grant_type: 'client_credentials'
+    })
+  });
+  const data = await response.json();
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Graph token request failed (${response.status})`);
+  }
+  graphTokenCache = {
+    token: data.access_token,
+    expiresAt: Date.now() + (Number(data.expires_in) * 1000) - 60000
+  };
+  return data.access_token;
+}
+
+async function sendRequirementEmail(shipment, orderId, authenticatedUser) {
+  const sender = String(authenticatedUser && authenticatedUser.email || '').trim().toLowerCase();
+  if (!sender || !/@recondrilling\.com$/i.test(sender)) {
+    return {
+      emailSent: false,
+      emailError: 'Email was not sent: the logged-in user must have a recondrilling.com email address.'
+    };
+  }
+
+  const token = await getGraphAccessToken();
+  if (!token) return { emailSent: false, emailError: 'Microsoft Graph credentials are not configured.' };
+
+  const recipients = (value) => String(value || '')
+    .split(/[;, \n]+/)
+    .map((email) => email.trim())
+    .filter(Boolean)
+    .map((address) => ({ emailAddress: { address } }));
+  const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      message: {
+        subject: shipment.subject || `Requirement: ${orderId}`,
+        body: { contentType: 'HTML', content: shipment.body || 'Material Requirement Created' },
+        toRecipients: recipients(shipment.to),
+        ccRecipients: recipients(shipment.cc)
+      },
+      saveToSentItems: true
+    })
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    return { emailSent: false, emailError: `Graph send failed (${response.status}): ${detail.slice(0, 300)}` };
+  }
+  return { emailSent: true, emailService: 'Microsoft Graph' };
+}
+
 // Normalize statement results across drivers:
 // better-sqlite3 -> { results: [...] }, D1/Cloudflare -> [...] directly.
 const allRows = (result) => result && result.results !== undefined ? result.results : result;
@@ -1312,7 +1419,81 @@ const IMPLEMENTED = {
   },
 
   // CreateReqGS.processMassOrders — create ISSUE movements for pending requisition items.
-  processMassOrders: async (db, args) => {
+  processMassOrders: async (db, args, authenticatedUser) => {
+    if (Array.isArray(args[0])) {
+      const shipments = args[0];
+      const results = [];
+
+      for (const shipment of shipments) {
+        const items = Array.isArray(shipment.items) ? shipment.items : [];
+        if (!items.length) continue;
+
+        const requisitionId = uuidv4();
+        const requisitionNo = await nextRequisitionNumber(db);
+        const site = String(shipment.site || '').trim();
+        const siteRow = site
+          ? await queryOne(db, 'SELECT id FROM sites WHERE lower(name) = lower(?) OR lower(site_id) = lower(?) LIMIT 1', [site, site])
+          : null;
+
+        await exec(db, `
+          INSERT INTO requisitions (
+            id, requisition_no, site_id, requested_by, notes, status, category
+          )
+          VALUES (?, ?, ?, ?, ?, 'pending', ?)
+        `, [
+          requisitionId,
+          requisitionNo,
+          siteRow ? siteRow.id : null,
+          shipment.userName || shipment.currentUserEmail || '',
+          shipment.body || '',
+          shipment.category || 'General'
+        ]);
+
+        for (const item of items) {
+          const product = await queryOne(db, 'SELECT id, geo, pn, description, description_es FROM products WHERE geo = ? LIMIT 1', [item.geo]);
+          if (!product) continue;
+
+          await exec(db, `
+            INSERT INTO requisition_items (
+              requisition_id, product_id, quantity_requested, notes,
+              geo, pn, description_es, item_notes, supplier_notes, images, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+          `, [
+            requisitionId,
+            product.id,
+            Number(item.qty) || 0,
+            item.itemNotes || '',
+            product.geo,
+            item.pn || product.pn || '',
+            item.es || product.description_es || '',
+            item.itemNotes || '',
+            item.supplierNotes || '',
+            Array.isArray(item.images) ? JSON.stringify(item.images) : (item.images || '')
+          ]);
+        }
+
+        let emailResult;
+        try {
+          emailResult = await sendRequirementEmail(shipment, requisitionNo, authenticatedUser);
+        } catch (error) {
+          emailResult = { emailSent: false, emailError: error.message };
+        }
+        results.push({
+          orderId: requisitionNo,
+          pdfUrl: '',
+          ...emailResult
+        });
+      }
+
+      return {
+        success: true,
+        data: results,
+        emailConfigured: results.some((result) => result.emailSent === true),
+        message: 'Requirements saved.'
+      };
+    }
+
     const orderIds = args[0] || [];
     let processed = 0;
     for (const oid of orderIds) {
@@ -1649,8 +1830,70 @@ const IMPLEMENTED = {
     return { success: true, total };
   },
 
-  // Update validation item status.
+  // Update validation items and system feature flags.
   updateValidationItem: async (db, args) => {
+    const [type, oldIdentifier, newData] = args;
+    if (type === 'SystemConfig') {
+      const aliases = {
+        reqEmailEnabled: 'reqEmailEnabled',
+        reqPdfEnabled: 'reqPdfEnabled',
+        quoEmailEnabled: 'quoEmailEnabled',
+        quoPdfEnabled: 'quoPdfEnabled',
+        quoteEmailPending: 'quoteEmailPending',
+        quoteEmailQuoted: 'quoteEmailQuoted',
+        quoteEmailApproved: 'quoteEmailApproved',
+        quoteEmailSent: 'quoteEmailSent',
+        quoteEmailReceived: 'quoteEmailReceived',
+        quoteEmailDespatched: 'quoteEmailDespatched',
+        quoteEmailFinalReceived: 'quoteEmailFinalReceived'
+      };
+      const key = aliases[String(oldIdentifier || '').trim()];
+      if (!key) return { success: false, message: 'Unknown system configuration flag.' };
+      const normalizedStatus = String(newData && newData.status != null ? newData.status : '').trim().toLowerCase();
+      const value = normalizedStatus === 'true' || normalizedStatus === '1' || normalizedStatus === 'yes'
+        ? 'true'
+        : 'false';
+      await exec(db, `
+        INSERT INTO config (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+      `, [key, value]);
+      return { success: true, key, value };
+    }
+
+    if (type === 'Users') {
+      const u = newData || {};
+      const userId = String(u.userId || oldIdentifier || '').trim().replace(/[,\s]/g, '');
+      const email = String(u.email || '').trim().toLowerCase();
+      if (!userId || !email) return { success: false, message: 'User ID and email are required.' };
+
+      const existing = await queryOne(db, 'SELECT id FROM users WHERE user_id = ? LIMIT 1', [String(oldIdentifier || userId).trim().replace(/[,\s]/g, '')]);
+      if (!existing) return { success: false, message: 'User account not found.' };
+
+      const emailOwner = await queryOne(db, 'SELECT id FROM users WHERE lower(trim(email)) = ? LIMIT 1', [email]);
+      if (emailOwner && emailOwner.id !== existing.id) {
+        return { success: false, message: 'Email is already assigned to another user.' };
+      }
+
+      const pin = String(u.pin || '').trim();
+      const pinHash = pin && pin !== 'Protected' && pin !== 'Not set'
+        ? bcrypt.hashSync(pin, 10)
+        : null;
+      const params = [
+        userId, email, u.name || null, u.phone || null, u.position || null,
+        u.site || null, u.role || 'operator', u.active === '0' || u.active === 0 ? 0 : 1,
+        pinHash, existing.id
+      ];
+      await exec(db, `
+        UPDATE users SET
+          user_id = ?, email = ?, name = ?, phone = ?, position = ?, site = ?,
+          role = ?, is_active = ?, pin_hash = COALESCE(?, pin_hash),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, params);
+      return { success: true, userId };
+    }
+
     const u = args[0] || {};
     await exec(db, `INSERT INTO item_status (geo, status, person, sector, condition) VALUES (?, ?, ?, ?, ?)`, [u.geo || '', u.status || 'pending', u.person || '', u.sector || '', u.condition || '']);
     return { success: true };

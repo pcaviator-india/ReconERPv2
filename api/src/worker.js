@@ -29,6 +29,13 @@ export default {
     if (env && env.API_BASE_URL) {
       process.env.API_BASE_URL = env.API_BASE_URL;
     }
+    for (const key of [
+      'GRAPH_TENANT_ID',
+      'GRAPH_CLIENT_ID',
+      'GRAPH_CLIENT_SECRET',
+    ]) {
+      if (env && env[key]) process.env[key] = env[key];
+    }
 
     return handler.fetch(request, env, ctx);
   }

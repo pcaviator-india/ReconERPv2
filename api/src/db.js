@@ -95,6 +95,12 @@ const COLUMN_MIGRATIONS = [
   ['brands', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
   ['suppliers', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
   ['sub_categories', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
+  // users
+  ['users', 'phone', 'TEXT'],
+  ['users', 'position', 'TEXT'],
+  ['users', 'sign_link', 'TEXT'],
+  ['users', 'created_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
+  ['users', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
 ];
 
 // Reads schema.sql and returns the CREATE TABLE statements it contains.

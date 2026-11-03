@@ -53,6 +53,7 @@ insertConfig.run('currency_default', 'USD');
 // Feature flags formerly read from the Config sheet (getAdminData)
 insertConfig.run('reqEmailEnabled', 'false');
 insertConfig.run('reqPdfEnabled', 'true');
+insertConfig.run('req_no_counter', '0');
 insertConfig.run('quoEmailEnabled', 'false');
 insertConfig.run('quoPdfEnabled', 'true');
 insertConfig.run('quoteEmailPending', 'true');

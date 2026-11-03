@@ -6,6 +6,38 @@
  */
 
 const SCHEMA_DEFINITIONS = {
+  users: {
+    key: 'users',
+    label: 'Users',
+    gasSheet: 'Users',
+    isSplit: false,
+    table: 'users',
+    fields: [
+      { field: 'user_id', label: 'User ID', required: true },
+      { field: 'pin', label: 'PIN' },
+      { field: 'name', label: 'Full Name' },
+      { field: 'email', label: 'Email' },
+      { field: 'phone', label: 'Phone' },
+      { field: 'position', label: 'Position' },
+      { field: 'site', label: 'Site' },
+      { field: 'role', label: 'Role' },
+      { field: 'sign_link', label: 'Sign Link' },
+      { field: 'is_active', label: 'Active (1/0)', type: 'number' },
+    ],
+    defaultMapping: {
+      'User ID': 'user_id',
+      'PIN': 'pin',
+      'FullName': 'name',
+      'Email': 'email',
+      'Phone': 'phone',
+      'Position': 'position',
+      'Site': 'site',
+      'Role': 'role',
+      'SignLink': 'sign_link',
+      'Active': 'is_active'
+    }
+  },
+
   ordenes: {
     key: 'ordenes',
     label: 'Orders & Requisitions',

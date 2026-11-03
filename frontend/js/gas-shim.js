@@ -9,7 +9,10 @@
 
   var API_BASE = null;
   function apiBase() {
-    if (!API_BASE) API_BASE = window.RECON_API_BASE_URL || (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '/api/v1' : 'https://recon-erp-api.reconerp.workers.dev/api/v1');
+    var localHost = typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    if (!API_BASE) API_BASE = window.RECON_API_BASE_URL ||
+      (localHost ? 'http://localhost:3000/api/v1' : 'https://recon-erp-api.reconerp.workers.dev/api/v1');
     return API_BASE;
   }
 
@@ -45,7 +48,8 @@
     verifyUserLogin: function (userId, pin) {
       return RECON_API.login(userId, pin).then(function (res) {
         if (res.status === 'success' && res.data && res.data.token) {
-          return { success: true, user: res.data.user };
+          RECON_API.setToken(res.data.token);
+          return { success: true, user: res.data.user, data: res.data };
         }
         return { success: false, message: res.message || 'Login failed' };
       }).catch(function (err) {
@@ -90,9 +94,14 @@
 
     // Mega-fetch used by Admin tables + boot config flags
     getAdminData: function () {
-      return Promise.all([apiGet('/reference/validation'), apiGet('/system/config')]).then(function (r) {
+      var requests = Promise.all([apiGet('/reference/validation'), apiGet('/system/config'), apiGet('/users')]);
+      var timeout = new Promise(function (_, reject) {
+        setTimeout(function () { reject(new Error('Admin data request timed out')); }, 15000);
+      });
+      return Promise.race([requests, timeout]).then(function (r) {
         var d = r[0].data || {};
         var cfg = r[1].data || {};
+        var users = r[2].data || [];
         var catMap = {};
         (d.categories || []).forEach(function (c) { catMap[c.id] = c.name; });
         return {
@@ -101,7 +110,7 @@
           subCats: (d.subCategories || []).map(function (s) { return { parent: catMap[s.category_id] || '', name: s.name }; }),
           brands: (d.brands || []).map(function (b) { return { name: b.name }; }),
           suppliers: (d.suppliers || []).map(function (s) { return { name: s.name, email: s.email || '' }; }),
-          users: [], // TODO: /admin/users endpoint (never expose PINs to client)
+          users: users,
           people: [], // TODO: people table
           quoPdfEnabled: flag(cfg.quoPdfEnabled, false),
           quoEmailEnabled: flag(cfg.quoEmailEnabled, false),

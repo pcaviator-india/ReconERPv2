@@ -264,7 +264,6 @@ async function getGraphAccessToken() {
 
 async function sendPinResetEmail(graphToken, email, userName, resetToken) {
   const resetUrl = `${process.env.API_BASE_URL || 'https://recon-erp.your-domain.com'}/reset-pin.html?token=${resetToken}`;
-
   const response = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
     method: 'POST',
     headers: {

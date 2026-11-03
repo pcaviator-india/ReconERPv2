@@ -135,17 +135,51 @@ function renderValRows(data) {
     let row = '<tr>';
     config.keys.forEach(key => {
       let val = (item && typeof item === 'object') ? (item[key] || "") : item;
-      row += `<td>${val}</td>`;
+      if (currentValType === 'SystemConfig' && key === 'status') {
+        const enabled = String(val).toUpperCase() === 'TRUE' || String(val) === '1';
+        row += `<td>
+          <div class="form-check form-switch d-inline-flex align-items-center gap-2">
+            <input class="form-check-input" type="checkbox" role="switch"
+              ${enabled ? 'checked' : ''}
+              onchange="window.toggleSystemConfig('${item.feature}', this.checked, this)">
+            <span class="small fw-semibold">${enabled ? 'TRUE' : 'FALSE'}</span>
+          </div>
+        </td>`;
+      } else {
+        row += `<td>${val}</td>`;
+      }
     });
-    row += `
-      <td class="text-end">
-        <button class="btn btn-sm btn-outline-primary shadow-sm" onclick="openValModal(${realIdx})">
-          <i class="bi bi-pencil"></i>
-        </button>
-      </td></tr>`;
+    row += currentValType === 'SystemConfig'
+      ? '<td class="text-end text-muted small">Toggle to save</td></tr>'
+      : `
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-primary shadow-sm" onclick="openValModal(${realIdx})">
+            <i class="bi bi-pencil"></i>
+          </button>
+        </td></tr>`;
     return row;
   }).join('');
 }
+
+window.toggleSystemConfig = function(key, enabled, input) {
+  if (!key || !RECON_API || typeof RECON_API._request !== 'function') return;
+  if (input) input.disabled = true;
+  RECON_API._request('/system/config/' + encodeURIComponent(key), 'PUT', {
+    key: key,
+    value: enabled ? 'true' : 'false'
+  }).then(function(res) {
+    if (!res || res.status !== 'success') {
+      throw new Error((res && res.message) || 'Save failed');
+    }
+    const label = input && input.parentElement ? input.parentElement.querySelector('span') : null;
+    if (label) label.textContent = enabled ? 'TRUE' : 'FALSE';
+  }).catch(function(err) {
+    if (input) input.checked = !enabled;
+    alert(i18n('msg_error') + ': ' + String(err && err.message ? err.message : err));
+  }).finally(function() {
+    if (input) input.disabled = false;
+  });
+};
 
 // ─── Filter Helpers ───────────────────────────────────────────────────────────
 
@@ -208,30 +242,23 @@ function applyValFilters() {
   renderValRows(filtered);
 }
 
-// Attach event listeners once the DOM is ready
+// Use delegated listeners because the validation module is injected dynamically.
 (function bindValFilterEvents() {
-  function _bind() {
-    const searchInput  = document.getElementById('valSearchInput');
-    const siteSelect   = document.getElementById('valFilterSite');
-    const activeSelect = document.getElementById('valFilterActive');
+  if (window._validationFiltersBound) return;
+  window._validationFiltersBound = true;
 
-    if (searchInput) {
-      searchInput.addEventListener('input', function () {
-        clearTimeout(_valFilterDebounce);
-        _valFilterDebounce = setTimeout(applyValFilters, 250);
-      });
+  document.addEventListener('input', function (event) {
+    if (!event.target || event.target.id !== 'valSearchInput') return;
+    clearTimeout(_valFilterDebounce);
+    _valFilterDebounce = setTimeout(applyValFilters, 250);
+  });
+
+  document.addEventListener('change', function (event) {
+    if (!event.target) return;
+    if (event.target.id === 'valFilterSite' || event.target.id === 'valFilterActive') {
+      applyValFilters();
     }
-    if (siteSelect)   siteSelect.addEventListener('change',   applyValFilters);
-    if (activeSelect) activeSelect.addEventListener('change', applyValFilters);
-  }
-
-  // Google Apps Script HtmlService loads the body after script tags run,
-  // so bind on DOMContentLoaded as well as immediately in case DOM is already ready.
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _bind);
-  } else {
-    _bind();
-  }
+  });
 })();
 // Global programmatic event listener for Employee select mapping matrix
 window.handleUserEmployeeChange = function(payloadString) {
@@ -280,6 +307,10 @@ if (currentValType === 'Users' && index === -1) {
   config.keys.forEach((key, i) => {
     const label = config.cols[i];
     let val = (item && typeof item === 'object') ? (item[key] || '') : (item || '');
+
+    if (currentValType === 'Users' && key === 'pin' && item && item.pinSet) {
+      val = '';
+    }
 
     // Set placeholder token for IDs during instantiation phase
     if (currentValType === 'Users' && key === 'userId' && index === -1) {
@@ -382,22 +413,52 @@ window.saveValItem = function() {
   btn.innerText = i18n('loading');
   btn.disabled = true;
 
-  google.script.run
-    .withSuccessHandler(function(res) {
+  const saveConfig = currentValType === 'SystemConfig'
+    ? RECON_API._request('/system/config/' + encodeURIComponent(oldIdentifier), 'PUT', {
+        key: oldIdentifier,
+        value: newData.status
+      })
+    : new Promise(function(resolve, reject) {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .updateValidationItem(currentValType, oldIdentifier, newData);
+      });
+
+  saveConfig
+    .then(function(res) {
+      const saved = currentValType === 'SystemConfig'
+        ? !!(res && res.status === 'success')
+        : !!(res && res.success);
       btn.innerText = i18n('btn_save');
       btn.disabled = false;
-      if (res.success) {
+      if (saved) {
         bootstrap.Modal.getInstance(document.getElementById('valModal')).hide();
         window.initValidationModule(currentValType); 
       } else {
-        alert(i18n('msg_error') + ": " + res.message);
+        alert(i18n('msg_error') + ": " + ((res && res.message) || 'Save failed'));
       }
     })
-    .updateValidationItem(currentValType, oldIdentifier, newData); 
+    .catch(function(err) {
+      btn.innerText = i18n('btn_save');
+      btn.disabled = false;
+      alert(i18n('msg_error') + ": " + String(err && err.message ? err.message : err));
+    });
 };
 
 window.forceConfigRefresh = function() {
   const btn = document.getElementById('btnRefreshCache');
+  const resetButton = function() {
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Sync Cache';
+  };
+
+  if (!btn) {
+    refreshValTable();
+    return;
+  }
+
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Syncing...';
 
@@ -406,9 +467,17 @@ window.forceConfigRefresh = function() {
       window.globalConfig = window.globalConfig || {};
       window.globalConfig.systemConfig = allData.systemConfig;
       refreshValTable();
-    //  alert("System Cache Updated from Spreadsheet!");
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Sync Cache';
+      resetButton();
+    })
+    .withFailureHandler(function(err) {
+      console.error("Admin data refresh failed:", err);
+      resetButton();
+      const message = err && err.message ? err.message : String(err || 'Unable to load users');
+      const tbody = document.getElementById('valTableBody');
+      if (tbody) {
+        const config = valConfig[currentValType];
+        tbody.innerHTML = `<tr><td colspan="${config ? config.cols.length + 1 : 1}" class="text-center text-danger">${i18n('msg_error')}: ${message}</td></tr>`;
+      }
     })
     .getAdminData();
 };

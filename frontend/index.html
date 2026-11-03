@@ -429,6 +429,16 @@
 
       // --- SYSTEM INITIALIZATION (auto-logout DISABLED: sessions persist indefinitely) ---
       window.onload = function () {
+        if (window.RECON_API && typeof window.RECON_API.init === "function") {
+          window.RECON_API.init();
+        }
+        if (window.RECON_API && typeof window.RECON_API.getToken === "function" &&
+            !window.RECON_API.getToken()) {
+          localStorage.removeItem("recon_user_secure");
+          try { sessionStorage.removeItem("recon_user_secure"); } catch (e) {}
+          window.location.href = 'login.html';
+          return;
+        }
         const data = localStorage.getItem("recon_user_secure");
 
         if (data) {
@@ -509,6 +519,36 @@
       };
 
       // --- MODULE LOADING & NAVIGATION ---
+      window.applyCurrentUserSiteDefaults = function () {
+        const user = window.currentUser || (() => {
+          try { return JSON.parse(localStorage.getItem("recon_user_secure")); } catch (e) { return null; }
+        })();
+        const userSite = String(user && user.site || "").trim();
+        if (!userSite) return;
+
+        document.querySelectorAll("select").forEach(function (select) {
+          const id = String(select.id || "").toLowerCase();
+          const name = String(select.name || "").toLowerCase();
+          if (!/(site|sector|faena)/.test(id + " " + name)) return;
+          const option = Array.from(select.options).find(function (candidate) {
+            return String(candidate.value || "").trim().toLowerCase() === userSite.toLowerCase() ||
+              String(candidate.textContent || "").trim().toLowerCase() === userSite.toLowerCase();
+          });
+          if (!option) return;
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      };
+
+      (function observeSiteSelectors() {
+        const mainContent = document.getElementById("mainContent");
+        if (!mainContent || typeof MutationObserver === "undefined") return;
+        const observer = new MutationObserver(function () {
+          window.applyCurrentUserSiteDefaults();
+        });
+        observer.observe(mainContent, { childList: true, subtree: true });
+      })();
+
       function loadModule(name) {
         window.currentModule = name;
 
@@ -544,6 +584,9 @@
             }
             const mainContent = document.getElementById("mainContent");
             mainContent.innerHTML = html;
+
+            window.applyCurrentUserSiteDefaults();
+            setTimeout(window.applyCurrentUserSiteDefaults, 150);
             
             // Apply current language to all data-i18n elements in the newly loaded module
             if (typeof updateUI === "function") {
@@ -567,8 +610,7 @@
                 if (user) {
                   if (user.role.toLowerCase() === "admin" || user.role.toLowerCase() === "office" || user.role.toLowerCase() === "manager") {
                     siteSelect.disabled = false;
-                    if (window.autoSelectedSite)
-                      siteSelect.value = window.autoSelectedSite;
+                    siteSelect.value = user.site || window.autoSelectedSite || siteSelect.value;
                   } else {
                     siteSelect.value = user.site;
                     siteSelect.disabled = true;
@@ -1675,6 +1717,9 @@ function startReconApp() {
                 const tokenKey = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "recon_auth_token_local" : "recon_auth_token";
                 try { sessionStorage.setItem(tokenKey, token); } catch(e) {}
                 try { localStorage.setItem(tokenKey, token); } catch(e) {}
+                if (window.RECON_API && typeof window.RECON_API.setToken === "function") {
+                  window.RECON_API.setToken(token);
+                }
               }
 
               // . SET GLOBALLY (Accessibility)
@@ -2073,8 +2118,8 @@ function startReconApp() {
 
  
 </script>
-      <script src="api.js?v=22"></script>
-    <script src="js/gas-shim.js?v=22"></script>
+      <script src="api.js?v=25"></script>
+    <script src="js/gas-shim.js?v=25"></script>
   </head>
   <body>
     <div
@@ -3651,7 +3696,7 @@ function startReconApp() {
     <script src="js/ImportInvJS.js?v=22"></script>
     <script src="js/ScannerJS.js?v=22"></script>
     <script src="js/AzureTestJS.js?v=22"></script>
-    <script src="js/SheetsSyncJS.js?v=22"></script>    
+    <script src="js/SheetsSyncJS.js?v=23"></script>
     <script src="js/CreateBulkPOMACJS.js?v=22"></script>
     <script src="js/QuoteReportJS.js?v=22"></script>
     <script src="js/LifecycleReportJS.js?v=22"></script>
@@ -3699,8 +3744,3 @@ function startReconApp() {
     </button>
   </body>
 </html>
-
-
-
-
-

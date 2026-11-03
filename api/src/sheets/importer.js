@@ -1,4 +1,5 @@
 const cfg = require('./sheets-config');
+const { hashSyncPin, normalizeSyncUserId } = require('../utils/sync-pin');
 function ident(col) {
   return '"' + String(col).replace(/"/g, '""') + '"';
 }
@@ -106,7 +107,19 @@ async function upsert(db, table, record, keys) {
   stripHelpers(record);
   const cols = Object.keys(record);
   if (!cols.length) return { action: 'empty', id: null };
-  const existing = await findByKeys(db, table, record, keys);
+  let existing = await findByKeys(db, table, record, keys);
+  if (table === 'users' && record.email) {
+    record.email = String(record.email).trim().toLowerCase();
+    const emailStmt = await db.prepare('SELECT * FROM "users" WHERE lower(trim("email")) = ? LIMIT 1');
+    const emailExisting = await emailStmt.bind(String(record.email).trim().toLowerCase()).first();
+    if (existing && emailExisting && existing.id !== emailExisting.id) {
+      throw new Error(`User ID ${record.user_id} and email ${record.email} belong to different existing users`);
+    }
+    existing = existing || emailExisting;
+    if (existing && record.user_id !== existing.user_id) {
+      record.user_id = existing.user_id;
+    }
+  }
   if (existing && existing.id !== undefined) {
     const sets = cols.map((c) => ident(c) + ' = ?').join(', ');
     const stmt = await db.prepare('UPDATE ' + ident(table) + ' SET ' + sets + ', updated_at = CURRENT_TIMESTAMP WHERE ' + ident('id') + ' = ?');
@@ -186,7 +199,21 @@ function checkHeaders(meta, actual) {
 }
 
 async function runHandler(db, key, meta, rows, opts = {}) {
-  if (key === 'users') return [];
+  if (key === 'users') {
+    return rows.filter((r) => r[0]).map((r) => {
+      const record = mapRow(meta, r, opts.columnMap);
+      record.user_id = normalizeSyncUserId(record.user_id);
+      if (record.email) record.email = String(record.email).trim().toLowerCase();
+      const pin = record.pin;
+      delete record.pin;
+      if (pin !== undefined && pin !== null && String(pin).trim() !== '') {
+        record.pin_hash = hashSyncPin(pin);
+      }
+      if (!record.pin_hash) delete record.pin_hash;
+      record.is_active = record.is_active === undefined ? 1 : record.is_active;
+      return { table: meta.dbTable, record, keys: meta.naturalKey };
+    });
+  }
   if (key === 'master') {
     const out = [];
     const defaultMap = {
@@ -277,7 +304,32 @@ async function runHandler(db, key, meta, rows, opts = {}) {
   }
 
   if (key === 'config') {
-    return rows.filter((r) => r[0]).map((r) => ({ table: meta.dbTable, record: { key: toValue(r[0]), value: toValue(r[1]) }, keys: ['key'] }));
+    const configKeyAliases = {
+      'req email': 'reqEmailEnabled',
+      'req pdf': 'reqPdfEnabled',
+      'quo email': 'quoEmailEnabled',
+      'quo pdf': 'quoPdfEnabled',
+      'quote email pending': 'quoteEmailPending',
+      'quote email quoted': 'quoteEmailQuoted',
+      'quote email approved': 'quoteEmailApproved',
+      'quote email sent': 'quoteEmailSent',
+      'quote email received': 'quoteEmailReceived',
+      'quote email despatched': 'quoteEmailDespatched',
+      'quote email final received': 'quoteEmailFinalReceived',
+      'req no counter': 'req_no_counter',
+      'req no': 'req_no_counter',
+      'req number': 'req_no_counter',
+      'req number counter': 'req_no_counter',
+      'requisition no': 'req_no_counter',
+      'requisition number': 'req_no_counter',
+      'req counter': 'req_no_counter',
+      'requisition no counter': 'req_no_counter'
+    };
+    return rows.filter((r) => r[0]).map((r) => {
+      const sourceKey = toValue(r[0]);
+      const key = configKeyAliases[String(sourceKey).trim().toLowerCase()] || sourceKey;
+      return { table: meta.dbTable, record: { key, value: toValue(r[1]) }, keys: ['key'] };
+    });
   }
 
   return rows.map((r) => ({ table: meta.dbTable, record: mapRow(meta, r, opts.columnMap), keys: meta.naturalKey }));

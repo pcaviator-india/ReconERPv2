@@ -12,6 +12,12 @@ CREATE TABLE IF NOT EXISTS config (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS requisition_sequences (
+  sequence_key TEXT PRIMARY KEY,
+  last_number INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Users (4-digit user_id + bcrypt-hashed 4-digit PIN)
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

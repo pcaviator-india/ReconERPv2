@@ -1195,7 +1195,7 @@ window.reqPreviewImagesCell = function(images, escFn) {
 })();
 
 window.addItemToCart = async function(id) {
-  const item = (window.fullInventory || []).find(i => i.id === id);
+  const item = (window.fullInventory || []).find(i => String(i.id) === String(id));
   if (!item) return;
 
   console.log("if bundle, then its category", item.category, id);
@@ -1907,6 +1907,13 @@ function continueFinalizeReq(currentCart, user, finalSite, finalSubArea, finalSu
           items: grouped[cat], 
           ...res 
         }))
+        .withFailureHandler(err => resolve({
+          category: cat,
+          items: grouped[cat],
+          routing: { emails: '', suffix: 'GEN' },
+          signature: '',
+          routingError: String(err && err.message ? err.message : err)
+        }))
         .getRoutingPreview(finalSite, cat, user ? user.email : "", finalSubArea);
     });
   });
@@ -2172,6 +2179,19 @@ window.confirmAndSend = function() {
   }
 
   const user = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure'));
+  const senderEmail = String(user && user.email || '').trim().toLowerCase();
+  if (!/@recondrilling\.com$/i.test(senderEmail)) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = getI18nText('btn_try_again');
+    }
+    Swal.fire(
+      getI18nText('msg_error'),
+      'Email cannot be sent because the logged-in user does not have a recondrilling.com email address.',
+      'error'
+    );
+    return;
+  }
   const siteSelect = document.getElementById('siteSelect');
   
   // Straight from the UI dropdown element
@@ -2241,25 +2261,18 @@ window.confirmAndSend = function() {
 
   google.script.run
     .withSuccessHandler(function(res) {
-      if (res && res.success && Array.isArray(res.data)) {
-        const pendingFallback = res.data.find(order => order && order.requiresFallbackChoice);
-        if (pendingFallback) {
-          Swal.fire({
-            icon: 'error',
-            title: 'Email Send Failed',
-            text: pendingFallback.graphError || 'Microsoft Graph could not send the email. Please check the system configuration.',
-          });
-        }
-      }
-
-      if (res.success) {
+      if (res && res.success) {
+        const emailWarning = res.emailConfigured === false || (Array.isArray(res.data) &&
+          res.data.some(order => order && order.emailSent === false));
         modalBody.innerHTML = `
           <div class="text-center p-3">
             <div class="mb-3">
-                <i class="bi bi-check-circle-fill text-success" style="font-size: 3rem;"></i>
+                <i class="bi ${emailWarning ? 'bi-check-circle-fill text-warning' : 'bi-check-circle-fill text-success'}" style="font-size: 3rem;"></i>
             </div>
-            <h4 class="fw-bold" data-i18n="email_sent_success">Requirements Generated!</h4>
-            <p class="text-muted small" data-i18n="email_sent_subtitle">Documents have been saved to Drive and emails sent.</p>
+            <h4 class="fw-bold">${emailWarning ? 'Requirements Saved' : 'Requirements Generated!'}</h4>
+            <p class="text-muted small">${emailWarning
+              ? 'The requisition was saved, but email delivery is not configured in the API.'
+              : 'Documents have been saved and emails sent.'}</p>
             <hr>
             <div id="pdfDownloadList" class="text-start"></div>
           </div>
@@ -2274,17 +2287,17 @@ window.confirmAndSend = function() {
         res.data.forEach(order => {
           const div = document.createElement('div');
           div.className = "d-flex justify-content-between align-items-center border rounded p-2 mb-2 bg-light";
-          const emailStatus = order.emailSent 
+          const emailStatus = order.emailSent
             ? `<span class="badge bg-success ms-2"><i class="bi bi-envelope-check"></i> ${getI18nText('email_status_sent').replace('{service}', order.emailService)}</span>`
-            : `<span class="badge bg-warning ms-2"><i class="bi bi-envelope-slash"></i> ${getI18nText('email_status_disabled')}</span>`;
+            : `<span class="badge bg-warning ms-2"><i class="bi bi-envelope-slash"></i> ${order.emailError || 'Email not configured'}</span>`;
           div.innerHTML = `
             <div style="flex: 1;">
               <span class="small fw-bold">${order.orderId}</span>
               ${emailStatus}
             </div>
-            <a href="${order.pdfUrl}" target="_blank" class="btn btn-danger btn-sm ms-2" data-i18n="email_pdf_download">
+            ${order.pdfUrl ? `<a href="${order.pdfUrl}" target="_blank" class="btn btn-danger btn-sm ms-2" data-i18n="email_pdf_download">
               <i class="bi bi-file-pdf"></i> Download
-            </a>
+            </a>` : ''}
           `;
           downloadList.appendChild(div);
         });

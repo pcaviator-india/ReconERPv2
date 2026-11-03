@@ -230,6 +230,14 @@
     }
     try {
       var sheets = await sheetList();
+      if (!sheets.some(function (s) { return s.key === 'users'; })) {
+        sheets.push({
+          key: 'users',
+          gasSheet: 'Users',
+          dbTable: 'users',
+          expectedHeaders: ['User ID', 'PIN', 'FullName', 'Email', 'Phone', 'Position', 'Site', 'Role', 'SignLink', 'Active']
+        });
+      }
       sheets.forEach(function (s) {
         var o = document.createElement('option');
         o.value = s.key;
@@ -642,6 +650,39 @@
             Maquina: 'maquinaria',
             Generador: 'generadores',
             Vehiculo: 'vehiculos'
+          }
+        };
+      }
+      if (!studioState.schemas.users) {
+        studioState.schemas.users = {
+          key: 'users',
+          label: 'Users',
+          gasSheet: 'Users',
+          isSplit: false,
+          table: 'users',
+          fields: [
+            { field: 'user_id', label: 'User ID', required: true },
+            { field: 'pin', label: 'PIN' },
+            { field: 'name', label: 'Full Name' },
+            { field: 'email', label: 'Email' },
+            { field: 'phone', label: 'Phone' },
+            { field: 'position', label: 'Position' },
+            { field: 'site', label: 'Site' },
+            { field: 'role', label: 'Role' },
+            { field: 'sign_link', label: 'Sign Link' },
+            { field: 'is_active', label: 'Active (1/0)', type: 'number' }
+          ],
+          defaultMapping: {
+            'User ID': 'user_id',
+            'PIN': 'pin',
+            'FullName': 'name',
+            'Email': 'email',
+            'Phone': 'phone',
+            'Position': 'position',
+            'Site': 'site',
+            'Role': 'role',
+            'SignLink': 'sign_link',
+            'Active': 'is_active'
           }
         };
       }

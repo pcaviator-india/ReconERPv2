@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
+const usersRoutes = require('./routes/users');
 const healthRoutes = require('./routes/health');
 const referenceRoutes = require('./routes/reference');
 const productRoutes = require('./routes/products');
@@ -71,6 +72,7 @@ app.locals.db = db;
 // Routes
 app.use('/api/v1/health', healthRoutes);
 app.use('/api/v1/auth', authLimiter, authRoutes);
+app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/reference', referenceRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/stock', stockRoutes);

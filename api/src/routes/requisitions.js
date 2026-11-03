@@ -131,9 +131,7 @@ router.post('/', authenticateToken, async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, 'pending')
     `);
 
-    const countStmt = await db.prepare('SELECT COUNT(*) as count FROM requisitions');
-    const countResult = await countStmt.first();
-    const requisitionNo = `REQ-${String(countResult.count + 1).padStart(6, '0')}`;
+    const requisitionNo = await nextRequisitionNumber(db);
 
     await insertReq.bind(requisitionId, requisitionNo, site_id, userId, priority || 'normal', notes || '').run();
 
@@ -154,6 +152,47 @@ router.post('/', authenticateToken, async (req, res) => {
       },
       message: 'Requisition created successfully'
     });
+
+    async function nextRequisitionNumber(db) {
+      await (await db.prepare(`
+        CREATE TABLE IF NOT EXISTS requisition_sequences (
+          sequence_key TEXT PRIMARY KEY,
+          last_number INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `)).run();
+
+      const existing = await (await db.prepare(
+        "SELECT last_number FROM requisition_sequences WHERE sequence_key = 'requisition_no'"
+      )).first();
+      if (!existing) {
+        const config = await (await db.prepare(
+          "SELECT value FROM config WHERE key = 'req_no_counter' LIMIT 1"
+        )).first();
+        const rows = await (await db.prepare(
+          'SELECT requisition_no FROM requisitions'
+        )).all();
+        const configured = Number.parseInt(config && config.value, 10);
+        const maxExisting = (rows.results || rows).reduce((max, row) => {
+          const match = String(row.requisition_no || '').match(/^REQ-(\d+)/i);
+          return match ? Math.max(max, Number.parseInt(match[1], 10)) : max;
+        }, 0);
+        const initial = Number.isFinite(configured) ? Math.max(configured, maxExisting) : maxExisting;
+        await (await db.prepare(`
+          INSERT OR IGNORE INTO requisition_sequences (sequence_key, last_number)
+          VALUES ('requisition_no', ?)
+        `)).bind(initial).run();
+      }
+
+      const result = await (await db.prepare(`
+        UPDATE requisition_sequences
+        SET last_number = last_number + 1, updated_at = CURRENT_TIMESTAMP
+        WHERE sequence_key = 'requisition_no'
+        RETURNING last_number
+      `)).first();
+      if (!result) throw new Error('Unable to allocate requisition number');
+      return `REQ-${String(result.last_number).padStart(6, '0')}`;
+    }
   } catch (err) {
     console.error('Create requisition error:', err);
     res.status(500).json({ status: 'error', message: 'Internal server error' });

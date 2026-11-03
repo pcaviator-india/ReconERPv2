@@ -48,6 +48,27 @@ const SHEETS = Object.freeze({
     ],
   },
 
+  users: {
+    gasSheet: 'Users',
+    dbTable: 'users',
+    naturalKey: ['user_id'],
+    columns: [
+      { index: 0, header: 'User ID', dbField: 'user_id' },
+      { index: 1, header: 'PIN', dbField: 'pin' },
+      { index: 2, header: 'FullName', dbField: 'name' },
+      { index: 3, header: 'Email', dbField: 'email' },
+      { index: 4, header: 'Phone', dbField: 'phone' },
+      { index: 5, header: 'Position', dbField: 'position' },
+      { index: 6, header: 'Site', dbField: 'site' },
+      { index: 7, header: 'Role', dbField: 'role' },
+      { index: 8, header: 'SignLink', dbField: 'sign_link' },
+      { index: 9, header: 'Active', dbField: 'is_active', parse: v => {
+        const s = String(v || '').trim().toLowerCase();
+        return s === '1' || s === 'true' || s === 'yes' ? 1 : 0;
+      } },
+    ],
+  },
+
   movementVal: {
     gasSheet: 'Movement_Val',
     dbTable: 'movement_val',

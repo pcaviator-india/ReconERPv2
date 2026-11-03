@@ -7,6 +7,7 @@ const { SheetsClient } = require('../sheets/sheets-client');
 const { Importer } = require('../sheets/importer');
 const cfg = require('../sheets/sheets-config');
 const { SCHEMA_DEFINITIONS, parseCSV, transformRows } = require('../sheets/transformer');
+const { hashSyncPin, normalizeSyncUserId } = require('../utils/sync-pin');
 
 /** Resolve effective connection: DB config row > env var. */
 async function getConnection(db) {
@@ -317,7 +318,7 @@ router.post('/import', authenticateToken, async (req, res) => {
  * GET /api/v1/sheets/schema-definitions
  * Returns metadata of target schemas and default mappings.
  */
-router.get('/schema-definitions', authenticateToken, (req, res) => {
+router.get('/schema-definitions', (req, res) => {
   res.json({
     status: 'success',
     data: SCHEMA_DEFINITIONS
@@ -450,6 +451,7 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
 
     const transformed = transformRows(sheetKey, headers, rows, mapping || {});
     const stmts = [];
+    let directStatementsExecuted = 0;
 
     const genId = (prefix) => {
       if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -761,6 +763,53 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         `);
         stmts.push(stmt.bind(...values, ...values));
       }
+    } else if (sheetKey === 'users') {
+      const seenEmails = new Map();
+      for (const r of transformed.records || []) {
+        if (!r.user_id || !r.email) continue;
+        const userId = normalizeSyncUserId(r.user_id);
+        const email = String(r.email).trim().toLowerCase();
+        const previousUserId = seenEmails.get(email);
+        if (previousUserId && previousUserId !== userId) {
+          throw new Error(`Duplicate user email in Users sheet: ${r.email} (User IDs ${previousUserId} and ${userId})`);
+        }
+        seenEmails.set(email, userId);
+
+        const existingById = await (await db.prepare(
+          'SELECT id FROM users WHERE user_id = ? LIMIT 1'
+        )).bind(userId).first();
+        const existingByEmail = await (await db.prepare(
+          'SELECT id, user_id FROM users WHERE lower(trim(email)) = ? LIMIT 1'
+        )).bind(email).first();
+        if (existingById && existingByEmail && existingById.id !== existingByEmail.id) {
+          throw new Error(`User ID ${r.user_id} and email ${r.email} belong to different existing users`);
+        }
+        const existing = existingById || existingByEmail;
+        if (!existing && !r.pin) continue;
+        const pinHash = r.pin ? hashSyncPin(r.pin) : null;
+        const stmt = await db.prepare(existing ? `
+          UPDATE users SET user_id = ?, email = ?, pin_hash = COALESCE(?, pin_hash),
+            name = ?, phone = ?, position = ?, site = ?, role = ?, sign_link = ?,
+            is_active = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        ` : `
+          INSERT INTO users (user_id, email, pin_hash, name, phone, position, site, role, sign_link, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const bound = existing
+          ? stmt.bind(
+              userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
+              r.site || null, r.role || 'operator', r.sign_link || null,
+              r.is_active == null ? 1 : r.is_active, existing.id
+            )
+          : stmt.bind(
+              userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
+              r.site || null, r.role || 'operator', r.sign_link || null,
+              r.is_active == null ? 1 : r.is_active
+            );
+        await bound.run();
+        directStatementsExecuted++;
+      }
     } else if (sheetKey === 'master') {
       const productRows = (transformed.records || []).filter(r => r.geo);
       const masterBatchSize = 40;
@@ -854,6 +903,52 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
           r.maquina || null, r.generador || null, r.vehiculo || null, r.condition || null,
           r.comments || null, r.site || null
         ));
+      }
+    } else if (sheetKey === 'users') {
+      const seenEmails = new Map();
+      for (const r of transformed.records || []) {
+        if (!r.user_id || !r.email) continue;
+        const userId = normalizeSyncUserId(r.user_id);
+        const email = String(r.email).trim().toLowerCase();
+        const previousUserId = seenEmails.get(email);
+        if (previousUserId && previousUserId !== userId) {
+          throw new Error(`Duplicate user email in Users sheet: ${r.email} (User IDs ${previousUserId} and ${userId})`);
+        }
+        seenEmails.set(email, userId);
+
+        const existingById = await (await db.prepare(
+          'SELECT id FROM users WHERE user_id = ? LIMIT 1'
+        )).bind(userId).first();
+        const existingByEmail = await (await db.prepare(
+          'SELECT id, user_id FROM users WHERE lower(trim(email)) = ? LIMIT 1'
+        )).bind(email).first();
+        if (existingById && existingByEmail && existingById.id !== existingByEmail.id) {
+          throw new Error(`User ID ${r.user_id} and email ${r.email} belong to different existing users`);
+        }
+        const existing = existingById || existingByEmail;
+        if (!existing && !r.pin) continue;
+        const pinHash = r.pin ? hashSyncPin(r.pin) : null;
+        const stmt = await db.prepare(existing ? `
+          UPDATE users SET user_id = ?, email = ?, name = ?, phone = ?, position = ?, site = ?,
+            role = ?, sign_link = ?, is_active = ?,
+            pin_hash = COALESCE(?, pin_hash), updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        ` : `
+          INSERT INTO users (user_id, email, pin_hash, name, phone, position, site, role, sign_link, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const bound = existing
+          ? stmt.bind(
+              userId, email, r.name || null, r.phone || null, r.position || null, r.site || null,
+              r.role || 'operator', r.sign_link || null, r.is_active != null ? r.is_active : 1,
+              pinHash, existing.id
+            )
+          : stmt.bind(
+              userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
+              r.site || null, r.role || 'operator', r.sign_link || null, r.is_active != null ? r.is_active : 1
+            );
+        await bound.run();
+        directStatementsExecuted++;
       }
     } else if (sheetKey === 'people') {
       for (const r of transformed.records || []) {
@@ -1041,7 +1136,7 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       }
     }
 
-    const executedCount = await executeBatchChunks(db, stmts, 50);
+    const executedCount = directStatementsExecuted + await executeBatchChunks(db, stmts, 50);
 
     // Post-sync backfill: guarantee requisition_id is populated for all quotes
     // by matching quote_no against requisitions.requisition_no using substring match.

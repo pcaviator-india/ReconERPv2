@@ -6,7 +6,10 @@
 // Default: same-origin /api/v1 (frontend served by the API server).
 // Override with window.RECON_API_BASE_URL before this script loads
 // (e.g. for a separate static host pointing at a remote API).
-const API_BASE_URL = window.RECON_API_BASE_URL || (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '/api/v1' : 'https://recon-erp-api.reconerp.workers.dev/api/v1');
+const IS_LOCAL_HOST = typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const API_BASE_URL = window.RECON_API_BASE_URL ||
+  (IS_LOCAL_HOST ? 'http://localhost:3000/api/v1' : 'https://recon-erp-api.reconerp.workers.dev/api/v1');
 const AUTH_TOKEN_KEY = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
   ? 'recon_auth_token_local'
   : 'recon_auth_token';
