@@ -228,13 +228,18 @@ const IMPLEMENTED = {
              ri.id AS item_id, ri.quantity_requested, ri.status AS item_status,
              ri.notes AS item_notes_legacy, ri.item_notes, ri.supplier_notes, ri.images,
              ri.geo AS ri_geo, ri.pn AS ri_pn, ri.description_es AS ri_desc_es,
-             p.geo, p.pn, p.name AS product_name, p.description,
-             c.name AS category_name
+             p_id.geo AS product_geo, p_id.pn AS product_pn,
+             p_geo.geo AS geo_product_geo, p_geo.pn AS geo_product_pn,
+             COALESCE(p_id.name, p_geo.name) AS product_name,
+             COALESCE(p_id.description, p_geo.description) AS description,
+             COALESCE(c_id.name, c_geo.name) AS category_name
       FROM requisitions r
       JOIN requisition_items ri ON ri.requisition_id = r.id
       LEFT JOIN sites s ON s.id = r.site_id
-      LEFT JOIN products p ON p.id = ri.product_id OR p.geo = ri.geo
-      LEFT JOIN categories c ON c.id = p.category_id
+      LEFT JOIN products p_id ON p_id.id = ri.product_id
+      LEFT JOIN products p_geo ON p_geo.geo = ri.geo
+      LEFT JOIN categories c_id ON c_id.id = p_id.category_id
+      LEFT JOIN categories c_geo ON c_geo.id = p_geo.category_id
       ORDER BY r.created_at DESC, ri.id ASC
     `);
 
@@ -257,8 +262,8 @@ const IMPLEMENTED = {
         order,
         fecha: validDate ? validDate.toLocaleString() : '',
         fechaIso: validDate ? validDate.toISOString() : '',
-        pn: row.ri_pn || row.pn || '',
-        geo: row.ri_geo || row.geo || '',
+        pn: row.ri_pn || row.product_pn || row.geo_product_pn || '',
+        geo: row.ri_geo || row.product_geo || row.geo_product_geo || '',
         faena: row.site || row.site_name || '',
         desc: row.ri_desc_es || row.description || row.product_name || '',
         cant: row.quantity_requested != null ? row.quantity_requested : 0,

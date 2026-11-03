@@ -116,6 +116,7 @@ const SCHEMA_DEFINITIONS = {
       { field: 'approved_qty', label: 'Quantity Approved', type: 'number' },
       { field: 'discount_pct', label: 'Discount %', type: 'number' },
       { field: 'freight', label: 'Transport / Freight', type: 'number' },
+      { field: 'status', label: 'Item Status' },
     ],
     defaultMapping: {
       'Ref ID': 'parent.ref_id',
@@ -139,7 +140,13 @@ const SCHEMA_DEFINITIONS = {
       'IVA INC': 'parent.iva_inc',
       'Condicion Pago': 'parent.condicion_pago',
       'Category': 'parent.category',
+      'Categoría': 'parent.category',
+      'Categoria': 'parent.category',
+      'cat': 'parent.category',
       'SubCategory': 'child.sub_category',
+      'Subcategoría': 'child.sub_category',
+      'Subcategoria': 'child.sub_category',
+      'subcat': 'child.sub_category',
       'Created Date': 'parent.created_at',
       'Last Modified By': 'parent.last_modified_by',
       'Last Modified Date': 'parent.last_modified_date',
@@ -182,6 +189,68 @@ const SCHEMA_DEFINITIONS = {
       'AvailableQty': 'available_qty',
       'LastUpdated': 'last_updated',
       'UpdatedBy': 'updated_by'
+    }
+  },
+
+  master: {
+    key: 'master',
+    label: 'Master Product Inventory',
+    gasSheet: 'Master',
+    isSplit: false,
+    table: 'products',
+    fields: [
+      { field: 'geo', label: 'GEO Code', required: true },
+      { field: 'pn', label: 'Product Number / P/N' },
+      { field: 'name', label: 'Product Name' },
+      { field: 'description', label: 'Description (English)' },
+      { field: 'description_es', label: 'Description (Spanish)' },
+      { field: 'category', label: 'Category' },
+      { field: 'subCategory', label: 'Subcategory' },
+      { field: 'brand', label: 'Brand' },
+      { field: 'supplier', label: 'Supplier' },
+      { field: 'unit', label: 'Unit' },
+      { field: 'cost', label: 'Cost', type: 'number' },
+      { field: 'min_qty', label: 'Minimum Quantity', type: 'number' },
+      { field: 'max_qty', label: 'Maximum Quantity', type: 'number' },
+      { field: 'eta', label: 'ETA' },
+      { field: 'is_active', label: 'Active', type: 'number' },
+    ],
+    defaultMapping: {
+      'Geo': 'geo',
+      'GEO': 'geo',
+      'P/N': 'pn',
+      'PN': 'pn',
+      'Name': 'name',
+      'Description (en)': 'description',
+      'Description (es)': 'description_es',
+      'Category': 'category',
+      'SubCategory': 'subCategory',
+      'Brand': 'brand',
+      'Supplier': 'supplier',
+      'Unit': 'unit',
+      'Cost': 'cost',
+      'MinQty': 'min_qty',
+      'MaxQty': 'max_qty',
+      'ETA': 'eta',
+      'IsActive': 'is_active',
+    }
+  },
+
+  movementVal: {
+    key: 'movementVal',
+    label: 'Movement Validation',
+    gasSheet: 'Movement_Val',
+    isSplit: false,
+    table: 'movement_val',
+    fields: [
+      { field: 'maquinaria', label: 'Maquina' },
+      { field: 'generadores', label: 'Generador' },
+      { field: 'vehiculos', label: 'Vehiculo' },
+    ],
+    defaultMapping: {
+      'Maquina': 'maquinaria',
+      'Generador': 'generadores',
+      'Vehiculo': 'vehiculos',
     }
   },
 
@@ -622,21 +691,34 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
   if (!def) throw new Error('Unknown sheet definition: ' + sheetKey);
 
   const headerIndexMap = {};
+  function normKey(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s\-_()\/]/g, '');
+  }
   headers.forEach((h, idx) => {
     const key = (h || '').trim();
     if (!key) return;
     // exact (trimmed) header -> column index
     if (headerIndexMap[key] === undefined) headerIndexMap[key] = idx;
-    // case-insensitive alias -> column index (first occurrence wins)
-    const lower = key.toLowerCase();
-    if (headerIndexMap[lower] === undefined) headerIndexMap[lower] = idx;
+    // case-insensitive + accent-insensitive alias -> column index (first occurrence wins)
+    const nk = normKey(key);
+    if (headerIndexMap[nk] === undefined) headerIndexMap[nk] = idx;
   });
 
   function resolveColIdx(sheetHeader) {
     if (sheetHeader == null) return undefined;
     const key = String(sheetHeader).trim();
     if (headerIndexMap[key] !== undefined) return headerIndexMap[key];
-    return headerIndexMap[key.toLowerCase()];
+    const nk = normKey(key);
+    if (headerIndexMap[nk] !== undefined) return headerIndexMap[nk];
+    if (headerIndexMap[key.toLowerCase()] !== undefined) return headerIndexMap[key.toLowerCase()];
+    // Last-resort substring match: any header whose normalized form contains
+    // the normalized key (or vice versa) wins. Handles 'Categoría' vs 'Category',
+    // 'Ref ID' vs 'ID Referencia', etc.
+    for (const [hdr, idx] of Object.entries(headerIndexMap)) {
+      const nh = normKey(hdr);
+      if (nh && (nh.includes(nk) || nk.includes(nh))) return idx;
+    }
+    return undefined;
   }
 
   const activeMapping = Object.assign({}, def.defaultMapping, mapping);
@@ -665,6 +747,16 @@ function transformRows(sheetKey, headers, rows, mapping = {}) {
           childObj[fieldName] = cleanVal(rawVal, fieldDef ? fieldDef.type : 'string');
         }
       });
+
+      // Quote status is present on every sheet line. Keep the parent status
+      // behavior for compatibility, but also preserve the line-level value so
+      // Deleted/Not Quoted rows are not incorrectly treated as active.
+      if (sheetKey === 'quotes') {
+        const statusIdx = resolveColIdx('Estado');
+        if (statusIdx !== undefined && statusIdx < row.length) {
+          childObj.status = cleanVal(row[statusIdx], 'string');
+        }
+      }
 
       const groupKeyValue = parentObj[groupKeyField];
       if (!groupKeyValue) return;

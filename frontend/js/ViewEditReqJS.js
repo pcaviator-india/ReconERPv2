@@ -304,10 +304,15 @@ function applySiteLockState() {
   // 1. Visual Feedback: Dim the table to show "Loading" state
   if (tableBody) tableBody.style.opacity = "0.5";
 
-  // 2. Run both calls in parallel to ensure we have Master Categories + Order History
-  // We use two separate calls because they return different data structures
-  google.script.run.withSuccessHandler(function(historyData) {
-    google.script.run.withSuccessHandler(function(validationData) {
+  // 2. Run both calls in parallel to avoid making the history wait for the
+  // validation request. Both responses are required before rendering.
+  let historyData;
+  let validationData;
+  let historyDone = false;
+  let validationDone = false;
+  let failed = false;
+  const finish = function () {
+    if (!historyDone || !validationDone || failed) return;
       
       // A. Update Global History Data
       fullHistory = historyData || [];
@@ -351,11 +356,29 @@ function applySiteLockState() {
       console.log("History and Categories synchronized.");
       setTimeout(lockSiteSelector, 150);
 
-    }).getValidationData(); // Fetch Category Master List
-  }).withFailureHandler(function(err) {
+  };
+  const fail = function (err) {
+    if (failed) return;
+    failed = true;
       if (tableBody) tableBody.style.opacity = "1";
       alert("Failed to sync history: " + err);
-  }).getRequirementsHistory(); // Fetch Order Rows
+  };
+  google.script.run
+    .withSuccessHandler(function (data) {
+      historyData = data || [];
+      historyDone = true;
+      finish();
+    })
+    .withFailureHandler(fail)
+    .getRequirementsHistory();
+  google.script.run
+    .withSuccessHandler(function (data) {
+      validationData = data || {};
+      validationDone = true;
+      finish();
+    })
+    .withFailureHandler(fail)
+    .getValidationData();
 };
 
 window.lockSiteSelector = function() {

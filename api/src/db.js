@@ -72,6 +72,7 @@ const COLUMN_MIGRATIONS = [
   ['quote_items', 'received_qty', 'INTEGER DEFAULT 0'],
   ['quote_items', 'discount_pct', 'REAL DEFAULT 0'],
   ['quote_items', 'freight', 'REAL DEFAULT 0'],
+  ['quote_items', 'status', "TEXT DEFAULT 'Pending'"],
   // stock & stock_ledger
   ['stock', 'geo', 'TEXT'],
   ['stock_ledger', 'ledger_id', 'TEXT'],
@@ -88,6 +89,12 @@ const COLUMN_MIGRATIONS = [
   ['hse_signatures', 'match_timestamp', 'TEXT'],
   ['hse_signatures', 'items_count', 'INTEGER DEFAULT 0'],
   ['hse_signatures', 'items_json', 'TEXT'],
+  // Reference tables used by the Google Sheets sync routes.
+  ['sites', 'email', 'TEXT'],
+  ['categories', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
+  ['brands', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
+  ['suppliers', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
+  ['sub_categories', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
 ];
 
 // Reads schema.sql and returns the CREATE TABLE statements it contains.
@@ -156,7 +163,12 @@ class Database {
 
   async batch(statements) {
     if (this._sqlite) {
-      return statements.map(s => s.raw ? s.raw.run() : null);
+      return statements.map(s => {
+        if (s instanceof SqliteStatement) {
+          return s.stmt.run(...s._bindings);
+        }
+        return s && s.raw ? s.raw.run() : null;
+      });
     }
     return this.env.DB.batch(statements.map(s => s.raw));
   }

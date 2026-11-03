@@ -7,28 +7,31 @@
 // Override with window.RECON_API_BASE_URL before this script loads
 // (e.g. for a separate static host pointing at a remote API).
 const API_BASE_URL = window.RECON_API_BASE_URL || (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '/api/v1' : 'https://recon-erp-api.reconerp.workers.dev/api/v1');
+const AUTH_TOKEN_KEY = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+  ? 'recon_auth_token_local'
+  : 'recon_auth_token';
 
 const RECON_API = {
   _token: null,
 
   init() {
-    this._token = sessionStorage.getItem('recon_auth_token') || (localStorage.getItem('recon_auth_token') || null);
+    this._token = sessionStorage.getItem(AUTH_TOKEN_KEY) || (localStorage.getItem(AUTH_TOKEN_KEY) || null);
   },
 
   setToken(token) {
     this._token = token;
-    try { sessionStorage.setItem('recon_auth_token', token); } catch(e) {}
+    try { sessionStorage.setItem(AUTH_TOKEN_KEY, token); } catch(e) {}
     if (token) {
-      localStorage.setItem('recon_auth_token', token);
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
     } else {
-      try { sessionStorage.removeItem('recon_auth_token'); } catch(e) {}
-      localStorage.removeItem('recon_auth_token');
+      try { sessionStorage.removeItem(AUTH_TOKEN_KEY); } catch(e) {}
+      localStorage.removeItem(AUTH_TOKEN_KEY);
     }
   },
 
   getToken() {
     if (!this._token) {
-      this._token = sessionStorage.getItem('recon_auth_token') || (localStorage.getItem('recon_auth_token') || null);
+      this._token = sessionStorage.getItem(AUTH_TOKEN_KEY) || (localStorage.getItem(AUTH_TOKEN_KEY) || null);
     }
     return this._token;
   },

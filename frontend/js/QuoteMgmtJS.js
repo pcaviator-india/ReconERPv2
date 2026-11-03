@@ -1,4 +1,4 @@
-let groupedQuotes = [];
+﻿let groupedQuotes = [];
   let allQuotesRaw = [];
   let visibleQuoteGroups = [];
   // Rows of the quote currently open in the edit modal (see openEditQuote).
@@ -10,7 +10,7 @@ let groupedQuotes = [];
   // "ReferenceError: editRows is not defined".
   let editRows = [];
 
-  // 🕐 QUOTES LOCKED WHILE THEIR BACKGROUND SAVE RUNS.
+  // ðŸ• QUOTES LOCKED WHILE THEIR BACKGROUND SAVE RUNS.
   // Mirror of window.pendingEditOrderId in ViewEditReqJS.html: a fire-and-forget
   // save closes the edit modal immediately and keeps working server-side
   // (write + PDF + email + stock), so the card must be greyed out and re-editing
@@ -24,6 +24,15 @@ let groupedQuotes = [];
   /** Registry key for one quote/card. `meta` may be the group or the edit ctx. */
   function quoteSaveKeyOf(meta) {
     return quoteGroupKey(meta || {});
+  }
+
+  /** Read a property from an item, trying multiple key names (snake_case / camelCase). */
+  function itemProp(it, ...keys) {
+    for (const k of keys) {
+      const v = it[k];
+      if (v !== undefined && v !== null && v !== '') return v;
+    }
+    return '';
   }
 
   /**
@@ -114,7 +123,7 @@ let groupedQuotes = [];
   // isStatusTransitionAllowed (client) and isValidQuoteItemStatusProgression
   // (server) instead.
 
-  // Statuses that are considered "quoted or later" — supplier quote no + quoted
+  // Statuses that are considered "quoted or later" â€” supplier quote no + quoted
   // document are auto-applied to any item in these states.
   const QUOTED_OR_LATER_STATUSES = [
     "Quoted",
@@ -392,12 +401,9 @@ let groupedQuotes = [];
   }
 
   // ---- Quote card grouping (single source of truth) ----
-  // ONE card per requirement + supplier + category. The Quote ID is deliberately
-  // NOT part of the key: the same supplier quote can end up with rows carrying
-  // different (or blank) Quote IDs - older rows written before the ID existed, or
-  // items added later through a brand new RFQ send. Keying on it split one
-  // supplier quote into several "duplicate" cards, and the cache sync (which
-  // matches on req + supplier + category) then silently dropped the sibling rows.
+  // ONE card per requirement + supplier + category. A supplier may have
+  // multiple RFQ rounds for the same requirement; those rows belong in one
+  // supplier card while each row keeps its own Quote ID internally.
   function quoteGroupKey(item) {
     const it = item || {};
     return [
@@ -430,7 +436,7 @@ let groupedQuotes = [];
     });
     if (!group.reqDate && it.reqDate) group.reqDate = String(it.reqDate).trim();
     if (!group.reqDateIso && it.reqDateIso) group.reqDateIso = String(it.reqDateIso).trim();
-    // 🕐 Requirement AUDIT (info "i" timeline): the NEWEST modification wins
+    // ðŸ• Requirement AUDIT (info "i" timeline): the NEWEST modification wins
     // across the card's rows (every row of one Req carries the same stamp, so
     // first-non-empty is the tie-break when the ISO value is unparseable), and
     // the missing "By" / count fields are backfilled rather than overwritten.
@@ -469,7 +475,7 @@ let groupedQuotes = [];
           reqPdfUrls: [],
           reqDate: "",
           reqDateIso: "",
-          // 🕐 Card-level audit trail (aggregated below across the card's rows):
+          // ðŸ• Card-level audit trail (aggregated below across the card's rows):
           // earliest creation stamp + newest modification stamp + max edit count,
           // so the edit modal and the req timeline can show ONE answer per card.
           createdBy: "",
@@ -491,7 +497,7 @@ let groupedQuotes = [];
       }
       groups[key].quoteId = quoteGroupQuoteId(item, groups[key].quoteId);
       mergeQuoteReqMeta(groups[key], item);
-      // 🕐 Card audit: earliest Created (ties keep the first row seen), newest
+      // ðŸ• Card audit: earliest Created (ties keep the first row seen), newest
       // Last Modified, and the highest Mod Count of the card's rows. A row with
       // no audit cells (legacy data) never blanks values another row supplied.
       const g = groups[key];
@@ -516,11 +522,11 @@ let groupedQuotes = [];
       }
       groups[key].items.push(item);
     });
-    // `items` keeps EVERY sheet row of the card (the approval flow still has to
-    // resolve each one), `displayItems` is the deduplicated view used by the card,
-    // the details modal, the edit modal and the Excel export.
+    // Keep every persisted sheet row visible. Re-sent RFQs can contain the same
+    // GEO in different quote rounds, and those rows are distinct records with
+    // distinct statuses that must remain visible in the supplier card.
     return Object.values(groups).map((g) => {
-      g.displayItems = buildQuoteDisplayItems(g.items);
+      g.displayItems = g.items.slice();
       return g;
     });
   }
@@ -553,7 +559,7 @@ let groupedQuotes = [];
     if (status === "Deleted") return 0;
     // Approved-or-later outranks everything live: a row the flow already moved
     // past Approval must keep winning over a superseded Quoted/Pending re-send,
-    // even after it advances to Sent/Received/... — otherwise the displayed
+    // even after it advances to Sent/Received/... â€” otherwise the displayed
     // line (and the compare price cell) would flip back to a stale round.
     // APPROVED_OR_LATER_STATUSES is declared below; resolved lazily so this
     // helper stays safe to call during module init order.
@@ -639,7 +645,7 @@ let groupedQuotes = [];
     container.classList.add("email-chip-field");
     container.innerHTML =
       '<div class="email-chips"></div>' +
-      '<input type="text" class="email-chip-input" placeholder="Add email…" aria-label="Add email">';
+      '<input type="text" class="email-chip-input" placeholder="Add emailâ€¦" aria-label="Add email">';
 
     var listEl = container.querySelector(".email-chips");
     var inputEl = container.querySelector(".email-chip-input");
@@ -660,7 +666,7 @@ let groupedQuotes = [];
         var valid = window.EMAIL_RE.test(email);
         var chip = document.createElement("span");
         chip.className = "email-chip" + (valid ? "" : " email-chip-invalid");
-        chip.title = valid ? email : (email + " — invalid email (double-click to fix)");
+        chip.title = valid ? email : (email + " â€” invalid email (double-click to fix)");
         chip.draggable = true;
         var label = document.createElement("span");
         label.className = "email-chip-label";
@@ -669,7 +675,7 @@ let groupedQuotes = [];
         x.type = "button";
         x.className = "email-chip-x";
         x.setAttribute("aria-label", "Remove " + email);
-        x.textContent = "×";
+        x.textContent = "Ã—";
         x.onclick = function (e) {
           e.stopPropagation();
           emails.splice(idx, 1);
@@ -986,7 +992,7 @@ let groupedQuotes = [];
 
   // Requester's per-item notes joined from Ordenes (unique per requirement +
   // GEO). Rendered read-only, labelled with the Req ID when consolidated.
-  // `req_typed_notes` is "Req {ref}: {notes}" — the note text is appended as
+  // `req_typed_notes` is "Req {ref}: {notes}" â€” the note text is appended as
   // sanitized HTML, so only the "{ref}" half is substituted here.
   function quoteReqNotesHtml(it) {
     const list = Array.isArray(it && it.reqItemNotes) ? it.reqItemNotes : [];
@@ -1034,7 +1040,7 @@ let groupedQuotes = [];
   // Deliberately READ-ONLY, like the notes above: the quote screens render the
   // requester's attachments for context and never rewrite them. Drive
   // file.getUrl() serves an HTML "view" page (never image bytes), so <img>
-  // uses the thumbnail endpoint — the same endpoint the server-side
+  // uses the thumbnail endpoint â€” the same endpoint the server-side
   // requirement email uses (buildHtmlTable). Self-contained helpers, guarded
   // with `||` so the canonical CreateReqJS versions win when that module is
   // loaded on the same page.
@@ -1081,7 +1087,7 @@ let groupedQuotes = [];
       const src = attr_(window.reqDriveThumbUrl_(p.url));
       const href = attr_(p.url);
       const err = window.reqDriveImgOnerror_(p.url);
-      const tip = attr_((p.ref ? 'Req ' + p.ref + ' · ' : '') + 'Photo ' + (i + 1) + ' — click to open');
+      const tip = attr_((p.ref ? 'Req ' + p.ref + ' Â· ' : '') + 'Photo ' + (i + 1) + ' â€” click to open');
       return '<a href="' + href + '" target="_blank" rel="noopener" title="' + tip + '" ' +
         'style="display:inline-block;width:' + size + 'px;height:' + size +
         'px;border:1px solid #dee2e6;border-radius:4px;overflow:hidden;margin:1px;vertical-align:middle;background:#fff;">' +
@@ -1089,7 +1095,7 @@ let groupedQuotes = [];
         ' style="width:100%;height:100%;object-fit:cover;display:block;"></a>';
     }).join('');
     return '<span style="white-space:nowrap;display:inline-block;" title="' + pics.length +
-      ' photo(s) — click to open">' + thumbs + '</span>';
+      ' photo(s) â€” click to open">' + thumbs + '</span>';
   };
 
   function quoteStatusLabel(status) {
@@ -1129,13 +1135,13 @@ let groupedQuotes = [];
     return QUOTE_ITEM_STATUSES.map(
       (status) => {
         let isDisabled = !isStatusTransitionAllowed(normalizedCurrentItem, status, isManager);
-        // A quote with a price of 0 is not a valid quote — block "Quoted".
+        // A quote with a price of 0 is not a valid quote â€” block "Quoted".
         const priceBlocksQuoted = (price !== null && Number(price) <= 0);
         if (!isDisabled && status === "Quoted" && priceBlocksQuoted) isDisabled = true;
         const selected = current === status ? "selected" : "";
         const disabledAttr = isDisabled ? "disabled" : "";
         const titleAttr = isDisabled
-          ? ` title="${i18n('msg_transition_not_allowed')}: ${quoteStatusLabel(normalizedCurrentItem)} → ${quoteStatusLabel(status)}${(status === "Quoted" && priceBlocksQuoted) ? " — " + i18n('msg_price_zero_cannot_quote', 'Items with a price of 0 cannot be marked as Quoted.') : ""}"`
+          ? ` title="${i18n('msg_transition_not_allowed')}: ${quoteStatusLabel(normalizedCurrentItem)} â†’ ${quoteStatusLabel(status)}${(status === "Quoted" && priceBlocksQuoted) ? " â€” " + i18n('msg_price_zero_cannot_quote', 'Items with a price of 0 cannot be marked as Quoted.') : ""}"`
           : "";
         return `<option value="${status}" ${selected} ${disabledAttr}${titleAttr}>${quoteStatusLabel(status)}</option>`;
       }
@@ -1187,7 +1193,7 @@ let groupedQuotes = [];
   // quoteStatusOptionsHtml freezes the price gate at modal open: it renders the
   // option `disabled` from the STORED price, and nothing re-checked it afterwards
   // (the price listeners only recompute the money). So a line whose price was 0
-  // stayed locked even after the user typed a price in the same session —
+  // stayed locked even after the user typed a price in the same session â€”
   // Pending -> Quoted looked broken. This re-applies the exact same rule (price
   // must be > 0 to be Quoted, see priceBlocksQuoted in quoteStatusOptionsHtml)
   // live on every price/status change, so entering a price unlocks the option
@@ -1196,7 +1202,7 @@ let groupedQuotes = [];
   // A row that is ALREADY on "Quoted" is never locked by this helper: disabling
   // the currently-selected option would leave the user a stuck dropdown, and the
   // save-time guard (zeroPriceQuoted in saveEditedQuote) still refuses to persist
-  // a Quoted line whose price is 0 — with a proper warning.
+  // a Quoted line whose price is 0 â€” with a proper warning.
   //
   // @param {Element} tr the <tr> of the edit-quote modal
   function refreshQuotedOptionState_(tr) {
@@ -1219,7 +1225,7 @@ let groupedQuotes = [];
     const blocked = price <= 0;
     opt.disabled = blocked;
     opt.title = blocked
-      ? `${i18n("msg_transition_not_allowed")}: ${quoteStatusLabel(sel.value)} → ${quoteStatusLabel("Quoted")} — ${i18n("msg_price_zero_cannot_quote", "Items with a price of 0 cannot be marked as Quoted.")}`
+      ? `${i18n("msg_transition_not_allowed")}: ${quoteStatusLabel(sel.value)} â†’ ${quoteStatusLabel("Quoted")} â€” ${i18n("msg_price_zero_cannot_quote", "Items with a price of 0 cannot be marked as Quoted.")}`
       : "";
   }
 
@@ -1303,7 +1309,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     const summaryBits = [];
     summaryBits.push(i18n('quote_status_active').replace('{count}', counts.active));
     if (counts.deleted) summaryBits.push(i18n('quote_status_deleted').replace('{count}', counts.deleted));
-    if (activeStatuses.length) summaryBits.push(activeStatuses.join(" · "));
+    if (activeStatuses.length) summaryBits.push(activeStatuses.join(" Â· "));
     return summaryBits.join(" | ");
   }
 
@@ -1317,7 +1323,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     } else if (retries > 0) {
       setTimeout(() => window.attemptQuoteDropdownPopulation(retries - 1), 300);
     } else {
-      console.warn("Quote dropdowns not populated: cache or DOM not ready.");
+      console.warn("Quote dropdowns not populated: cache or DOM not ready. Loading quotes anyway.");
+      window.loadQuoteData();
     }
   };
 
@@ -1371,7 +1378,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         .some((o) => String(o.value || "").trim().toUpperCase() === defaultsCat.toUpperCase());
       if (found) {
         // Lock + pre-select ONLY for the "User" role. For every other role the
-        // category is just informational — leave the dropdown on "All" so the
+        // category is just informational â€” leave the dropdown on "All" so the
         // initial view is never wiped out by a programmatic change event
         // firing before loadQuoteData() has filled allQuotesRaw.
         if (isUserCatLocked) {
@@ -1395,21 +1402,87 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   };
 
   window.loadQuoteData = function (onDone) {
-    RECON_API.getQuotes()
+    console.error("[QUOTES UI DEBUG] loadQuoteData called");
+    RECON_API.getQuotes({ limit: 500 })
       .then(function (res) {
         const apiData = (res && res.data) || [];
         let rawQuotes = Array.isArray(apiData) ? apiData : [];
+        console.error('[QUOTES UI DEBUG] API returned', rawQuotes.length, 'quotes');
+        if (rawQuotes.length > 0) {
+          const q0 = rawQuotes[0];
+          console.error('[QUOTES UI DEBUG] First quote keys:', Object.keys(q0));
+          console.error('[QUOTES UI DEBUG] First quote items_json type:', typeof q0.items_json, 'value:', JSON.stringify(q0.items_json).substring(0, 200));
+          const testParse = Array.isArray(q0.items_json)
+            ? q0.items_json
+            : JSON.parse(q0.items_json || '[]');
+          console.error('[QUOTES UI DEBUG] First quote parsed items count:', testParse.length, 'first item:', JSON.stringify(testParse[0]).substring(0, 200));
+        }
+        if (rawQuotes.length === 0) {
+            alert('No quotes found on server. Sheet may be empty or sync may not have completed.');
+        }
         rawQuotes = rawQuotes.map(function (q) {
+          let items = [];
+          try {
+            items = Array.isArray(q.items_json)
+              ? q.items_json
+              : JSON.parse(q.items_json || '[]');
+          } catch (e) { items = []; }
+          // Add camelCase / alternate aliases so downstream helpers
+          // (quoteLineQtys, quoteMoneySummary, etc.) work with snake_case API data
+          items = items.map(function (it) {
+            var n = {};
+            for (var k in it) n[k] = it[k];
+            if (it.quantity !== undefined && it.quotedQty === undefined) n.quotedQty = it.quantity;
+            if (it.quantity !== undefined && it.qty === undefined) n.qty = it.quantity;
+            if (it.unit_price !== undefined && it.price === undefined) n.price = it.unit_price;
+            if (it.discount_pct !== undefined && it.discountPct === undefined) n.discountPct = it.discount_pct;
+            if (it.sub_category !== undefined && it.subCategory === undefined) n.subCategory = it.sub_category;
+            if (it.description_es !== undefined && it.es === undefined) n.es = it.description_es;
+            if (it.description_es !== undefined && it.desc === undefined) n.desc = it.description_es;
+            if (it.description_en !== undefined && it.en === undefined) n.en = it.description_en;
+            if (it.quoted_doc_url !== undefined && it.quotedDocUrl === undefined) n.quotedDocUrl = it.quoted_doc_url;
+            if (it.exchange_rate !== undefined && it.exchangeRate === undefined) n.exchangeRate = it.exchange_rate;
+            if (it.total_price !== undefined && it.total === undefined) n.total = it.total_price;
+            if (it.supplier_quote_no !== undefined && it.supplierQuoteNo === undefined) n.supplierQuoteNo = it.supplier_quote_no;
+            if (it.approved_qty !== undefined && it.approvedQty === undefined) n.approvedQty = it.approved_qty;
+            if (it.received_qty !== undefined && it.receivedQty === undefined) n.receivedQty = it.received_qty;
+            if (it.description_en !== undefined && it.en === undefined) n.en = it.description_en;
+            if (it.item_notes !== undefined && it.item_notes !== null && String(it.item_notes).trim() !== '') {
+              n.reqItemNotes = [{ ref: q.requisition_no || '', notes: String(it.item_notes) }];
+            }
+            if (it.supplier_notes !== undefined && it.supplier_notes !== null && String(it.supplier_notes).trim() !== '') {
+              n.reqSupplierNotes = [{ ref: q.requisition_no || '', notes: String(it.supplier_notes) }];
+            }
+            return n;
+          });
+          // Quote-level fields are stored on the parent row by the D1 sync.
+          // Keep them available on every line because the modal renders line
+          // fields and the legacy save path expects the per-line aliases.
+          items = items.map(function (it) {
+            if (it.supplier === undefined || it.supplier === null || it.supplier === '') it.supplier = q.supplier || q.supplier_name || '';
+            if (it.category === undefined || it.category === null || it.category === '') it.category = q.category || '';
+            if (it.currency === undefined || it.currency === null || it.currency === '') it.currency = q.currency || 'CLP';
+            if (it.exchange_rate === undefined || it.exchange_rate === null || it.exchange_rate === '') it.exchange_rate = q.exchange_rate;
+            if (it.exchangeRate === undefined || it.exchangeRate === null || it.exchangeRate === '') it.exchangeRate = q.exchange_rate;
+            if (it.supplier_quote_no === undefined || it.supplier_quote_no === null || it.supplier_quote_no === '') it.supplier_quote_no = q.ref_cotiz || '';
+            if (it.supplierQuoteNo === undefined || it.supplierQuoteNo === null || it.supplierQuoteNo === '') it.supplierQuoteNo = q.ref_cotiz || '';
+            if (it.quoted_doc_url === undefined || it.quoted_doc_url === null || it.quoted_doc_url === '') it.quoted_doc_url = q.quoted_doc_url || '';
+            if (it.quotedDocUrl === undefined || it.quotedDocUrl === null || it.quotedDocUrl === '') it.quotedDocUrl = q.quoted_doc_url || '';
+            return it;
+          });
           return {
             orderId: q.requisition_no || '',
             quoteId: q.quote_no || q.id || '',
+            quoteDbId: q.id || '',
             quoteID: q.quote_no || q.id || '',
             'Quote ID': q.quote_no || q.id || '',
-            supplier: q.supplier_name || '',
+            supplier: q.supplier_name || q.supplier || '',
             category: q.category || '',
-            subCategory: '',
-            site: '',
-            faena: '',
+            subCategory: (items[0] && items[0].sub_category) || '',
+            site: q.req_site || q.site || '',
+            faena: q.req_site || q.site || '',
+            date: q.created_at || '',
+            timestamp: q.created_at || '',
             geo: '',
             pn: '',
             desc: '',
@@ -1419,13 +1492,15 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
             status: q.status || '',
             currency: q.currency || 'CLP',
             quoteLink: q.pdf_url || '',
-            quotedDocUrl: '',
+            quotedDocUrl: q.quoted_doc_url || '',
+            refCotiz: q.ref_cotiz || '',
             createdBy: q.created_by || '',
             createdDate: q.created_at || '',
             createdByName: q.created_by_name || '',
             reqItemNotes: [],
             reqSupplierNotes: [],
             total: q.total || 0,
+            items: items,
           };
         });
         let isUserRole = false;
@@ -1439,47 +1514,69 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
               (item) => String(item.category || '').trim().toUpperCase() === lockedCategory.toUpperCase(),
             )
           : rawQuotes;
-        allQuotesRaw = scopedQuotes;
-        scopedQuotes.forEach((item) => {
+        // The API returns one parent quote with an `items` array. The quote UI
+        // grouping/filtering code operates on line rows, so flatten the parent
+        // here and carry every parent field onto every line. Keeping the parent
+        // object in this list was the source of one-row/missing-column modals.
+        const scopedRows = [];
+        scopedQuotes.forEach((quote) => {
+          const children = Array.isArray(quote.items) ? quote.items : [];
+          if (!children.length) {
+            scopedRows.push(Object.assign({}, quote));
+            return;
+          }
+          children.forEach((child) => {
+            const row = Object.assign({}, quote, child);
+            delete row.items;
+            row.orderId = quote.orderId || '';
+            row.quoteId = quote.quoteId || quote.quoteID || quote['Quote ID'] || '';
+            row.quoteDbId = quote.quoteDbId || '';
+            row.supplier = child.supplier || quote.supplier || '';
+            row.category = child.category || quote.category || '';
+            row.site = quote.site || '';
+            row.faena = quote.faena || quote.site || '';
+            row.date = child.created_at || quote.date || quote.created_at || '';
+            row.timestamp = child.created_at || quote.timestamp || quote.created_at || '';
+            row.quoteLink = quote.quoteLink || '';
+            row.quotedDocUrl = child.quotedDocUrl || child.quoted_doc_url || quote.quotedDocUrl || '';
+            row.supplierQuoteNo = child.supplierQuoteNo || child.supplier_quote_no || quote.refCotiz || '';
+            row.status = child.status || child.estado || quote.status || '';
+            row.estado = child.estado || child.status || quote.estado || quote.status || '';
+            row.currency = child.currency || quote.currency || 'CLP';
+            row.exchangeRate = child.exchangeRate || child.exchange_rate || quote.exchangeRate || '';
+            row.origGeo = row.geo || '';
+            row.origPn = row.pn || row.p || '';
+            scopedRows.push(row);
+          });
+        });
+        allQuotesRaw = scopedRows;
+        scopedRows.forEach((item) => {
           item.quoteId = item.quoteId || item.quoteID || item['Quote ID'] || '';
-          if (!item.origGeo) item.origGeo = item.geo || '';
-          if (!item.origPn) item.origPn = item.pn || item.p || '';
         });
         const subCatSel = document.getElementById('filterQuoteSubCat');
         const catSel = document.getElementById('filterQuoteCat');
         const selectedCat = catSel ? catSel.value : '';
-        if (subCatSel && window.CachedDataVal) {
-          const allSubCats = (window.CachedDataVal.subCategories || []).filter(
-            (s) => !selectedCat || s.parent === selectedCat
-          );
-          subCatSel.innerHTML =
-            `<option value=''>${window.t ? window.t('p_all_subcats') : 'All Sub Categories'}</option>` +
-            allSubCats
-              .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-              .map((s) => `<option value='${s.name}'>${s.name}</option>`)
-              .join('');
-          subCatSel.disabled = !selectedCat;
-        }
-        if (catSel && !catSel._subcatBound) {
-          catSel._subcatBound = true;
-          catSel.addEventListener('change', function () {
-            const selCat = this.value;
-            const subSel = document.getElementById('filterQuoteSubCat');
-            if (subSel && window.CachedDataVal) {
-              const filtered = (window.CachedDataVal.subCategories || []).filter(
-                (s) => !selCat || s.parent === selCat
-              );
-              subSel.innerHTML =
-                `<option value=''>${window.t ? window.t('p_all_subcats') : 'All Sub Categories'}</option>` +
-                filtered
-                  .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-                  .map((s) => `<option value='${s.name}'>${s.name}</option>`)
-                  .join('');
-              subSel.disabled = !selCat;
+
+        // Dynamically add subcategories found in actual quote item data
+        const actualSubCats = {};
+        scopedRows.forEach(function (it) {
+          if (it && (it.sub_category || it.subCategory)) {
+            actualSubCats[String(it.sub_category || it.subCategory).trim()] = true;
+          }
+        });
+        if (subCatSel) {
+          const existingVals = {};
+          Array.from(subCatSel.options || []).forEach(function (o) { existingVals[o.value] = true; });
+          var subHtml = `<option value=''>${window.t ? window.t('p_all_subcats') : 'All Sub Categories'}</option>`;
+          Object.keys(actualSubCats).sort().forEach(function (sc) {
+            if (!existingVals[sc]) {
+              subHtml += `<option value='${sc}'>${sc}</option>`;
             }
           });
+          subCatSel.innerHTML = subHtml;
+          subCatSel.disabled = false;
         }
-        groupedQuotes = buildQuoteGroups(scopedQuotes);
+        groupedQuotes = buildQuoteGroups(scopedRows);
         renderQuoteView_(groupedQuotes);
         const quoteLoaderEl = document.getElementById('quoteLoader');
         if (quoteLoaderEl) quoteLoaderEl.classList.add('d-none');
@@ -1489,6 +1586,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       })
       .catch(function (err) {
         console.error('loadQuoteData failed:', err);
+        alert('Failed to load quotes from server. ' + (err && err.message ? err.message : 'Check browser console.'));
         allQuotesRaw = [];
         groupedQuotes = [];
         renderQuoteCards([]);
@@ -1519,7 +1617,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   // Re-render honoring the user's current filters: filterQuotes() when a filter
   // is active, otherwise the plain grouped render. The guard is deliberate:
   // filterQuotes' empty Status scope means "active only" (hides Deleted), while
-  // first load intentionally shows everything — so with no filter set the
+  // first load intentionally shows everything â€” so with no filter set the
   // historic behaviour is preserved exactly. Use this for every re-render after
   // a data change (save / reload / delete / approve / resync) instead of
   // calling renderQuoteCards() directly.
@@ -1532,13 +1630,16 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   }
 
   window.filterQuotes = function () {
+    console.error('[QUOTES UI DEBUG] filterQuotes called');
     const raw = Array.isArray(allQuotesRaw) ? allQuotesRaw : [];
+    console.error('[QUOTES UI DEBUG] allQuotesRaw count:', raw.length, 'sample:', raw.slice(0,3).map(q => ({orderId: q.orderId, supplier: q.supplier, category: q.category, status: q.status, estado: q.estado, faena: q.faena, subCategory: q.subCategory})));
     const siteSel = document.getElementById("filterQuoteSite")?.value || "";
     const supplierSel =
       document.getElementById("filterQuoteSupplier")?.value || "";
     const subCatSel = document.getElementById("filterQuoteSubCat")?.value || "";
     const catSel = document.getElementById("filterQuoteCat")?.value || "";
     const statusSel = document.getElementById("filterQuoteStatus")?.value || "";
+    console.error('[QUOTES UI DEBUG] filters:', {site: siteSel, supplier: supplierSel, subCat: subCatSel, cat: catSel, status: statusSel});
     const searchTerm =
       document.getElementById("quoteSearchInput")?.value.trim().toLowerCase() ||
       "";
@@ -1564,7 +1665,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     const effectiveCatSel = (isUserRole && lockedCategory) ? lockedCategory : catSel;
 
     const filtered = raw.filter((item) => {
-      // 🔒 SITE LOCK for USER role
+      // ðŸ”’ SITE LOCK for USER role
       let siteMatch = true;
       if (isUserRole && userSite) {
         // USER only sees quotes for their assigned site
@@ -1576,7 +1677,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       }
 
       const supplierMatch = !supplierSel || String(item.supplier || "").trim() === String(supplierSel).trim();
-      const subCatMatch = !subCatSel || String(item.subCategory || "").trim() === String(subCatSel).trim();
+      const subCatMatch = !subCatSel ||
+        String(item.sub_category || item.subCategory || "").trim() === subCatSel;
       const catMatch = !effectiveCatSel || String(item.category || "").trim().toUpperCase() === String(effectiveCatSel).trim().toUpperCase();
       const statusVal = String(item.estado || item.status || "").trim();
       // __ALL__ = show everything including Deleted; "" = active only; else exact status.
@@ -1599,11 +1701,11 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           if (n && String(n.notes || "").trim()) noteTexts.push(n.notes);
         });
         const haystack = [
-          item.orderId, item.quoteId, item.supplier, item.supplierQuoteNo,
+          item.orderId, item.quoteId, item.supplier, itemProp(item, 'supplier_quote_no', 'supplierQuoteNo'),
           item.refCotiz, item.faena, item.category, item.subCategory,
           item.geo, item.pn, item.p, item.desc, item.es, item.en,
           item.estado, item.status, quoteStatusLabel(item.estado || item.status),
-          item.currency, item.quoteLink, item.quotedDocUrl,
+          itemProp(item, 'currency'), item.quoteLink, item.quotedDocUrl,
           noteTexts.join(" "),
         ]
           .filter((v) => v !== undefined && v !== null && String(v).trim() !== "")
@@ -1622,6 +1724,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     });
 
     const filteredQuotes = buildQuoteGroups(filtered);
+    console.error('[QUOTES UI DEBUG] filtered count:', filtered.length, 'after groups:', filteredQuotes.length);
     renderQuoteCards(filteredQuotes);
   };
 
@@ -1657,7 +1760,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     if (segments.length === 0) return "";
 
     return `
-      <div class="quote-status-bar mt-2" title="${activeCount} item${activeCount !== 1 ? 's' : ''} · ${segments.length} status${segments.length !== 1 ? 'es' : ''}">
+      <div class="quote-status-bar mt-2" title="${activeCount} item${activeCount !== 1 ? 's' : ''} Â· ${segments.length} status${segments.length !== 1 ? 'es' : ''}">
         <div class="quote-status-bar-track d-flex align-items-stretch" style="height:10px;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.08);background:#f8f9fa;">
           ${segments.join("")}
         </div>
@@ -1674,7 +1777,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
   // Fallback Req-date formatter (dd-MM-yyyy) for when the server sent only the
   // ISO value. UTC parts are used so the day never shifts with the viewer's
-  // timezone — the server already formats the value in the sheet's own zone.
+  // timezone â€” the server already formats the value in the sheet's own zone.
   function quoteReqDateFromIso(iso) {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return "";
@@ -1708,7 +1811,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     });
 
     const pdfHtml = pdfs.map(function (p) {
-      const tip = i18n('btn_open_req_pdf', 'Open requirement PDF') + (p.ref ? " — " + p.ref : "");
+      const tip = i18n('btn_open_req_pdf', 'Open requirement PDF') + (p.ref ? " â€” " + p.ref : "");
       return `<a href="${attr_(p.url)}" target="_blank" class="text-danger" title="${attr_(tip)}" onclick="event.stopPropagation()"><i class="bi bi-file-pdf-fill" style="font-size:1.05rem;"></i></a>`;
     }).join("");
 
@@ -1717,7 +1820,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       ? `<span class="badge bg-light text-dark border" title="${attr_(i18n('lbl_req_date', 'Req date'))}"><i class="bi bi-calendar3 me-1"></i>${attr_(shownDate)}</span>`
       : "";
 
-    // 🕐 INFO ("i") ICON: opens the full date timeline of this requirement -
+    // ðŸ• INFO ("i") ICON: opens the full date timeline of this requirement -
     // requirement created + last modified, then EVERY quote of it with its own
     // creation date and last modified by/date (window.openReqTimeline). Kept
     // outside the role gate on purpose: it is read-only history for everyone.
@@ -1732,7 +1835,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
 
   /**
-   * 🕐 Full date timeline of ONE requirement (info "i" icon in the Req header).
+   * ðŸ• Full date timeline of ONE requirement (info "i" icon in the Req header).
    *
    * Shows the requirement's own dates first (created, then last modified by /
    * date + edit count) followed by ONE row per quote of that requirement with
@@ -1769,9 +1872,9 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         `<div class="fw-bold text-primary"><i class="bi bi-folder2-open me-1"></i>${i18n("lbl_req", "Req")}: ${escHtml_(oid)}</div>` +
         `<div class="small mt-1"><i class="bi bi-plus-circle me-1"></i>${i18n("lbl_req_created", "Req created")}: <strong>${dash(reqCreated)}</strong></div>` +
         `<div class="small"><i class="bi bi-patch-check me-1"></i>${i18n("lbl_req_approved_by", "Req approved by")}: ` +
-        `<strong>${dash(reqApprBy)}</strong> · <strong>${dash(reqApprOn)}</strong></div>` +
+        `<strong>${dash(reqApprBy)}</strong> Â· <strong>${dash(reqApprOn)}</strong></div>` +
         `<div class="small"><i class="bi bi-pencil-square me-1"></i>${i18n("lbl_req_last_modified", "Req last modified")}: ` +
-        `<strong>${dash(reqModBy)}</strong> · <strong>${dash(reqMod)}</strong>` +
+        `<strong>${dash(reqModBy)}</strong> Â· <strong>${dash(reqMod)}</strong>` +
         (reqModCount > 0 ? ` (${i18n("lbl_edits", "edits")}: ${reqModCount})` : "") +
         `</div></div>`;
       const head =
@@ -1889,12 +1992,12 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     if (sentQty > 0) {
       const progress = Math.round((receivedQty / sentQty) * 100) || 0;
       if (progress === 100) {
-        receiptStatusHtml = `<div class="small text-muted mt-2"><span class="badge bg-success">✅ ${i18n('receipt_fully_received').replace('{qty}', receivedQty)}</span></div>`;
+        receiptStatusHtml = `<div class="small text-muted mt-2"><span class="badge bg-success">âœ… ${i18n('receipt_fully_received').replace('{qty}', receivedQty)}</span></div>`;
       } else if (progress > 0) {
         const pctMissing = 100 - progress;
-        receiptStatusHtml = `<div class="small text-muted mt-2"><span class="badge bg-warning text-dark">⚠️ ${i18n('receipt_partial').replace('{recv}', receivedQty).replace('{sent}', sentQty).replace('{pct}', pctMissing)}</span></div>`;
+        receiptStatusHtml = `<div class="small text-muted mt-2"><span class="badge bg-warning text-dark">âš ï¸ ${i18n('receipt_partial').replace('{recv}', receivedQty).replace('{sent}', sentQty).replace('{pct}', pctMissing)}</span></div>`;
       } else if (q.status === 'Despatched' || rows[0]?.status === 'Despatched') {
-        receiptStatusHtml = `<div class="small text-muted mt-2"><span class="badge bg-info text-dark">📦 ${i18n('receipt_awaiting')}</span></div>`;
+        receiptStatusHtml = `<div class="small text-muted mt-2"><span class="badge bg-info text-dark">ðŸ“¦ ${i18n('receipt_awaiting')}</span></div>`;
       }
     }
 
@@ -1906,12 +2009,12 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
     const statusBarHtml = renderQuoteStatusBar(rows);
 
-    // PO creation reminder — only for quotes whose dominant status is Approved.
+    // PO creation reminder â€” only for quotes whose dominant status is Approved.
     const poReminderBtn = domStatus === "Approved"
       ? `<button type="button" class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); window.sendPoReminder(${flatIndex})" title="${i18n('btn_send_po_reminder')}"><i class="bi bi-envelope"></i></button>`
       : "";
 
-    // 🕐 GREY + LOCK while this card's background save is still running (see
+    // ðŸ• GREY + LOCK while this card's background save is still running (see
     // pendingQuoteSaves). The read-only parts (details, PDF, export) stay
     // usable; the write paths (edit / delete) are disabled with an explanatory
     // tooltip, mirroring the opacity/cursor treatment of the Req fix.
@@ -1919,7 +2022,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     const saveLockTitle = attr_(i18n("msg_quote_saving_in_progress",
       "This quote is still being saved in the background. Please wait for the save to complete before editing it again."));
     const savingBadge = savePending
-      ? `<span class="badge bg-info text-dark"><span class="spinner-border spinner-border-sm me-1" style="width:.65rem;height:.65rem;vertical-align:middle;" role="status"></span>${i18n("lbl_saving_badge", "Saving…")}</span>`
+      ? `<span class="badge bg-info text-dark"><span class="spinner-border spinner-border-sm me-1" style="width:.65rem;height:.65rem;vertical-align:middle;" role="status"></span>${i18n("lbl_saving_badge", "Savingâ€¦")}</span>`
       : "";
     const cardSaveStyle = savePending ? "opacity:.55;cursor:not-allowed;" : "";
     const editBtnHtml = savePending
@@ -1934,6 +2037,10 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
   function renderQuoteCards(quotes) {
     const container = document.getElementById("quoteContainer");
+    if (!container) {
+      console.warn("renderQuoteCards: quoteContainer not found in DOM");
+      return;
+    }
     const safeQuotes = Array.isArray(quotes) ? quotes : [];
     visibleQuoteGroups = safeQuotes;
     updateQuoteResultsCount(safeQuotes);
@@ -1976,15 +2083,15 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const statusSummary = buildQuoteStatusSummary(allItems);
         const reqMetaHtml = quoteReqMetaHtml(groups);
 
-        // 🕐 While ANY card of this requirement is still saving in the background
-        // (pendingQuoteSaves), the requirement-level actions — add quote and
-        // price compare — are disabled too: both would read a half-written sheet
-        // or a stale card list. Grey card + "Saving…" badge make the reason clear.
+        // ðŸ• While ANY card of this requirement is still saving in the background
+        // (pendingQuoteSaves), the requirement-level actions â€” add quote and
+        // price compare â€” are disabled too: both would read a half-written sheet
+        // or a stale card list. Grey card + "Savingâ€¦" badge make the reason clear.
         const reqSaving = groups.some((g) => isQuoteSavePending(quoteSaveKeyOf(g)));
         const reqLockTitle = attr_(i18n("msg_quote_saving_in_progress",
           "This quote is still being saved in the background. Please wait for the save to complete before editing it again."));
         const reqSavingBadge = reqSaving
-          ? `<span class="badge bg-info text-dark"><span class="spinner-border spinner-border-sm me-1" style="width:.65rem;height:.65rem;vertical-align:middle;" role="status"></span>${i18n("lbl_saving_badge", "Saving…")}</span>`
+          ? `<span class="badge bg-info text-dark"><span class="spinner-border spinner-border-sm me-1" style="width:.65rem;height:.65rem;vertical-align:middle;" role="status"></span>${i18n("lbl_saving_badge", "Savingâ€¦")}</span>`
           : "";
         const addQuoteBtnHtml = reqSaving
           ? `<button type="button" class="btn btn-sm btn-outline-primary" disabled title="${reqLockTitle}"><i class="bi bi-plus-lg"></i></button>`
@@ -1999,9 +2106,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     visibleQuoteGroups = orderedGroups;
   }
 
-  // Single source of truth for card grouping (see quoteGroupKey): the Quote ID is
-  // NOT part of the key, so a cache-sync re-render can never split one supplier
-  // quote into several cards nor drop the rows that were not edited.
+  // Single source of truth for card grouping (see quoteGroupKey).
   function rebuildGroupedQuotes(list) {
     return buildQuoteGroups(list);
   }
@@ -2052,7 +2157,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         return !shownLineKeys[quoteLineKey(item)];
       });
 
-    // 💰 Lookup of the stored commercials per sheet row (Quote ID + GEO), used to
+    // ðŸ’° Lookup of the stored commercials per sheet row (Quote ID + GEO), used to
     // keep the cached discount/transport when the payload sends `undefined`.
     const storedCommercialRowByKey = {};
     (allQuotesRaw || []).filter(matchGroup).forEach((row) => {
@@ -2062,7 +2167,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     });
 
     const normalizedItems = updatedItems.map((it) => {
-      // 💰 Commercials follow the "undefined = server kept the stored value"
+      // ðŸ’° Commercials follow the "undefined = server kept the stored value"
       // contract, so the cache has to fall back to the row it already holds.
       // Without this, saving a quote that never touched the discount would blank
       // it on screen (until the next reload) and the cards would show totals that
@@ -2084,7 +2189,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       faena: it.faena || originalMeta.faena || "",
       timestamp: it.timestamp || originalMeta.timestamp || new Date().toString(),
       price: Number(it.price || 0),
-      total: Number(it.total || 0),
+      total: Number(itemProp(it, 'total_price', 'total') || 0),
       // Net unit price is always derived, never cached as an input.
       discountPct: hasDiscount ? normalizeQuoteDiscountPct(it.discountPct) : normalizeQuoteDiscountPct(storedRow.discountPct),
       freight: hasFreight ? normalizeQuoteFreight(it.freight) : normalizeQuoteFreight(storedRow.freight),
@@ -2099,7 +2204,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       quoteLink: newPdfUrl || it.quoteLink || originalMeta.quoteLink || "",
       origGeo: it.origGeo || it.geo || "",
       origPn: it.origPn || it.pn || it.p || "",
-      // 🕐 Keep the sheet AUDIT trail on the cached rows: the save payload
+      // ðŸ• Keep the sheet AUDIT trail on the cached rows: the save payload
       // carries no audit cells (the server stamps them on write), so without
       // this the card's "Created / Last modified" info and the edit-modal audit
       // line would blank out after every in-session save. `it` first (in case a
@@ -2146,7 +2251,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   // Reuses the shared #emailModal (same shell RFQ uses) with a single editable
   // card: To/Cc chips (add/remove/edit + autocomplete), Subject, editable HTML
   // body (the pre-rendered reminder + products table is prefilled and editable),
-  // and Signature. Supplier email is intentionally NOT included — this is an
+  // and Signature. Supplier email is intentionally NOT included â€” this is an
   // internal intimation. On confirm, dispatches via Graph API
   // with the same Graph-first + fallback contract as RFQ.
   //
@@ -2289,8 +2394,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       '    <div class="mb-2">' +
       '      <label class="small fw-bold text-muted">' + getI18nText("email_preview_to_label") + ':</label>' +
       '      <div class="edit-to email-chip-field" data-emails="' + attr_(res.mail.to || "") + '"></div>' +
-      '      <small class="text-muted">Type or paste emails — comma, space or Enter creates a block. ' +
-      '        <b>×</b> removes, <b>double-click</b> edits.</small>' +
+      '      <small class="text-muted">Type or paste emails â€” comma, space or Enter creates a block. ' +
+      '        <b>Ã—</b> removes, <b>double-click</b> edits.</small>' +
       '    </div>'
     );
     _parts.push(
@@ -2314,7 +2419,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       '        <button type="button" class="btn btn-outline-secondary" onclick="window.poReminderBodyCmd(this,\'bold\')"><b>B</b></button>' +
       '        <button type="button" class="btn btn-outline-secondary" onclick="window.poReminderBodyCmd(this,\'italic\')"><i>I</i></button>' +
       '        <button type="button" class="btn btn-outline-secondary" onclick="window.poReminderBodyCmd(this,\'underline\')"><u>U</u></button>' +
-      '        <button type="button" class="btn btn-outline-secondary" onclick="window.poReminderBodyCmd(this,\'insertUnorderedList\')">• List</button>' +
+      '        <button type="button" class="btn btn-outline-secondary" onclick="window.poReminderBodyCmd(this,\'insertUnorderedList\')">â€¢ List</button>' +
       '      </div>' +
       '      <div class="edit-body-rich border rounded p-2 mb-1" contenteditable="true" ' +
       '        style="min-height:220px;background:#fff;font-size:13px;line-height:1.5;" data-po-body></div>' +
@@ -2381,7 +2486,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           '<div>' + _nameHtml +
           '<div class="small text-success"><i class="bi bi-check-circle"></i> ' +
           escHtml_(i18n("po_reminder_attached_tag", "attached")) +
-          ' <span class="text-muted">· ' + escHtml_(i18n("po_reminder_preview_open", "click to preview")) + '</span></div>' +
+          ' <span class="text-muted">Â· ' + escHtml_(i18n("po_reminder_preview_open", "click to preview")) + '</span></div>' +
           (a.openUrl
             ? '<a href="' + attr_(a.openUrl) + '" target="_blank" rel="noopener" ' +
               'onclick="event.stopPropagation()" class="small">' +
@@ -2398,7 +2503,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         '<i class="bi ' + _icon + ' text-danger" style="font-size:1.4rem;"></i><div>' + _nameHtml +
         '<div class="small text-success"><i class="bi bi-check-circle"></i> ' +
         escHtml_(i18n("po_reminder_attached_tag", "attached")) +
-        (a.mimeType ? ' <span class="text-muted">· ' + escHtml_(a.mimeType) + '</span>' : '') +
+        (a.mimeType ? ' <span class="text-muted">Â· ' + escHtml_(a.mimeType) + '</span>' : '') +
         '</div></div></div>';
       return '<li class="list-unstyled mb-2"><div class="d-flex align-items-center gap-2">' +
         (a.openUrl
@@ -2655,13 +2760,13 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     var badCc = ccEmails.filter(function (e) { return !window.EMAIL_RE.test(e); });
 
     if (!toEmails.length) {
-      Swal.fire(i18n("msg_error", "Error"), "To: is empty — add at least one recipient.", "error");
+      Swal.fire(i18n("msg_error", "Error"), "To: is empty â€” add at least one recipient.", "error");
       if (btn) { btn.disabled = false; btn.innerHTML = getI18nText("btn_send_po_reminder"); }
       return;
     }
     if (badTo.length || badCc.length) {
       Swal.fire(i18n("msg_error", "Error"),
-        "Invalid email(s): " + [].concat(badTo, badCc).join(", ") + " — double-click the red block to fix.", "error");
+        "Invalid email(s): " + [].concat(badTo, badCc).join(", ") + " â€” double-click the red block to fix.", "error");
       if (btn) { btn.disabled = false; btn.innerHTML = getI18nText("btn_send_po_reminder"); }
       return;
     }
@@ -2720,7 +2825,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
     function onSendResult(res) {
       if (res && res.requiresFallbackChoice) {
-        // Graph send failed — show error
+        // Graph send failed â€” show error
         Swal.fire({
           icon: "error",
           title: "Email Send Failed",
@@ -2766,7 +2871,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   // The modal body/footer are rebuilt from scratch on every open (RFQ does the
   // same), so no content restore is required here.
   // Restores the pristine #emailModal shell (body/footer/title) after the PO
-  // reminder view — RFQ/CreateReq rely on #emailPreview and their own footer.
+  // reminder view â€” RFQ/CreateReq rely on #emailPreview and their own footer.
   window.restorePoEmailModalShell_ = function () {
     var b = window._poEmailShellBackup;
     if (!b) return;
@@ -2811,7 +2916,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       const X = window.XLSX;
       // Export mirrors the collapsed view: one row per requirement line.
       const exportItems = quoteCardRows(quote);
-      // 💰 Money columns: the QUOTED unit price, the supplier discount, the NET
+      // ðŸ’° Money columns: the QUOTED unit price, the supplier discount, the NET
       // unit price actually paid, and the transport shown per row but charged once
       // (the Summary sheet states the once-only rule and the grand total).
       // "Photos (Item Images)": the requester's Create Req attachments for the
@@ -2841,7 +2946,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         normalizeQuoteDiscountPct(it.discountPct),
         quoteNetUnitPrice(it.price, it.discountPct),
         normalizeQuoteFreight(it.freight),
-        Number(it.total || it.lineTotal || 0),
+        Number(itemProp(it, 'total_price', 'total') || it.lineTotal || 0),
         it.category || "",
         it.subCategory || "",
         normalizeQuoteItemStatus(it.estado || it.status),
@@ -2882,7 +2987,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     if (window.XLSX) {
       runExport();
     } else {
-      // SheetJS not loaded (standalone mode) — inject then retry once.
+      // SheetJS not loaded (standalone mode) â€” inject then retry once.
       const s = document.createElement("script");
       s.src = "https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js";
       s.onload = runExport;
@@ -2916,6 +3021,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         { key: "images",   label: "item_images",          fallback: "Images",         def: 1 },
         { key: "quoteno",  label: "lbl_supplier_quote_no",fallback: "Quote No.",      def: 1 },
         { key: "doc",      label: "lbl_quoted_doc",       fallback: "Doc",            def: 1 },
+        { key: "supplierlink", label: "lbl_supplier_quote_link", fallback: "Supplier Quote Link", def: 1 },
         { key: "rcvd",     label: "tbl_rcvd",             fallback: "Rcvd",           def: 1 },
         { key: "diff",     label: "tbl_diff",             fallback: "Diff",           def: 1 },
         { key: "currency", label: "lbl_currency", pair: "lbl_exchange_rate", fallback: "Currency / Exch. Rate", def: 1 },
@@ -2934,6 +3040,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         { key: "subcat",   label: "col_subcategory",     fallback: "Sub Category",   def: 1 },
         { key: "quoteno",  label: "lbl_supplier_quote_no",fallback: "Quote No.",      def: 1 },
         { key: "doc",      label: "lbl_quoted_doc",       fallback: "Quoted Doc",     def: 1 },
+        { key: "supplierlink", label: "lbl_supplier_quote_link", fallback: "Supplier Quote Link", def: 1 },
         { key: "currency", label: "lbl_currency", pair: "lbl_exchange_rate", fallback: "Currency / Exch. Rate", def: 1 },
       ],
     },
@@ -3057,24 +3164,33 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       : "";
     const excelBtnHtml = `<button type="button" class="btn btn-sm btn-outline-success" onclick="window.exportQuoteExcel(window._quoteDetailsIndex)"><i class="bi bi-file-earmark-excel me-1"></i> ${i18n('btn_export_excel')}</button>`;
 
-    // Collapsed line list of the card (see buildQuoteDisplayItems) — one row per
+    // Collapsed line list of the card (see buildQuoteDisplayItems) â€” one row per
     // requirement line even when the supplier was quoted in several RFQ rounds.
-    const detailItems = quoteCardRows(quote);
-    const detailRows = detailItems
+    let detailItems = quoteCardRows(quote);
+    // If detailItems contains quote-level objects (has orderId but no geo/pn),
+    // extract the line items array from the first quote
+    if (detailItems.length > 0 && detailItems[0].orderId && !detailItems[0].geo) {
+        detailItems = detailItems[0].items || [];
+    }
+    console.error('[QUOTES UI DEBUG] openQuoteDetails detailItems count:', detailItems.length, 'sample:', JSON.stringify(detailItems[0]).substring(0, 200));
+    let detailRows = '';
+    try {
+        detailRows = detailItems
       .map(
         (item) => {
-          const docCell = item.quotedDocUrl
-            ? `<a href="${attr_(item.quotedDocUrl)}" target="_blank" class="small" title="${attr_(item.quotedDocUrl)}"><i class="bi bi-paperclip"></i> ${i18n('btn_open_pdf')}</a>`
+          const quotedDocUrlVal = itemProp(item, 'quoted_doc_url', 'quotedDocUrl');
+          const docCell = quotedDocUrlVal
+            ? `<a href="${attr_(quotedDocUrlVal)}" target="_blank" class="small" title="${attr_(quotedDocUrlVal)}"><i class="bi bi-paperclip"></i> ${i18n('btn_open_pdf')}</a>`
             : `<span class="text-muted">${i18n('quote_doc_empty')}</span>`;
-          // 🔒 Quoted vs approved side by side, so a manager who reduced a line
+          // ðŸ”’ Quoted vs approved side by side, so a manager who reduced a line
           // during approval can still see both figures here. Only rendered once
           // the line is approved, and flagged when the two differ.
           const dq = quoteLineQtys(item);
-          const dFrozen = isQuoteQtyFrozenStatus(item.estado || item.status);
-          // 💰 Money view of the line (discount %, derived net unit price and the
+          const dFrozen = isQuoteQtyFrozenStatus(itemProp(item, 'estado', 'status'));
+          // ðŸ’° Money view of the line (discount %, derived net unit price and the
           // quote-level transport this row carries for reference).
-          const price = Number(item.price || 0) || 0;
-          const discountPct = normalizeQuoteDiscountPct(item.discountPct);
+          const price = Number(itemProp(item, 'unit_price', 'price') || 0) || 0;
+          const discountPct = normalizeQuoteDiscountPct(itemProp(item, 'discount_pct', 'discountPct'));
           const netUnit = quoteNetUnitPrice(price, discountPct);
           const freight = normalizeQuoteFreight(item.freight);
           const approvedCell = !dFrozen
@@ -3083,39 +3199,45 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
                  title="${attr_(dq.reduced ? i18n('lbl_approved_qty_reduced', 'Approved below the quoted qty') : i18n('lbl_approved_qty_hint', 'Qty the manager approved'))}">${dq.approved}</span>`;
           return `
     <tr>
-      <td>${item.geo || ""}</td>
-      <td><strong>${item.pn || item.p || ""}</strong></td>
+      <td>${itemProp(item, 'geo') || ""}</td>
+      <td><strong>${itemProp(item, 'pn', 'p') || ""}</strong></td>
       <td>
-        <div class="fw-semibold">${item.es || item.desc || "N/A"}</div>
-        <div class="text-muted small fst-italic">${item.en || ""}</div>
+        <div class="fw-semibold">${itemProp(item, 'description_es', 'es', 'desc') || "N/A"}</div>
+        <div class="text-muted small fst-italic">${itemProp(item, 'description_en', 'en') || ""}</div>
       </td>
       <td style="min-width:140px;" data-qcol="notes">${quoteReqNotesHtml(item)}</td>
       <td style="min-width:110px;" data-qcol="images">${quoteReqImagesHtml(item)}</td>
       <td class="text-center">${dq.quoted}</td>
       <td class="text-center" data-qcol="approved">${approvedCell}</td>
-      <td data-qcol="cat">${item.category || ""}</td>
-      <td data-qcol="subcat">${item.subCategory || ""}</td>
-      <td class="text-center" data-qcol="quoteno">${item.supplierQuoteNo || '<span class="text-muted">—</span>'}</td>
+      <td data-qcol="cat">${itemProp(item, 'category') || ""}</td>
+      <td data-qcol="subcat">${itemProp(item, 'sub_category', 'subCategory') || ""}</td>
+      <td class="text-center" data-qcol="quoteno">${itemProp(item, 'supplier_quote_no', 'supplierQuoteNo') || '<span class="text-muted">â€”</span>'}</td>
       <td class="text-center" data-qcol="doc">${docCell}</td>
-      <td class="text-center quote-col-currency d-none" data-qcol="currency">${item.currency || "CLP"}</td>
-      <td class="text-end quote-col-xrate d-none" data-qcol="currency">${Number(item.exchangeRate) > 0 ? Number(item.exchangeRate) : '<span class="text-muted">&mdash;</span>'}</td>
-      <td class="text-end">${Number(item.price || 0).toLocaleString("en-US")}</td>
-      <td class="text-end ${discountPct > 0 ? "text-success fw-semibold" : ""}">${price > 0 ? netUnit.toLocaleString("en-US") : '<span class="text-muted">—</span>'}</td>
-      <td class="text-end">${Number(item.total || 0).toLocaleString("en-US")}</td>
+      <td class="text-center" data-qcol="supplierlink">${itemProp(item, 'quoteLink', 'quote_link', 'pdf_url') ? `<a href="${attr_(itemProp(item, 'quoteLink', 'quote_link', 'pdf_url'))}" target="_blank" class="small"><i class="bi bi-link-45deg"></i> ${i18n('btn_open_pdf')}</a>` : '<span class="text-muted">&mdash;</span>'}</td>
+      <td class="text-center">${quoteStatusLabel(itemProp(item, 'estado', 'status'))}</td>
+      <td class="text-center quote-col-currency d-none" data-qcol="currency">${itemProp(item, 'currency') || "CLP"}</td>
+      <td class="text-end quote-col-xrate d-none" data-qcol="currency">${Number(itemProp(item, 'exchange_rate', 'exchangeRate')) > 0 ? Number(itemProp(item, 'exchange_rate', 'exchangeRate')) : '<span class="text-muted">&mdash;</span>'}</td>
+      <td class="text-end">${Number(itemProp(item, 'unit_price', 'price') || 0).toLocaleString("en-US")}</td>
+      <td class="text-end ${discountPct > 0 ? "text-success fw-semibold" : ""}">${price > 0 ? netUnit.toLocaleString("en-US") : '<span class="text-muted">â€”</span>'}</td>
+      <td class="text-end">${Number(itemProp(item, 'total_price', 'total') || 0).toLocaleString("en-US")}</td>
     </tr>
   `;
         },
       )
       .join("");
+    } catch (e) {
+      console.error('[QUOTES UI DEBUG] openQuoteDetails render failed:', e);
+      detailRows = '<tr><td colspan="13" class="text-danger">Error rendering items: ' + e.message + '</td></tr>';
+    }
 
     // Grand total across all line items (shown in the table footer). The stored
     // line totals already carry the transport once (only the carrier line adds
     // it), so this is the money the supplier actually invoiced for the goods + freight.
     const quoteTotalSum = detailItems.reduce(
-      (sum, it) => sum + (Number(it.total || 0) || 0), 0
+      (sum, it) => sum + (Number(itemProp(it, 'total_price', 'total') || 0) || 0), 0
     );
 
-    // 💰 Money breakdown of the footer: the transport figure is read from the
+    // ðŸ’° Money breakdown of the footer: the transport figure is read from the
     // carrier line only, and the net subtotal is what remains of the grand total
     // once that single charge is taken out, so Subtotal + Transport = Total.
     const detailMoney = quoteMoneySummary(detailItems);
@@ -3199,6 +3321,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
               <th data-i18n="col_subcategory" data-qcol="subcat">Sub Category</th>
               <th class="text-center" data-i18n="lbl_supplier_quote_no" data-qcol="quoteno">Supplier Quote No.</th>
               <th class="text-center" data-i18n="lbl_quoted_doc" data-qcol="doc">Quoted Doc</th>
+              <th class="text-center" data-i18n="lbl_supplier_quote_link" data-qcol="supplierlink">Supplier Quote Link</th>
+              <th class="text-center" data-i18n="status">Status</th>
               <th class="text-center quote-col-currency d-none" data-i18n="lbl_currency" data-qcol="currency">Currency</th>
               <th class="text-end quote-col-xrate d-none" data-i18n="lbl_exchange_rate" data-qcol="currency">Exch. Rate</th>
               <th class="text-end" data-i18n="col_price">Price</th>
@@ -3207,12 +3331,12 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
             </tr>
           </thead>
           <tbody>
-            ${detailRows || `<tr><td colspan="16" class="text-center text-muted py-3">${i18n('msg_no_line_items')}</td></tr>`}
+            ${detailRows || `<tr><td colspan="18" class="text-center text-muted py-3">${i18n('msg_no_line_items')}</td></tr>`}
           </tbody>
           <tfoot>
-            <!-- 💰 Quote-level money footer: Subtotal (net) - Discount + Transport
+            <!-- ðŸ’° Quote-level money footer: Subtotal (net) - Discount + Transport
                  (counted ONCE) = Total. Discount % + Transport are edited once in
-                 the edit modal and shown once here — never as per-line columns.
+                 the edit modal and shown once here â€” never as per-line columns.
                  The middle spacer carries the quote-col-currency class so the
                  value cell stays in the Total column in BOTH column states. -->
             <tr class="table-light">
@@ -3257,7 +3381,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   window.confirmDeleteQuote = function (index) {
     const q = visibleQuoteGroups[index];
     if (!q) return;
-    // 🕐 GUARD: deleting a quote whose background save is still running would
+    // ðŸ• GUARD: deleting a quote whose background save is still running would
     // race the sheet write (same lock as the edit path).
     if (isQuoteSavePending(quoteSaveKeyOf(q))) {
       showQuoteSavingWarning_();
@@ -3305,7 +3429,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       const priceInput = tr.querySelector(".edit-price");
       if (!totalInput || !priceInput) return;
 
-      // 💰 Transport lives in the quote-level bar (single value for the whole
+      // ðŸ’° Transport lives in the quote-level bar (single value for the whole
       // quote) and lands in the totals once, on the carrier row.
       const barFreight = normalizeQuoteFreight(
         document.getElementById("quoteEditFreight")?.value);
@@ -3332,7 +3456,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     const total = Math.round((subtotal + freight) * 100) / 100;
     const fmt = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    // 💰 One figure PER LINE: Subtotal / Discount / Transport / Total
+    // ðŸ’° One figure PER LINE: Subtotal / Discount / Transport / Total
     // stacked as label-left / amount-right rows. The old inline spans wrapped
     // into an unreadable jumble inside the narrow Total column of the footer.
     const moneyLine = (label, value, cls) =>
@@ -3383,7 +3507,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     const q = visibleQuoteGroups[index];
     if (!q) return;
 
-    // 🕐 GUARD: refuse to open the modal while this card's background save is
+    // ðŸ• GUARD: refuse to open the modal while this card's background save is
     // still running (mirror of handleEditClickReq in ViewEditReqJS.html). The
     // modal would be built from the pre-save cache, so editing it would overwrite
     // the row changes the server is writing right now.
@@ -3402,13 +3526,55 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       resetSaveBtn.innerHTML = i18n("btn_save_changes");
     }
 
-    // 🔒 USER ROLE: Show warning if trying to edit before Despatched
+    // ðŸ”’ USER ROLE: Show warning if trying to edit before Despatched
     // Rows rendered by this modal: duplicates from re-sent RFQs are collapsed to
     // one row per requirement line (see buildQuoteDisplayItems). The save payload is
     // built from the rendered rows only, so superseded rows keep their sheet values.
     // Module-level (not a local const): saveEditedQuote reads the same array to
     // recover the quote's original commercials while building the payload.
     editRows = quoteCardRows(q);
+    // If editRows contains quote-level objects (has orderId but no geo/pn),
+    // extract the line items array from the first quote
+    if (editRows.length > 0 && editRows[0].orderId && !editRows[0].geo) {
+        editRows = editRows[0].items || [];
+    }
+    // Normalize item properties: add camelCase aliases for all snake_case API fields
+    // so downstream code (quoteLineQtys, quoteMoneySummary, template literals) works
+    editRows = editRows.map(function (it) {
+        var n = {};
+        for (var k in it) n[k] = it[k];
+        if (it.quantity !== undefined && n.quotedQty === undefined) n.quotedQty = it.quantity;
+        if (it.quantity !== undefined && n.qty === undefined) n.qty = it.quantity;
+        if (it.unit_price !== undefined && n.price === undefined) n.price = it.unit_price;
+        if (it.discount_pct !== undefined && n.discountPct === undefined) n.discountPct = it.discount_pct;
+        if (it.sub_category !== undefined && n.subCategory === undefined) n.subCategory = it.sub_category;
+        if (it.description_es !== undefined && n.es === undefined) n.es = it.description_es;
+        if (it.description_es !== undefined && n.desc === undefined) n.desc = it.description_es;
+        if (it.description_en !== undefined && n.en === undefined) n.en = it.description_en;
+        if (it.product_pn !== undefined && n.pn === undefined) n.pn = it.product_pn;
+        if (it.images !== undefined && n.images === undefined) n.images = it.images;
+        if (it.quoted_doc_url !== undefined && n.quotedDocUrl === undefined) n.quotedDocUrl = it.quoted_doc_url;
+        if (it.exchange_rate !== undefined && n.exchangeRate === undefined) n.exchangeRate = it.exchange_rate;
+        if (it.total_price !== undefined && n.total === undefined) n.total = it.total_price;
+        if (it.supplier_quote_no !== undefined && n.supplierQuoteNo === undefined) n.supplierQuoteNo = it.supplier_quote_no;
+        if (it.received_qty !== undefined && n.receivedQty === undefined) n.receivedQty = it.received_qty;
+        if (it.approved_qty !== undefined && n.approvedQty === undefined) n.approvedQty = it.approved_qty;
+        if (it.cant !== undefined && n.qty === undefined) n.qty = it.cant;
+        if (it.estado !== undefined && n.status === undefined) n.status = it.estado;
+        if (n.supplierQuoteNo === undefined || n.supplierQuoteNo === null || n.supplierQuoteNo === '') {
+          n.supplierQuoteNo = q.refCotiz || '';
+        }
+        if (n.quotedDocUrl === undefined || n.quotedDocUrl === null || n.quotedDocUrl === '') {
+          n.quotedDocUrl = q.quotedDocUrl || '';
+        }
+        if (n.currency === undefined || n.currency === null || n.currency === '') {
+          n.currency = q.currency || 'CLP';
+        }
+        if (n.exchangeRate === undefined || n.exchangeRate === null || n.exchangeRate === '') {
+          n.exchangeRate = q.exchange_rate || q.exchangeRate || '';
+        }
+        return n;
+    });
     let userJson = localStorage.getItem("recon_user_secure");
     let isUserRole = false;
     let currentStatus = "Pending";
@@ -3440,7 +3606,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     window._editingQuote = {
       index, // can keep for UI, but not for DB
       orderId: q.orderId,
-      quoteId: q.quoteId,   // ✅ ADD THIS
+      quoteId: q.quoteId,   // âœ… ADD THIS
       supplier: q.supplier,
       category: q.category,
       site: q.site || "",
@@ -3468,8 +3634,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     }
     
     const summary = document.getElementById("quoteEditSummary");
-    summary.innerHTML = `<div><strong>${i18n('lbl_req')}:</strong> ${q.orderId} &nbsp; <strong>${i18n('lbl_supplier')}:</strong> ${q.supplier} &nbsp; <strong>${i18n('lbl_category')}:</strong> ${q.category}</div>`;
-    // 🕐 AUDIT LINE: when this quote was created and who last changed it (Quotes
+    summary.innerHTML = `<div><strong>${i18n('lbl_req')}:</strong> ${q.orderId} &nbsp; <strong>${i18n('lbl_supplier')}:</strong> ${q.supplier} &nbsp; <strong>${i18n('lbl_category')}:</strong> ${q.category} &nbsp; <strong>${i18n('lbl_date', 'Date')}:</strong> ${escHtml_(q.date || q.createdDate || "-")}</div>`;
+    // ðŸ• AUDIT LINE: when this quote was created and who last changed it (Quotes
     // sheet "Created By/Date" + "Last Modified By/Date", aggregated across the
     // card's rows by buildQuoteGroups). Legacy rows without audit cells show "-".
     try {
@@ -3479,7 +3645,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       if (createdOn || createdByName) {
         auditParts.push(
           `<i class="bi bi-plus-circle me-1"></i>${i18n("lbl_created", "Created")}: ` +
-          `${escHtml_(createdOn || "-")}${createdByName ? " · " + escHtml_(createdByName) : ""}`
+          `${escHtml_(createdOn || "-")}${createdByName ? " Â· " + escHtml_(createdByName) : ""}`
         );
       }
       const modByName = String(q.lastModifiedByName || q.lastModifiedBy || "").trim();
@@ -3487,13 +3653,13 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       if (modByName || modOn) {
         auditParts.push(
           `<i class="bi bi-pencil-square me-1"></i>${i18n("lbl_last_modified", "Last modified")}: ` +
-          `${escHtml_(modByName || "-")}${modOn ? " · " + escHtml_(modOn) : ""}` +
+          `${escHtml_(modByName || "-")}${modOn ? " Â· " + escHtml_(modOn) : ""}` +
           (Number(q.modCount) > 0 ? ` (${Number(q.modCount)})` : "")
         );
       }
       if (auditParts.length) {
         summary.innerHTML +=
-          `<div class="mt-1 small text-muted" style="opacity:.85;">${auditParts.join(" &nbsp;·&nbsp; ")}</div>`;
+          `<div class="mt-1 small text-muted" style="opacity:.85;">${auditParts.join(" &nbsp;Â·&nbsp; ")}</div>`;
       }
     } catch (auditErr) {
       console.warn("quote audit line failed: " + auditErr);
@@ -3504,7 +3670,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       summary.innerHTML += `<div class="mt-2 text-muted small"><strong>${i18n('lbl_user_mode')} Info:</strong> Received Qty: <span style="color:#28a745;font-weight:bold;">${q.receivedQty}</span></div>`;
     }
     
-    // 🔒 USER MODE: Add context banner if needed
+    // ðŸ”’ USER MODE: Add context banner if needed
     const isUserRoleChecked = isUserRole;
     if (isUserRoleChecked) {
       summary.innerHTML += `<div style="margin-top:10px; padding:8px; background:#fff3cd; border-radius:4px; font-size:12px;">
@@ -3514,9 +3680,9 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     }
 
     const tbody = document.getElementById("quoteEditBody");
-    // 💰 QUOTE-LEVEL commercials: one discount % + one transport charge shared
+    // ðŸ’° QUOTE-LEVEL commercials: one discount % + one transport charge shared
     // by every line of this quote. Existing rows may still hold differing
-    // per-line values (legacy data) — the quote value is the first non-zero
+    // per-line values (legacy data) â€” the quote value is the first non-zero
     // one found, and saving unifies every row to it.
     const quoteDiscountPct = editRows.reduce(
       (found, it) => (found > 0 ? found : normalizeQuoteDiscountPct(it.discountPct)),
@@ -3526,7 +3692,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       (found, it) => (found > 0 ? found : normalizeQuoteFreight(it.freight)),
       0
     );
-    // 💰 Snapshot of the quote's ORIGINAL commercials at open time. saveEditedQuote
+    // ðŸ’° Snapshot of the quote's ORIGINAL commercials at open time. saveEditedQuote
     // reads this to tell "the user blanked the bar on purpose" (send 0) from "the
     // bar was never filled" (send undefined = keep the stored cell). It lives on
     // the edit context so it is always reachable from the save handler.
@@ -3541,15 +3707,15 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         (it) => normalizeQuoteItemStatus(it.estado || it.status) !== "Deleted"
       );
     }
-    // 💰 Exposed for updateQuoteEditTotalSum (footer): the single row whose
+    // ðŸ’° Exposed for updateQuoteEditTotalSum (footer): the single row whose
     // total carries the quote-level transport.
     window._quoteFreightCarrierIdx = freightCarrierIdx;
     const siteInternal = isInternalReceivingSite(q.site);
     tbody.innerHTML = editRows
       .map((it, i) => {
         const price = Number(it.price || 0);
-        // 💰 Every row displays the SAME quote-level discount/transport, read
-        // from the header above — never from its own cell — so the charge can
+        // ðŸ’° Every row displays the SAME quote-level discount/transport, read
+        // from the header above â€” never from its own cell â€” so the charge can
         // only ever be entered and counted once for the whole quote.
         const discountPct = quoteDiscountPct;
         const netUnit = quoteNetUnitPrice(price, discountPct);
@@ -3557,14 +3723,14 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const qtys = quoteLineQtys(it);
         const qty = qtys.quoted;
         const status = normalizeQuoteItemStatus(it.estado || it.status);
-        // 🔒 The quoted qty freezes once the line is Approved: it is the record of
+        // ðŸ”’ The quoted qty freezes once the line is Approved: it is the record of
         // what the supplier quoted, and the manager's reduction now lives in the
         // separate "Cant. Aprobado" column instead of overwriting it.
         const qtyFrozen = isQuoteQtyFrozenStatus(status);
         // Basis for the "Missing" column and the total auto-calculation: the
         // approved qty once the line is approved, the quoted qty before that.
         const diffBasis = qtyFrozen ? qtys.approved : qty;
-        const total = Number(it.total || it.lineTotal || price * qty || 0);
+        const total = Number(itemProp(it, 'total_price', 'total') || it.lineTotal || price * qty || 0);
         // Received qty visible only once the receiving window is open for this site:
         //  - Store/Workshop (internal): status is "Sent" or later
         //  - Remote sites (default): status is "Despatched" or later
@@ -3649,6 +3815,11 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         <td class="text-center edit-doc-cell" data-qcol="doc">
           <span class="edit-doc-actions d-inline-flex align-items-center gap-1"></span>
         </td>
+        <td class="text-center" data-qcol="supplierlink">
+          ${itemProp(it, 'quoteLink', 'quote_link', 'pdf_url')
+            ? `<a href="${attr_(itemProp(it, 'quoteLink', 'quote_link', 'pdf_url'))}" target="_blank" class="small"><i class="bi bi-link-45deg"></i> ${i18n('btn_open_pdf')}</a>`
+            : '<span class="text-muted">&mdash;</span>'}
+        </td>
 
         <!-- RECEIVED QUANTITY (EDITABLE only when the receiving window is open) -->
         <td class="text-center edit-received-cell" data-qcol="rcvd">
@@ -3697,8 +3868,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
             style="min-width:70px;">
         </td>
 
-        <!-- 💰 Discount % + Transport are QUOTE-LEVEL (edited once in the bar
-             below, shown once in the footer) — no per-line columns here. -->
+        <!-- ðŸ’° Discount % + Transport are QUOTE-LEVEL (edited once in the bar
+             below, shown once in the footer) â€” no per-line columns here. -->
 
         <!-- Price (the QUOTED unit price, never overwritten) -->
         <td class="text-end">
@@ -3714,7 +3885,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
         <!-- Net unit price (read-only): Price x (1 - Discount %) -->
         <td class="text-end">
-          <span class="edit-net-unit fw-semibold ${discountPct > 0 ? "text-success" : "text-muted"}">${price > 0 ? netUnit.toLocaleString("en-US") : "—"}</span>
+          <span class="edit-net-unit fw-semibold ${discountPct > 0 ? "text-success" : "text-muted"}">${price > 0 ? netUnit.toLocaleString("en-US") : "â€”"}</span>
         </td>
 
         <!-- Total (auto-calculated) -->
@@ -3805,8 +3976,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         `<i class="bi bi-check2-square me-1"></i>` +
         escHtml_(i18n("quote_doc_scope_n", "Applying to {n} selected line(s)").replace("{n}", checked.length)) +
         (eligible === 0
-          ? ` <span class="text-warning">· ${escHtml_(i18n("quote_doc_scope_none_eligible", "none are Quoted or later"))}</span>`
-          : ` <span class="text-muted">· ${escHtml_(i18n("quote_doc_scope_eligible", "{n} Quoted or later").replace("{n}", eligible))}</span>`);
+          ? ` <span class="text-warning">Â· ${escHtml_(i18n("quote_doc_scope_none_eligible", "none are Quoted or later"))}</span>`
+          : ` <span class="text-muted">Â· ${escHtml_(i18n("quote_doc_scope_eligible", "{n} Quoted or later").replace("{n}", eligible))}</span>`);
     }
 
     // Indeterminate state on the select-all box: a partially scoped save must not
@@ -3951,7 +4122,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
                 // bypasses the disabled <option>, so without this check a
                 // price-0 line could be bulk-jumped to Quoted here and then
                 // fail the whole save with a distant warning. Skip it and
-                // report — exactly what the per-row dropdown does.
+                // report â€” exactly what the per-row dropdown does.
                 if (v === "Quoted" && tr) {
                   const priceInput = tr.querySelector(".edit-price");
                   const price = priceInput ? Number(priceInput.value) : 0;
@@ -4037,9 +4208,9 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     // auto-calculate total = net unit price * qty (+ transport once, on the carrier line).
     // Basis, in order: the RECEIVED qty while the
     // receiving window is open (what actually arrived), else the editable Qty
-    // input, else the APPROVED qty on a frozen line — falling back to the quoted
+    // input, else the APPROVED qty on a frozen line â€” falling back to the quoted
     // qty only for rows that predate the "Cant. Aprobado" column.
-    // 💰 Quote-level commercials: the single discount % / transport in the bar
+    // ðŸ’° Quote-level commercials: the single discount % / transport in the bar
     // below apply to every row, so there are no per-row money inputs here.
     const discountBarInput = document.getElementById("quoteEditDiscount");
     const freightBarInput = document.getElementById("quoteEditFreight");
@@ -4074,10 +4245,10 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
             totalInput.value = (netUnit * qtyForCalc + freightAmt).toFixed(2);
           }
 
-          // 💰 Keep the derived net unit price next to the price in sync while typing.
+          // ðŸ’° Keep the derived net unit price next to the price in sync while typing.
           const netSpan = tr.querySelector(".edit-net-unit");
           if (netSpan) {
-            netSpan.textContent = netUnit > 0 ? netUnit.toLocaleString("en-US") : "—";
+            netSpan.textContent = netUnit > 0 ? netUnit.toLocaleString("en-US") : "â€”";
             netSpan.classList.toggle("text-success", normalizeQuoteDiscountPct(discountBarInput ? discountBarInput.value : 0) > 0);
             netSpan.classList.toggle("text-muted", !(normalizeQuoteDiscountPct(discountBarInput ? discountBarInput.value : 0) > 0));
           }
@@ -4085,7 +4256,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         };
         priceInput.addEventListener("input", calculateTotal);
         // LIVE price gate: the "Quoted" option was rendered from the STORED price,
-        // so re-check it on every keystroke — typing a price must unlock the
+        // so re-check it on every keystroke â€” typing a price must unlock the
         // Pending -> Quoted transition immediately instead of only after the modal
         // is closed and reopened (see refreshQuotedOptionState_).
         priceInput.addEventListener("input", () => refreshQuotedOptionState_(tr));
@@ -4093,7 +4264,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         if (qtyInput) qtyInput.addEventListener("input", calculateTotal);
         if (approvedQtyInput) {
           approvedQtyInput.addEventListener("input", calculateTotal);
-          // 🔒 Never let a Manager correction push the approved qty ABOVE the quote:
+          // ðŸ”’ Never let a Manager correction push the approved qty ABOVE the quote:
           // the server rejects it, so stop it here with a visible reason instead of
           // a save that fails the whole quote.
           approvedQtyInput.addEventListener("change", () => {
@@ -4109,7 +4280,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       }
     });
 
-    // 💰 QUOTE-LEVEL commercials bar: ONE discount % + ONE transport charge for
+    // ðŸ’° QUOTE-LEVEL commercials bar: ONE discount % + ONE transport charge for
     // the whole quote. Both values are seeded from the stored rows (first
     // non-zero wins, so legacy per-line data unifies on open), Apply refreshes
     // every row's Net/Total display, and save writes the shared values to all
@@ -4122,12 +4293,12 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const priceInput = tr.querySelector(".edit-price");
         const totalInput = tr.querySelector(".edit-total");
         const netSpan = tr.querySelector(".edit-net-unit");
-        // 💰 No per-line discount/transport cells: the single quote-level values
+        // ðŸ’° No per-line discount/transport cells: the single quote-level values
         // in the bar below apply to every row (shown once in the footer).
         const price = Number(priceInput ? priceInput.value : 0);
         const netUnit = quoteNetUnitPrice(price, pct);
         if (netSpan) {
-          netSpan.textContent = netUnit > 0 ? netUnit.toLocaleString("en-US") : "—";
+          netSpan.textContent = netUnit > 0 ? netUnit.toLocaleString("en-US") : "â€”";
           netSpan.classList.toggle("text-success", pct > 0);
           netSpan.classList.toggle("text-muted", !(pct > 0));
         }
@@ -4137,7 +4308,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           totalInput.value = (netUnit * quoteRowBasisQty_(tr) + freightAmt).toFixed(2);
         }
       });
-      // 💰 Quote totals live in the footer (Subtotal - Discount + Transport);
+      // ðŸ’° Quote totals live in the footer (Subtotal - Discount + Transport);
       // no per-line transport cells to refresh.
       window.updateQuoteEditTotalSum();
     };
@@ -4501,7 +4672,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       Swal.fire(i18n("msg_error"), i18n("msg_no_data"), "error");
       return;
     }
-    // 🕐 Belt & braces: a second save of a quote whose previous background save
+    // ðŸ• Belt & braces: a second save of a quote whose previous background save
     // has not finished yet is refused before anything is locked or sent. The
     // modal should not even be open in that state (openEditQuote guards it), but
     // a stale DOM / re-entry must never reach the server either.
@@ -4589,7 +4760,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
             ? (Number(qtyInput.value) || 0)
             : (Number(tr.dataset.origSent) || 0));
 
-      // 🔒 APPROVED QTY ("Cant. Aprobado"). Sent only when the row actually carries
+      // ðŸ”’ APPROVED QTY ("Cant. Aprobado"). Sent only when the row actually carries
       // an editable approved figure: `undefined` tells the server to keep the
       // stored stamp (or, at approval time, to stamp whatever `qty` carries).
       const approvedQtyValue = (approvedQtyInput && !approvedQtyInput.disabled)
@@ -4647,7 +4818,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       const currencyVal = String(tr.querySelector(".edit-currency")?.value || "").trim();
       const exchangeRaw = String(tr.querySelector(".edit-exchange")?.value || "").trim();
 
-      // 💰 QUOTE-LEVEL commercials: ONE discount % + ONE transport for the whole
+      // ðŸ’° QUOTE-LEVEL commercials: ONE discount % + ONE transport for the whole
       // quote, read from the bar (not from any row). `undefined` means "server
       // keeps the stored value", so simply opening and saving a quote can never
       // wipe commercials it never touched:
@@ -4701,7 +4872,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         // Use receivedQty as the primary quantity field for USER editing
         qty: sentQtyValue,
         receivedQty: receivedQtyValue,
-        // 🔒 Quoted and approved are separate figures from here on.
+        // ðŸ”’ Quoted and approved are separate figures from here on.
         approvedQty: approvedQtyValue,
 
         // Category / Sub Category are no longer editable in this modal (their
@@ -4712,7 +4883,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         subCategory: tr.dataset.origSub || undefined,
         price: Number(tr.querySelector(".edit-price")?.value || 0),
         total: Number(tr.querySelector(".edit-total")?.value || 0),
-        // 💰 Quote-level commercials. The SAME discount % travels on every row;
+        // ðŸ’° Quote-level commercials. The SAME discount % travels on every row;
         // the SAME freight is replicated on every row but counted once
         // (carrier row only, server-side).
         discountPct: quoteDiscountValue,
@@ -4814,7 +4985,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
               : m.missingNo
                 ? i18n("msg_quoted_missing_no", "missing Quote No.")
                 : i18n("msg_quoted_missing_doc", "missing document");
-            return `${attr_(m.label)} — ${attr_(what)}`;
+            return `${attr_(m.label)} â€” ${attr_(what)}`;
           })
           .join("<br>");
         Swal.fire(
@@ -4865,7 +5036,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         if (__ust && __ust !== '') { var __u = JSON.parse(__ust); __userEmail = __u.email; }
         else { __userEmail = window.currentUser?.email || ''; }
       } catch (e) { __userEmail = ''; }
-      // 🕐 LOCK: grey this card and refuse re-edits from the moment the save is
+      // ðŸ• LOCK: grey this card and refuse re-edits from the moment the save is
       // fired until the job reports DONE/ERROR (released in onDone below, and on
       // an enqueue failure so a failed start can never leave the card stuck).
       var __pendingKey = quoteSaveKeyOf(meta);
@@ -4884,7 +5055,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
               syncQuoteCachesAfterSave(meta, items, job.pdfUrl || "");
               if (window.Swal) Swal.fire(i18n('msg_success'), i18n('status_saved') + " " + i18n('msg_quote_updated'), "success");
             } else if (window.Swal) {
-              Swal.fire(i18n('btn_error'), String(job.error || job.step || "Background job failed") + " — " + i18n('msg_refresh_hint', "Refresh the list to see the latest data."), "error");
+              Swal.fire(i18n('btn_error'), String(job.error || job.step || "Background job failed") + " â€” " + i18n('msg_refresh_hint', "Refresh the list to see the latest data."), "error");
             }
           } catch (e) {}
           // Release the card lock LAST: an errored job must unlock too, or the
@@ -4938,10 +5109,10 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
   // "+" deep-links into the RFQ module with this requirement preselected, so
   // the additional quote is created through the normal RFQ flow (supplier
-  // chips, email preview, sendFinalRFQ) — same qty, new supplier.
+  // chips, email preview, sendFinalRFQ) â€” same qty, new supplier.
   window.openAddQuoteToReq = function (orderId) {
-    // 🕐 GUARD: refuse while any card of this requirement is still saving in the
-    // background — the new quote would be built on top of a half-written sheet.
+    // ðŸ• GUARD: refuse while any card of this requirement is still saving in the
+    // background â€” the new quote would be built on top of a half-written sheet.
     if ((visibleQuoteGroups || []).some((g) =>
         String(g.orderId || "").trim() === String(orderId || "").trim() &&
         isQuoteSavePending(quoteSaveKeyOf(g)))) {
@@ -4986,7 +5157,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   window.openCompareQuotes = function (orderId) {
     const oid = String(orderId || "").trim();
     if (!oid) return;
-    // 🕐 GUARD: the compare matrix is built from the card list, so a quote of
+    // ðŸ• GUARD: the compare matrix is built from the card list, so a quote of
     // this requirement that is still saving in the background must be waited for
     // (a half-written sheet would show prices/quantities mid-update).
     if ((visibleQuoteGroups || []).some((g) =>
@@ -5079,7 +5250,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const it = entry.it;
         const g = entry.g;
         const st = normalizeQuoteItemStatus(it.estado || it.status);
-        // ⚠️ Deleted rows are KEPT here (flagged, never dropped). When one supplier
+        // âš ï¸ Deleted rows are KEPT here (flagged, never dropped). When one supplier
         // wins an item, every competitor's line for that item is marked as Deleted,
         // and this table exists to keep showing that price in red - exactly what
         // i18n.html has always promised ("competing quotes are shown in red and
@@ -5092,8 +5263,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const cellKey = keyOf(it);
         const next = {
           price: Number(it.price || 0) || 0,
-          total: Number(it.total || it.lineTotal || 0) || 0,
-          // 💰 Money comparison is done on the NET unit price (the quoted price
+          total: Number(itemProp(it, 'total_price', 'total') || it.lineTotal || 0) || 0,
+          // ðŸ’° Money comparison is done on the NET unit price (the quoted price
           // less the supplier's discount), because that is what the company
           // actually pays per unit. The quoted figure stays visible for audit.
           discountPct: normalizeQuoteDiscountPct(it.discountPct),
@@ -5101,7 +5272,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           status: st,
           deleted: st === "Deleted",
           // RAW GEO of this row: the P/N alias fallback may only fire when one
-          // side lacks a GEO — a row keyed by a DIFFERENT GEO is another
+          // side lacks a GEO â€” a row keyed by a DIFFERENT GEO is another
           // requirement line (the same P/N is commonly requisitioned twice)
           // and must never resolve into this cell.
           geoKey: String(it.geo || "").trim(),
@@ -5192,7 +5363,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         byKeyPn: byKeyPn,
         selectable: activeCount > 0 && allQuoted,
         domStatus: quoteGroupDominantStatus(allItemsFlat),
-        // 💰 One transport charge per supplier quote (the carrier line's value).
+        // ðŸ’° One transport charge per supplier quote (the carrier line's value).
         // It is quote-level, so the header can show it once and the row prices
         // stay comparable without it folded in. quoteMoneySummary already
         // counts the freight exactly once (carrier row only) - there is no
@@ -5224,7 +5395,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       // requirement lines. The P/N alias may only stand in for a side that has
       // no GEO of its own (blank-GEO round vs GEO-keyed union row, or vice
       // versa). When both sides carry a GEO and still missed the exact match,
-      // the GEOs differ — never resolve.
+      // the GEOs differ â€” never resolve.
       const candGeo = String(cand.geoKey || "").trim().toLowerCase();
       const uniGeo = String(unionRow.geo || "").trim().toLowerCase();
       if (!candGeo || !uniGeo) return cand;
@@ -5272,7 +5443,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     const bodyEl = document.getElementById("quoteCompareBody");
     const titleEl = document.getElementById("quoteCompareTitle");
     const applyBtn = document.getElementById("btnApplyQuoteCompare");
-    if (titleEl) titleEl.textContent = `${i18n('quote_compare_title', 'Compare Prices')} — ${i18n('lbl_req')} ${oid}`;
+    if (titleEl) titleEl.textContent = `${i18n('quote_compare_title', 'Compare Prices')} â€” ${i18n('lbl_req')} ${oid}`;
     if (applyBtn) {
       if (!applyBtn.dataset.defaultHtml) applyBtn.dataset.defaultHtml = applyBtn.innerHTML;
       applyBtn.disabled = true;
@@ -5310,11 +5481,11 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           const docsTitle = [quoteNoTip ? (i18n('lbl_supplier_quote_no', 'Supplier Quote No.') + ": " + quoteNoTip) : "", mainPdf || "", docUrls[0] || ""].filter(Boolean).join(" | ");
           const docsHtml = (mainPdf || docUrls.length)
             ? `<div class="d-flex justify-content-center gap-1 mt-1">` +
-              (mainPdf ? `<a href="${attr_(mainPdf)}" target="_blank" class="btn btn-sm btn-outline-danger py-0 px-1" title="${attr_(i18n('btn_open_pdf', 'Open PDF') + (quoteNoTip ? " — " + quoteNoTip : ""))}" onclick="event.stopPropagation()"><i class="bi bi-file-pdf"></i></a>` : "") +
-              (docUrls.length ? `<a href="${attr_(docUrls[0])}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="${attr_((i18n('lbl_quoted_doc', 'Quoted Doc') + (docUrls.length > 1 ? " (1/" + docUrls.length + ")" : "")) + (docsTitle ? " — " + docsTitle : ""))}" onclick="event.stopPropagation()"><i class="bi bi-paperclip"></i>${docUrls.length > 1 ? `<span class="ms-1" style="font-size:.65rem;">+${docUrls.length - 1}</span>` : ""}</a>` : "") +
+              (mainPdf ? `<a href="${attr_(mainPdf)}" target="_blank" class="btn btn-sm btn-outline-danger py-0 px-1" title="${attr_(i18n('btn_open_pdf', 'Open PDF') + (quoteNoTip ? " â€” " + quoteNoTip : ""))}" onclick="event.stopPropagation()"><i class="bi bi-file-pdf"></i></a>` : "") +
+              (docUrls.length ? `<a href="${attr_(docUrls[0])}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="${attr_((i18n('lbl_quoted_doc', 'Quoted Doc') + (docUrls.length > 1 ? " (1/" + docUrls.length + ")" : "")) + (docsTitle ? " â€” " + docsTitle : ""))}" onclick="event.stopPropagation()"><i class="bi bi-paperclip"></i>${docUrls.length > 1 ? `<span class="ms-1" style="font-size:.65rem;">+${docUrls.length - 1}</span>` : ""}</a>` : "") +
               `</div>`
             : "";
-          // 💰 Quote-level transport, printed ONCE in this supplier's column: the
+          // ðŸ’° Quote-level transport, printed ONCE in this supplier's column: the
           // row prices below are goods-only, so the whole transport has to be
           // visible somewhere before a winner is picked. A merged column shows
           // one line per underlying quote (labelled by its Quote ID), each
@@ -5332,8 +5503,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         }).join("")}
       </tr>`;
 
-    // 🔒 In the Qty cell below, an already-approved item is locked and must show the
-    // APPROVED quantity — not the quoted one, which the split now keeps in "Cant.".
+    // ðŸ”’ In the Qty cell below, an already-approved item is locked and must show the
+    // APPROVED quantity â€” not the quoted one, which the split now keeps in "Cant.".
     // Reading the winner's own row also picks the right figure up when the union row
     // came from a different supplier's quote.
     const rowsHtml = itemUnion.map((iu, iIdx) => `<tr>
@@ -5366,7 +5537,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           // Per-item winner selection: exactly one supplier per item row.
           // Status flow: Pending cells can't be approved (must be Quoted first);
           // cells beyond Approved can't be selected either (no going backwards).
-          // A quote with a price of 0 is not a valid quote — not selectable.
+          // A quote with a price of 0 is not a valid quote â€” not selectable.
           const priceOk = cell.price > 0;
           const hasApprovedWinner = approvedByItem[iu.key] !== undefined;
           const isApprovedWinner = hasApprovedWinner && approvedByItem[iu.key] === si;
@@ -5393,7 +5564,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
                 : (canPick
                     ? quoteStatusLabel(cell.status)
                     : (cell.status === "Not Quoted"
-                        ? i18n("quote_compare_not_quoted_hint", "Supplier did not quote this item — ignored")
+                        ? i18n("quote_compare_not_quoted_hint", "Supplier did not quote this item â€” ignored")
                         : (!priceOk
                         ? i18n('quote_compare_price_zero', 'Price is 0 - enter a price first (in Edit Quote)')
                         : i18n('quote_compare_locked_later', 'Item is {status} - cannot go back').replace('{status}', quoteStatusLabel(cell.status))))));
@@ -5423,7 +5594,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
                 : (isRejectedAfterApproval
                     ? `<div class="small fw-bold text-danger"><i class="bi bi-x-circle"></i> ${quoteStatusLabel(cell.status)}</div><div class="small text-danger">${attr_(competitorHint)}</div>`
                     : `<div class="small fw-normal text-muted">${quoteStatusLabel(cell.status)}</div>`));
-          // 💰 What the cell prints: the NET unit price (what we actually pay per
+          // ðŸ’° What the cell prints: the NET unit price (what we actually pay per
           // unit) as the headline figure, then the discount that produced it and
           // the line total. The transport is NOT in the unit price - it is printed
           // once in the supplier's header as a quote-level charge, so two suppliers
@@ -5538,7 +5709,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         if (quoteCompareKeyOf(it) === iu.key) return true;
         // Alias identities, guarded: only when at least one side lacks a GEO
         // (blank-GEO round). Two rows that BOTH carry a GEO and missed the key
-        // match are different requirement lines sharing a P/N — never merged.
+        // match are different requirement lines sharing a P/N â€” never merged.
         const itGeo = String(it.geo || "").trim().toLowerCase();
         const itPn = String(it.pn || it.p || "").trim().toLowerCase();
         const uGeo = String(iu.geo || "").trim().toLowerCase();
@@ -5637,7 +5808,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           ? (Number(entry.qty) || 0)
           : (Number(it.cant || it.qty || 0) || 0);
         const price = Number(it.price || 0) || 0;
-        // 💰 Commercials travel with the line so an approval can never silently
+        // ðŸ’° Commercials travel with the line so an approval can never silently
         // drop the supplier's discount or the agreed transport. A value the source
         // row does not have is sent as `undefined`, which the server reads as
         // "keep the stored cell" - same contract as approvedQty below.
@@ -5650,7 +5821,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         // Money actually approved: the NET unit price (discount applied), because
         // approving at the list price would pay the supplier more than agreed.
         const netUnitPrice = quoteNetUnitPrice(price, discountPct);
-        // 🛎️ FIX (approval totals): the line Total used to be forwarded VERBATIM
+        // ðŸ›Žï¸ FIX (approval totals): the line Total used to be forwarded VERBATIM
         // from the cached row, so approving with an edited Qty wrote the new Cant.
         // but kept the OLD "Total Neto" - and because the quote grand total is just
         // the sum of line totals, neither figure ever moved. Recompute from the qty
@@ -5663,8 +5834,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const isApproving = String(status).toUpperCase() === "APPROVED";
         const lineTotal = (isApproving && price > 0)
           ? Math.round(netUnitPrice * q * 100) / 100
-          : (Number(it.total || it.lineTotal || 0) || 0);
-        // 🔒 On the approval leg `q` IS the approved quantity: the server stamps it
+          : (Number(itemProp(it, 'total_price', 'total') || it.lineTotal || 0) || 0);
+        // ðŸ”’ On the approval leg `q` IS the approved quantity: the server stamps it
         // into "Cant. Aprobado" and freezes "Cant." as the quoted figure. Sending it
         // explicitly as well keeps the stamp correct even if the line is later
         // re-approved, and it is what lets a reduced approval stay visible instead
@@ -5684,13 +5855,13 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         quotedDocUrl: it.quotedDocUrl || undefined,
         qty: q,
         receivedQty: undefined, // omitted -> server preserves stored value
-        // 🔒 Only the Approved leg writes "Cant. Aprobado" (see isApproving above).
+        // ðŸ”’ Only the Approved leg writes "Cant. Aprobado" (see isApproving above).
         approvedQty: approvedQty,
         category: it.category || op.s.category,
         subCategory: it.subCategory || "",
         price: price,
         total: lineTotal,
-        // 💰 Quote-level supplier discount + quote-level transport (see above).
+        // ðŸ’° Quote-level supplier discount + quote-level transport (see above).
         discountPct: discountPct,
         freight: freight,
         };
@@ -5735,7 +5906,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     });
   };
 
-  // ===== "FIX DELETED" — compare-modal resync =====
+  // ===== "FIX DELETED" â€” compare-modal resync =====
   // Approving an item must mark every other supplier's line for that item as
   // Deleted, but three gaps could leave those competitors alive:
   //   1. the compare modal only cascaded for items that had no winner yet
@@ -6014,7 +6185,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   // identified by (Quote ID + original GEO) and every other field is echoed, so only
   // the status moves. receivedQty is deliberately omitted (undefined) so the server
   // preserves the stored value instead of fabricating a diff, and so is
-  // approvedQty — a Deleted line keeps whatever was stamped at approval.
+  // approvedQty â€” a Deleted line keeps whatever was stamped at approval.
   function buildResyncPayloadItem_(it, quote) {
     return {
       orderId: it.orderId || quote.orderId || "",
@@ -6034,7 +6205,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       category: it.category || quote.category || "",
       subCategory: it.subCategory || "",
       price: Number(it.price || 0) || 0,
-      total: Number(it.total || it.lineTotal || 0) || 0,
+      total: Number(itemProp(it, 'total_price', 'total') || it.lineTotal || 0) || 0,
     };
   }
 
@@ -6126,4 +6297,3 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => { applyTranslations(); if (typeof renderQuoteStatusLegend === "function") renderQuoteStatusLegend(); }, 100);
   });
-

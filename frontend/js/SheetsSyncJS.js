@@ -625,6 +625,26 @@
       if (res && res.data) {
         studioState.schemas = res.data;
       }
+      if (!studioState.schemas) studioState.schemas = {};
+      if (!studioState.schemas.movementVal) {
+        studioState.schemas.movementVal = {
+          key: 'movementVal',
+          label: 'Movement Validation',
+          gasSheet: 'Movement_Val',
+          isSplit: false,
+          table: 'movement_val',
+          fields: [
+            { field: 'maquinaria', label: 'Maquina' },
+            { field: 'generadores', label: 'Generador' },
+            { field: 'vehiculos', label: 'Vehiculo' }
+          ],
+          defaultMapping: {
+            Maquina: 'maquinaria',
+            Generador: 'generadores',
+            Vehiculo: 'vehiculos'
+          }
+        };
+      }
       studioOnTabSelected();
     } catch (err) {
       console.warn('Could not load schema definitions:', err);

@@ -7,6 +7,8 @@ let lastScannedCode = null;
 let lastScannedTime = 0;
 let dailyMovementsCache = [];
 let allMovementsCache = [];
+let movementInventoryReady = null;
+let movementInventoryLoading = false;
 
 
 window.movementValCache = {
@@ -31,6 +33,15 @@ window.initInvMovModule = function () {
   document.getElementById("searchResults").innerHTML = "";
   document.getElementById("cartBox").innerHTML = "";
 
+  movementInventoryLoading = true;
+  movementInventoryReady = loadMovementInventory().then(() => {
+    movementInventoryLoading = false;
+    const searchBox = document.getElementById("searchBox");
+    if (searchBox && searchBox.value.trim()) {
+      liveSearch();
+    }
+  });
+
   loadPeopleCache();
 
   loadMovementValidationCache(function(data) {
@@ -38,6 +49,7 @@ window.initInvMovModule = function () {
     console.log("Validation ready", data);
 
     populateMovementDropdowns();
+    loadMovementSites();
 
     populateReturnFilters();
 
@@ -163,10 +175,37 @@ function populateMovementDropdowns() {
 
   if (!data) return;
 
-  buildSelect("sector", data.Sector);
+  const siteValues = (window.CachedDataVal?.sites || [])
+    .map(site => typeof site === "string" ? site : site.name)
+    .filter(Boolean);
+
+  buildSelect("sector", siteValues.length ? siteValues : data.Sector);
   buildSelect("maquina", data.Maquina);
   buildSelect("generador", data.Generador);
   buildSelect("vehiculo", data.Vehiculo);
+}
+
+function loadMovementSites() {
+  const cachedSites = (window.CachedDataVal?.sites || [])
+    .map(site => typeof site === "string" ? site : site.name)
+    .filter(Boolean);
+
+  if (cachedSites.length) {
+    buildSelect("sector", cachedSites);
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(sites => {
+      const siteNames = (sites || [])
+        .map(site => typeof site === "string" ? site : site.name)
+        .filter(Boolean);
+      buildSelect("sector", siteNames);
+    })
+    .withFailureHandler(error => {
+      console.error("Could not load sites for Inventory Movement sector:", error);
+    })
+    .getSiteData();
 }
 
 
@@ -197,35 +236,116 @@ function buildSelect(id, values) {
 // =====================
 function liveSearch() {
   const query = document.getElementById("searchBox").value;
+  if (movementInventoryLoading) {
+    renderSearchLoading();
+    return;
+  }
   const results = searchInventory(query);
   renderResults(results);
+}
+
+async function loadMovementInventory() {
+  try {
+    if (typeof RECON_API === "undefined" || typeof RECON_API.getProducts !== "function") {
+      window.fullInventory = (window.fullInventory || []).map(normalizeMovementProduct);
+      return window.fullInventory;
+    }
+
+    const pageSize = 5000;
+    const products = [];
+    let page = 1;
+    let total = null;
+
+    do {
+      const response = await RECON_API.getProducts({
+        page,
+        limit: pageSize
+      });
+      const pageProducts = Array.isArray(response?.data) ? response.data : [];
+
+      products.push(...pageProducts);
+      total = Number(response?.pagination?.total);
+
+      if (pageProducts.length === 0 || pageProducts.length < pageSize) {
+        break;
+      }
+
+      page += 1;
+    } while (total === null || products.length < total);
+
+    window.fullInventory = products.map(normalizeMovementProduct);
+    return window.fullInventory;
+  } catch (error) {
+    console.error("Inventory Movement product load failed:", error);
+    renderSearchError("Unable to load products. Please try again.");
+    return [];
+  }
+}
+
+function normalizeMovementProduct(product) {
+  return {
+    ...product,
+    id: product.id || product.geo || "",
+    geo: product.geo || product.GEO || product.geocode || product.GeoCode || "",
+    pn: product.pn || product.part_number || product.partNumber || product.product_number || product.productNumber || "",
+    en: product.en || product.description || product.description_en || product.descriptionEn || product.desc_en || product.name || "",
+    es: product.es || product.description_es || product.descriptionEs || product.desc_es || product.descripcion || product.descripcion_es || "",
+    marca: product.marca || product.brand_name || product.brand || product.brand_id || "",
+    category: product.category || product.category_name || product.category_id || "",
+    proveedor: product.proveedor || product.supplier_name || product.supplier || product.supplier_id || "",
+    stock: Number(product.stock || product.available_stock || 0)
+  };
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function renderSearchLoading() {
+  const container = document.getElementById("searchResults");
+  if (container) {
+    container.innerHTML = "<small class='text-muted'>Loading products...</small>";
+  }
+}
+
+function renderSearchError(message) {
+  const container = document.getElementById("searchResults");
+  if (container) {
+    container.innerHTML = `<small class='text-danger'>${message}</small>`;
+  }
 }
 
 // =====================
 // SEARCH ENGINE
 // =====================
 function searchInventory(query) {
-  const q = query.toLowerCase().trim();
+  const q = normalizeSearchText(query);
   if (q.length < 2) return [];
 
   const terms = q.split(/\s+/).filter(Boolean);
 
-  return window.fullInventory
+  return (window.fullInventory || [])
     .map(item => {
       let score = 0;
 
-      const geo = (item.geo || "").toLowerCase();
-      const pn = (item.pn || "").toLowerCase();
-      const marca = (item.marca || "").toLowerCase();
-      const en = (item.en || "").toLowerCase();
-      const es = (item.es || "").toLowerCase();
+      const geo = normalizeSearchText(item.geo || item.GEO || item.geocode);
+      const pn = normalizeSearchText(item.pn || item.part_number || item.partNumber || item.product_number);
+      const en = normalizeSearchText(item.en || item.description || item.description_en || item.desc_en || item.name);
+      const es = normalizeSearchText(item.es || item.description_es || item.descriptionEs || item.desc_es || item.descripcion || item.descripcion_es);
+      const marca = normalizeSearchText(item.marca || item.brand_name || item.brand);
+      const category = normalizeSearchText(item.category || item.category_name);
+      const supplier = normalizeSearchText(item.proveedor || item.supplier_name || item.supplier);
 
       // Exact matches (highest priority)
       if (geo === q) score += 100;
       if (pn === q) score += 90;
 
       // Multi-word support: every term must appear in at least one field
-      const allText = `${geo} ${pn} ${marca} ${en} ${es}`;
+      const allText = `${geo} ${pn} ${marca} ${en} ${es} ${category} ${supplier}`;
       const matchesAllTerms = terms.every(term => allText.includes(term));
 
       if (!matchesAllTerms) {
@@ -242,6 +362,7 @@ function searchInventory(query) {
         if (pn.includes(term)) score += 20;
         if (marca.includes(term)) score += 12;
         if (en.includes(term) || es.includes(term)) score += 10;
+        if (category.includes(term) || supplier.includes(term)) score += 8;
       });
 
       return { item, score };
@@ -1491,7 +1612,11 @@ function populateReturnFilters() {
 
   if (!data) return;
 
-  buildSelect("f_sector", data.Sector);
+  const siteValues = (window.CachedDataVal?.sites || [])
+    .map(site => typeof site === "string" ? site : site.name)
+    .filter(Boolean);
+
+  buildSelect("f_sector", siteValues.length ? siteValues : data.Sector);
   buildSelect("f_maquina", data.Maquina);
   buildSelect("f_generador", data.Generador);
   buildSelect("f_vehiculo", data.Vehiculo);

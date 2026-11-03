@@ -443,6 +443,7 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
 
     const text = await response.text();
     const { headers, rows } = parseCSV(text);
+    console.error('[QUOTES SYNC DEBUG] Sheet headers:', JSON.stringify(headers));
     if (!headers.length || !rows.length) {
       return res.json({ status: 'success', data: { synced: 0, message: 'Tab has no data rows' } });
     }
@@ -521,18 +522,33 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       }
     } else if (sheetKey === 'quotes') {
       const records = transformed.records || [];
+      function norm(s) {
+        return String(s || '').toLowerCase().replace(/[\s\-_()\/]/g, '');
+      }
       const supMap = {};
       try {
-        const supRows = await db.prepare('SELECT id, name FROM suppliers').all();
+        const supRowsStmt = await db.prepare('SELECT id, name FROM suppliers');
+        const supRows = await supRowsStmt.all();
         (supRows.results || supRows || []).forEach((s) => {
-          if (s.name) supMap[String(s.name).trim().toLowerCase()] = s.id;
+          if (s.name) {
+            const key = norm(s.name);
+            supMap[key] = s.id;
+            // Also index by contains-friendly key for fallback matching
+            supMap[String(s.name).trim().toLowerCase()] = s.id;
+          }
         });
       } catch (e) { /* suppliers table may not exist yet */ }
       const reqMap = {};
       try {
-        const reqRows = await db.prepare('SELECT id, requisition_no FROM requisitions').all();
+        const reqRowsStmt = await db.prepare('SELECT id, requisition_no FROM requisitions');
+        const reqRows = await reqRowsStmt.all();
         (reqRows.results || reqRows || []).forEach((r) => {
-          if (r.requisition_no) reqMap[String(r.requisition_no).trim()] = r.id;
+          if (r.requisition_no) {
+            reqMap[norm(r.requisition_no)] = r.id;
+            reqMap[String(r.requisition_no).trim()] = r.id;
+          }
+          // Also allow matching ref_id against the integer id
+          if (r.id) reqMap[String(r.id)] = r.id;
         });
       } catch (e) { /* requisitions table may not exist yet */ }
       for (const rec of records) {
@@ -544,12 +560,82 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         const total = subtotal + freight;
         const ivaInc = String(p.iva_inc || 'Neto').toUpperCase();
         const iva = ivaInc === 'BRUTO' ? 0 : Math.round((total * 0.19) * 100) / 100;
-        const supplierId = p.supplier ? supMap[String(p.supplier).trim().toLowerCase()] || null : null;
+        let supplierId = null;
+        if (p.supplier) {
+          const sRaw = String(p.supplier).trim();
+          const sKey = norm(sRaw);
+          const sLower = sRaw.toLowerCase();
+          // Strategy 1: normalized exact match
+          supplierId = supMap[sKey] || supMap[sLower] || null;
+          // Strategy 2: contains-based fallback (sheet name contains DB name or vice versa)
+          if (!supplierId) {
+            for (const [mapKey, mapId] of Object.entries(supMap)) {
+              if (mapKey && sKey.includes(mapKey) || mapKey.includes(sKey)) {
+                supplierId = mapId;
+                break;
+              }
+            }
+          }
+          // Strategy 3: auto-create supplier if still not found
+          if (!supplierId) {
+            try {
+              const insStmt = await db.prepare('INSERT INTO suppliers (name) VALUES (?)');
+              const ins = await insStmt.bind(sRaw).run();
+              const newId = ins && ins.meta && ins.meta.last_row_id ? ins.meta.last_row_id : null;
+              if (newId) {
+                supplierId = newId;
+                supMap[sKey] = newId;
+              }
+            } catch (e) {
+              const retryStmt = await db.prepare('SELECT id FROM suppliers WHERE name = ? LIMIT 1');
+              const retry = await retryStmt.bind(sRaw).first();
+              if (retry) { supplierId = retry.id; supMap[sKey] = retry.id; }
+            }
+          }
+        }
+        // Extract ref_id from quote_no when sheet doesn't provide a separate Ref ID column.
+        // Quote No format: RFQ-{ref_id}-{YYYYMMDD}-{HHMMSS}
+        // e.g. RFQ-REQ-0003-WRK-MANTENIMIENTO-20260908-085756 -> ref_id = REQ-0003-WRK-MANTENIMIENTO
+        let refRaw = String(p.ref_id || '').trim();
+        const quoteNoStr = String(p.quote_no || '');
+        if (!refRaw && quoteNoStr.startsWith('RFQ-')) {
+          const parts = quoteNoStr.split('-');
+          if (parts.length >= 4) {
+            refRaw = parts.slice(1, -2).join('-'); // skip 'RFQ', take everything before date+time
+          }
+        }
+        const refKey = norm(refRaw);
+        let requisitionId = null;
+        if (refRaw) {
+          requisitionId = reqMap[refKey] || reqMap[refRaw] || reqMap[String(refRaw)] || null;
+          // Fallback: try matching ref_id as a raw integer id
+          if (!requisitionId && /^\d+$/.test(refRaw)) {
+            requisitionId = reqMap[refRaw] || null;
+          }
+        }
+        // Fallback 2: match by checking if any requisition_no is a substring of quote_no
+        // (handles UUID-appended quote numbers like RFQ-REQ-0737-...-20260929-140937-<uuid>)
+        if (!requisitionId && quoteNoStr.startsWith('RFQ-')) {
+          const quoteBody = norm(quoteNoStr.slice(4)); // strip 'RFQ-' prefix, normalize
+          for (const [mapKey, mapId] of Object.entries(reqMap)) {
+            if (mapKey && quoteBody.includes(mapKey)) {
+              requisitionId = mapId;
+              break;
+            }
+          }
+        }
+        console.error('[QUOTES SYNC DEBUG] quote_no:', p.quote_no, '| p.ref_id:', JSON.stringify(p.ref_id), '| extracted refRaw:', JSON.stringify(refRaw), '| refKey:', JSON.stringify(refKey), '| requisitionId:', requisitionId, '| reqMap has key:', !!reqMap[refKey]);
         const stmtParent = await db.prepare(`
           INSERT INTO quotes (
             id, quote_no, requisition_id, supplier_id, created_by, notes, status,
-            currency, subtotal, discount, freight, iva, total, pdf_url, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            currency, subtotal, discount, freight, iva, total, pdf_url, created_at,
+            ref_id, supplier, site, ref_cotiz, fecha_acordada, comprador,
+            comments, iva_inc, condicion_pago, category, last_modified_by,
+            last_modified_date, mod_count, emails, quoted_doc_url, exchange_rate
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          )
           ON CONFLICT(quote_no) DO UPDATE SET
             requisition_id = excluded.requisition_id,
             supplier_id = excluded.supplier_id,
@@ -563,12 +649,28 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
             iva = excluded.iva,
             total = excluded.total,
             pdf_url = excluded.pdf_url,
-            updated_at = CURRENT_TIMESTAMP
+            updated_at = CURRENT_TIMESTAMP,
+            ref_id = excluded.ref_id,
+            supplier = excluded.supplier,
+            site = excluded.site,
+            ref_cotiz = excluded.ref_cotiz,
+            fecha_acordada = excluded.fecha_acordada,
+            comprador = excluded.comprador,
+            comments = excluded.comments,
+            iva_inc = excluded.iva_inc,
+            condicion_pago = excluded.condicion_pago,
+            category = excluded.category,
+            last_modified_by = excluded.last_modified_by,
+            last_modified_date = excluded.last_modified_date,
+            mod_count = excluded.mod_count,
+            emails = excluded.emails,
+            quoted_doc_url = excluded.quoted_doc_url,
+            exchange_rate = excluded.exchange_rate
         `);
         stmts.push(stmtParent.bind(
           quoteId,
           p.quote_no || null,
-          reqMap[String(p.ref_id || "").trim()] || null,
+          requisitionId || null,
           supplierId,
           p.created_by || null,
           p.comments || null,
@@ -580,7 +682,23 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
           iva || 0,
           total || 0,
           p.pdf_url || null,
-          p.created_at || new Date().toISOString()
+          p.created_at || new Date().toISOString(),
+          p.ref_id || null,
+          p.supplier || null,
+          p.site || null,
+          p.ref_cotiz || null,
+          p.fecha_acordada || null,
+          p.comprador || null,
+          p.comments || null,
+          p.iva_inc || null,
+          p.condicion_pago || null,
+          p.category || null,
+          p.last_modified_by || null,
+          p.last_modified_date || null,
+          p.mod_count || 0,
+          p.emails || null,
+          p.quoted_doc_url || null,
+          p.exchange_rate || null
         ));
         const stmtDelChildren = await db.prepare(`
           DELETE FROM quote_items WHERE quote_id = ? OR quote_id = (SELECT id FROM quotes WHERE quote_no = ?)
@@ -590,10 +708,10 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
           const stmtChild = await db.prepare(`
             INSERT INTO quote_items (
               quote_id, product_id, quantity, unit_price, total_price,
-              geo, pn, description_es, description_en, supplier, category, created_at
+              geo, pn, description_es, description_en, supplier, category, sub_category, status, created_at
             ) VALUES (
               (SELECT id FROM quotes WHERE quote_no = ?),
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
           `);
           stmts.push(stmtChild.bind(
@@ -608,6 +726,8 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
             c.description_es || null,
             p.supplier || null,
             p.category || null,
+            c.sub_category || null,
+            c.status || p.status || 'Pending',
             p.created_at || new Date().toISOString()
           ));
         }
@@ -624,6 +744,74 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
           r.quantity || 0, r.reserved_qty || 0, r.available_qty || 0,
           r.last_updated || new Date().toISOString(), r.updated_by || 'System'
         ));
+      }
+    } else if (sheetKey === 'movementVal') {
+      for (const r of transformed.records || []) {
+        const values = [r.maquinaria || null, r.generadores || null, r.vehiculos || null];
+        if (!values.some(Boolean)) continue;
+        const stmt = await db.prepare(`
+          INSERT INTO movement_val (maquinaria, generadores, vehiculos)
+          SELECT ?, ?, ?
+          WHERE NOT EXISTS (
+            SELECT 1 FROM movement_val
+            WHERE COALESCE(maquinaria, '') = COALESCE(?, '')
+              AND COALESCE(generadores, '') = COALESCE(?, '')
+              AND COALESCE(vehiculos, '') = COALESCE(?, '')
+          )
+        `);
+        stmts.push(stmt.bind(...values, ...values));
+      }
+    } else if (sheetKey === 'master') {
+      const productRows = (transformed.records || []).filter(r => r.geo);
+      const masterBatchSize = 40;
+      const productSql = `
+        INSERT INTO products (
+          geo, pn, name, description, description_es,
+          category_id, sub_category_id, brand_id, supplier_id,
+          unit, cost, min_qty, max_qty, eta, is_active, updated_at
+        )
+        VALUES %VALUES%
+        ON CONFLICT(geo) DO UPDATE SET
+          pn = excluded.pn,
+          name = excluded.name,
+          description = excluded.description,
+          description_es = excluded.description_es,
+          category_id = excluded.category_id,
+          sub_category_id = excluded.sub_category_id,
+          brand_id = excluded.brand_id,
+          supplier_id = excluded.supplier_id,
+          unit = excluded.unit,
+          cost = excluded.cost,
+          min_qty = excluded.min_qty,
+          max_qty = excluded.max_qty,
+          eta = excluded.eta,
+          is_active = excluded.is_active,
+          updated_at = CURRENT_TIMESTAMP
+      `;
+
+      for (let i = 0; i < productRows.length; i += masterBatchSize) {
+        const batch = productRows.slice(i, i + masterBatchSize);
+        const values = [];
+        const params = [];
+
+        batch.forEach(r => {
+          values.push(`(
+            ?, ?, ?, ?, ?,
+            (SELECT id FROM categories WHERE lower(name) = lower(?)),
+            (SELECT id FROM sub_categories WHERE lower(name) = lower(?)),
+            (SELECT id FROM brands WHERE lower(name) = lower(?)),
+            (SELECT id FROM suppliers WHERE lower(name) = lower(?)),
+            ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+          )`);
+          params.push(
+            r.geo, r.pn || '', r.name || '', r.description || '', r.description_es || '',
+            r.category || '', r.subCategory || '', r.brand || '', r.supplier || '',
+            r.unit || '', r.cost || 0, r.min_qty || 0, r.max_qty || 0,
+            r.eta || '', r.is_active === undefined || r.is_active === '' ? 1 : r.is_active
+          );
+        });
+
+        stmts.push((await db.prepare(productSql.replace('%VALUES%', values.join(', ')))).bind(...params));
       }
     } else if (sheetKey === 'stockLedger') {
       for (const r of transformed.records || []) {
@@ -769,7 +957,8 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       }
     } else if (sheetKey === 'sub_categories') {
       const catMap = {};
-      const cats = await db.prepare('SELECT id, name FROM categories').all();
+      const catsStmt = await db.prepare('SELECT id, name FROM categories');
+      const cats = await catsStmt.all();
       for (const c of cats.results || cats || []) {
         catMap[String(c.name).trim().toLowerCase()] = c.id;
       }
@@ -806,15 +995,25 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         const stmt = await db.prepare(`
           INSERT INTO suppliers (name, email, contact_person, active)
           VALUES (?, ?, ?, ?)
-          ON CONFLICT(name) DO UPDATE SET
-            email = excluded.email,
-            contact_person = excluded.contact_person,
-            active = excluded.active,
-            updated_at = CURRENT_TIMESTAMP
+          ON CONFLICT DO NOTHING
         `);
-        stmts.push(stmt.bind(
-          r.name || null, r.email || null, r.contact_person || null, r.active != null ? r.active : 1
-        ));
+        const existing = await (await db.prepare(
+          'SELECT id FROM suppliers WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1'
+        )).bind(r.name).first();
+        if (existing) {
+          const update = await db.prepare(`
+            UPDATE suppliers
+            SET email = ?, contact_person = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `);
+          stmts.push(update.bind(
+            r.email || null, r.contact_person || null, r.active != null ? r.active : 1, existing.id
+          ));
+        } else {
+          stmts.push(stmt.bind(
+            r.name || null, r.email || null, r.contact_person || null, r.active != null ? r.active : 1
+          ));
+        }
       }
     } else if (sheetKey === 'minMax') {
       for (const r of transformed.records || []) {
@@ -844,12 +1043,40 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
 
     const executedCount = await executeBatchChunks(db, stmts, 50);
 
+    // Post-sync backfill: guarantee requisition_id is populated for all quotes
+    // by matching quote_no against requisitions.requisition_no using substring match.
+    // This handles cases where the per-row reqMap lookup missed (e.g., dash/accent/UUID mismatches).
+    if (sheetKey === 'quotes') {
+      try {
+        const backfill = await db.prepare(`
+          UPDATE quotes
+          SET requisition_id = (
+            SELECT r.id FROM requisitions r
+            WHERE instr(quotes.quote_no, r.requisition_no) > 0
+            LIMIT 1
+          )
+          WHERE requisition_id IS NULL
+        `);
+        const backfillResult = await backfill.run();
+        const bfChanges = backfillResult && backfillResult.meta && backfillResult.meta.changes
+          ? backfillResult.meta.changes
+          : 0;
+        console.error('[QUOTES SYNC BACKFILL] requisition_id backfilled:', bfChanges, 'quotes');
+      } catch (e) {
+        console.error('[QUOTES SYNC BACKFILL] error:', e.message);
+      }
+    }
+
     res.json({
       status: 'success',
       data: {
         sheetKey,
         recordsTransformed: transformed.isSplit ? (transformed.records || []).length : (transformed.records || []).length,
-        statementsExecuted: executedCount
+        statementsExecuted: executedCount,
+        debug: {
+          sheetHeaders: headers,
+          sampleRecord: transformed.records && transformed.records[0] ? { parent: transformed.records[0].parent, childrenCount: (transformed.records[0].children || []).length } : null
+        }
       }
     });
   } catch (err) {

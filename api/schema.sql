@@ -343,10 +343,12 @@ CREATE TABLE IF NOT EXISTS quote_items (
   description_en TEXT,
   supplier TEXT,
   category TEXT,
+  status TEXT DEFAULT 'Pending',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_quote_items_quote ON quote_items(quote_id);
+CREATE INDEX IF NOT EXISTS idx_requisition_items_req_geo ON requisition_items(requisition_id, geo);
 
 -- Bundles (group of GEOs issued together)
 CREATE TABLE IF NOT EXISTS bundles (

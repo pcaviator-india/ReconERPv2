@@ -23,12 +23,32 @@
     isLoading = true;
 
     try {
-      const resp = await RECON_API.getProducts(params);
-      // resp.data is the array; resp.pagination carries totals
-      window.fullInventory = (resp.data || []).map(normalise);
+      const pageSize = 5000;
+      const products = [];
+      let page = 1;
+      let total = null;
+
+      do {
+        const resp = await RECON_API.getProducts({
+          ...params,
+          page,
+          limit: pageSize
+        });
+        const pageProducts = Array.isArray(resp?.data) ? resp.data : [];
+        products.push(...pageProducts);
+        total = Number(resp?.pagination?.total);
+        updateSyncStatus(products.length, total || products.length, false);
+
+        if (pageProducts.length === 0 || pageProducts.length < pageSize) {
+          break;
+        }
+        page += 1;
+      } while (total === null || products.length < total);
+
+      window.fullInventory = products.map(normalise);
       currentPage = 1;
       window.renderProducts();
-      updateSyncStatus(window.fullInventory.length, (resp.pagination || {}).total || window.fullInventory.length, true);
+      updateSyncStatus(window.fullInventory.length, total || window.fullInventory.length, true);
     } catch (err) {
       console.error('Products load error:', err);
       const tbody = document.getElementById('productsTableBody');

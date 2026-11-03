@@ -2,11 +2,10 @@
  * RECON ERP — Progressive Web App Service Worker
  */
 
-const CACHE_NAME = 'recon-erp-v12';
+const CACHE_NAME = 'recon-erp-v13';
 
 const STATIC_ASSETS = [
   '/',
-  '/login',
   '/manifest.webmanifest',
   '/icons/icon.svg',
   '/icons/icon-192.png',
@@ -98,7 +97,7 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         } catch (err) {
-          const cached = await caches.match(req) || await caches.match('/') || await caches.match('/login');
+          const cached = await caches.match(req) || await caches.match('/') || await caches.match('/login.html');
           if (cached) return cached;
           throw err;
         }

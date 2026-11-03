@@ -28,7 +28,43 @@ router.get('/', authenticateToken, async (req, res) => {
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const stmt = await db.prepare(`
-      SELECT q.*, r.requisition_no, s.name as supplier_name, u.name as created_by_name
+      SELECT q.*, r.requisition_no, r.site as req_site, s.name as supplier_name, u.name as created_by_name,
+             COALESCE((
+               SELECT json_group_array(json_object(
+                 'id', qi.id,
+                 'quote_id', qi.quote_id,
+                 'quote_no', q.quote_no,
+                 'product_id', qi.product_id,
+                 'sub_category', qi.sub_category,
+                 'geo', qi.geo,
+                 'pn', COALESCE(NULLIF(qi.pn, ''), p.pn, ri.pn),
+                 'description_es', COALESCE(NULLIF(qi.description_es, ''), p.description_es, ri.description_es),
+                 'description_en', qi.description_en,
+                 'quantity', qi.quantity,
+                 'approved_qty', qi.approved_qty,
+                 'received_qty', qi.received_qty,
+                 'unit_price', qi.unit_price,
+                 'total_price', qi.total_price,
+                 'discount_pct', qi.discount_pct,
+                 'freight', qi.freight,
+                 'supplier', qi.supplier,
+                 'supplier_quote_no', q.ref_cotiz,
+                 'quoted_doc_url', q.quoted_doc_url,
+                 'currency', q.currency,
+                 'exchange_rate', q.exchange_rate,
+                 'status', COALESCE(NULLIF(qi.status, ''), q.status),
+                 'category', qi.category,
+                 'item_notes', COALESCE(ri.item_notes, ''),
+                 'supplier_notes', COALESCE(ri.supplier_notes, ''),
+                 'images', COALESCE(ri.images, ''),
+                 'created_at', qi.created_at
+               ))
+               FROM quote_items qi
+               LEFT JOIN products p ON p.geo = qi.geo
+               LEFT JOIN requisition_items ri
+                 ON ri.requisition_id = q.requisition_id AND ri.geo = qi.geo
+               WHERE qi.quote_id = q.id
+             ), '[]') as items_json
       FROM quotes q
       LEFT JOIN requisitions r ON q.requisition_id = r.id
       LEFT JOIN suppliers s ON q.supplier_id = s.id
@@ -71,7 +107,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const db = req.app.locals.db;
 
     const quoteStmt = await db.prepare(`
-      SELECT q.*, r.requisition_no, s.name as supplier_name, u.name as created_by_name
+      SELECT q.*, r.requisition_no, r.site as req_site, s.name as supplier_name, u.name as created_by_name
       FROM quotes q
       LEFT JOIN requisitions r ON q.requisition_id = r.id
       LEFT JOIN suppliers s ON q.supplier_id = s.id
@@ -80,9 +116,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
     `);
 
     const itemsStmt = await db.prepare(`
-      SELECT qi.*, p.geo, p.description, p.unit
+      SELECT qi.*, p.geo as product_geo, p.description as product_description, p.unit
       FROM quote_items qi
-      JOIN products p ON qi.product_id = p.id
+      LEFT JOIN products p ON qi.product_id = p.id
       WHERE qi.quote_id = ?
       ORDER BY qi.id
     `);
@@ -137,8 +173,8 @@ router.post('/', authenticateToken, async (req, res) => {
     await insertQuote.bind(quoteId, quoteNo, requisition_id || null, supplier_id || null, userId, notes || '').run();
 
     const insertItem = await db.prepare(`
-      INSERT INTO quote_items (quote_id, product_id, quantity, unit_price, total_price)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO quote_items (quote_id, product_id, quantity, unit_price, total_price, status)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
     for (const item of items) {
@@ -147,7 +183,8 @@ router.post('/', authenticateToken, async (req, res) => {
         item.product_id,
         item.quantity,
         item.unit_price,
-        item.total_price
+        item.total_price,
+        item.status || 'Pending'
       ).run();
     }
 

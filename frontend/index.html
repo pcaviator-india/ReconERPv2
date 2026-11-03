@@ -450,16 +450,16 @@
         }
 
         // NO SAVED SESSION: redirect to the single login page
-        window.location.href = 'login';
+        window.location.href = 'login.html';
       };
 
       function logoutUser() {
         localStorage.removeItem("recon_user_secure");
         if (window.RECON_API && RECON_API.clearToken) RECON_API.clearToken();
-        localStorage.removeItem("recon_auth_token");
+        localStorage.removeItem((location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "recon_auth_token_local" : "recon_auth_token");
         // Redirect to the single source-of-truth login page instead of the
         // legacy overlay form that was previously embedded in this page.
-        window.location.href = 'login';
+        window.location.href = 'login.html';
       }
 
 
@@ -528,10 +528,20 @@
           return; // ← BLOCK early navigation
         }
 
+        // Several startup paths can request Dashboard while the core cache is
+        // still resolving. Do not fetch/render the same module twice in parallel.
+        if (window._moduleLoadInFlight === name) {
+          console.warn("⏳ Module load already in progress:", name);
+          return;
+        }
+        window._moduleLoadInFlight = name;
         console.log("MODULE CLICKED:", name);
 
         google.script.run
           .withSuccessHandler(function (html) {
+            if (window._moduleLoadInFlight === name) {
+              window._moduleLoadInFlight = "";
+            }
             const mainContent = document.getElementById("mainContent");
             mainContent.innerHTML = html;
             
@@ -917,6 +927,13 @@
             if (activeLink) activeLink.classList.add("active");
 
             // ENSURE THIS IS HERE:
+            if (typeof hideLoading === "function") hideLoading();
+          })
+          .withFailureHandler(function (err) {
+            if (window._moduleLoadInFlight === name) {
+              window._moduleLoadInFlight = "";
+            }
+            console.error("Failed to load module:", name, err);
             if (typeof hideLoading === "function") hideLoading();
           })
           .getModuleHtml(name);
@@ -1655,8 +1672,9 @@ function startReconApp() {
               // 3. Save the JWT token for API auth (gas-shim.js uses this)
               if (response && response.data && response.data.token) {
                 const token = response.data.token;
-                try { sessionStorage.setItem("recon_auth_token", token); } catch(e) {}
-                try { localStorage.setItem("recon_auth_token", token); } catch(e) {}
+                const tokenKey = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "recon_auth_token_local" : "recon_auth_token";
+                try { sessionStorage.setItem(tokenKey, token); } catch(e) {}
+                try { localStorage.setItem(tokenKey, token); } catch(e) {}
               }
 
               // . SET GLOBALLY (Accessibility)
@@ -1744,7 +1762,7 @@ function startReconApp() {
         if (confirm(msg)) {
           // 1. Clear the persistent data
           localStorage.removeItem("recon_user_secure");
-          localStorage.removeItem("recon_auth_token");
+          localStorage.removeItem((location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "recon_auth_token_local" : "recon_auth_token");
 
           // 2. Clear any active session variables in memory
           if (typeof cachedSites !== "undefined") cachedSites = null;
@@ -1754,7 +1772,7 @@ function startReconApp() {
           if (mainContent) mainContent.innerHTML = "";
 
           // 4. Go to the new single-source login page instead of the legacy overlay
-          window.location.href = 'login';
+          window.location.href = 'login.html';
 
           console.log("🚪 User logged out successfully.");
         }
@@ -2055,8 +2073,8 @@ function startReconApp() {
 
  
 </script>
-      <script src="api.js?v=12"></script>
-    <script src="js/gas-shim.js?v=12"></script>
+      <script src="api.js?v=22"></script>
+    <script src="js/gas-shim.js?v=22"></script>
   </head>
   <body>
     <div
@@ -2871,6 +2889,7 @@ function startReconApp() {
                     <th data-i18n="item_images" data-qcol="images" style="min-width:110px;">Images</th>
                     <th class="text-center" style="width: 120px" data-i18n="lbl_supplier_quote_no" data-qcol="quoteno">Quote No. <span class="text-danger" title="Required when status is Quoted">*</span></th>
                     <th class="text-center" style="width: 90px" data-i18n="lbl_quoted_doc" data-qcol="doc">Doc <span class="text-danger" title="Required when status is Quoted">*</span></th>
+                    <th class="text-center" style="width: 130px" data-i18n="lbl_supplier_quote_link" data-qcol="supplierlink">Supplier Quote Link</th>
                     <th class="text-center" style="width: 90px" data-i18n="tbl_rcvd" data-qcol="rcvd">Rcvd</th>
                     <th class="text-end text-danger small" style="width: 90px; font-weight: bold;" data-i18n="tbl_diff" data-qcol="diff">Diff</th>
                     <th class="text-center quote-col-currency d-none" style="width: 110px" data-i18n="lbl_currency" data-qcol="currency">Currency</th>
@@ -3617,34 +3636,34 @@ function startReconApp() {
 
 
 
-    <script src="js/CreateReqJS.js?v=12"></script>
-    <script src="js/ViewEditReqJS.js?v=12"></script> 
-    <script src="js/ProductsJS.js?v=12"></script> 
-    <script src="js/MinMaxJS.js?v=12"></script> 
-    <script src="js/i18n.js?v=12"></script> 
-    <script src="js/AdminValJS.js?v=12"></script> 
-    <script src="js/RFQJS.js?v=12"></script> 
-    <script src="js/QuoteMgmtJS.js?v=12"></script>
-    <script src="js/BundlesJS.js?v=12"></script>
-    <script src="js/InvMovJS.js?v=12"></script>
-    <script src="js/ChoicesJS.js?v=12"></script>
+    <script src="js/CreateReqJS.js?v=22"></script>
+    <script src="js/ViewEditReqJS.js?v=22"></script> 
+    <script src="js/ProductsJS.js?v=22"></script> 
+    <script src="js/MinMaxJS.js?v=22"></script> 
+    <script src="js/i18n.js?v=22"></script> 
+    <script src="js/AdminValJS.js?v=22"></script> 
+    <script src="js/RFQJS.js?v=22"></script> 
+    <script src="js/QuoteMgmtJS.js?v=23"></script>
+    <script src="js/BundlesJS.js?v=22"></script>
+    <script src="js/InvMovJS.js?v=22"></script>
+    <script src="js/ChoicesJS.js?v=22"></script>
     <link rel="stylesheet" href="css/choices.css" />
-    <script src="js/ImportInvJS.js?v=12"></script>
-    <script src="js/ScannerJS.js?v=12"></script>
-    <script src="js/AzureTestJS.js?v=12"></script>
-    <script src="js/SheetsSyncJS.js?v=12"></script>    
-    <script src="js/CreateBulkPOMACJS.js?v=12"></script>
-    <script src="js/QuoteReportJS.js?v=12"></script>
-    <script src="js/LifecycleReportJS.js?v=12"></script>
-    <script src="js/DashboardJS.js?v=12"></script>
-    <script src="js/ControlCombustibleJS.js?v=12"></script>
-    <script src="js/StockJS.js?v=12"></script>
-    <script src="js/LocationMapJS.js?v=12"></script>
-    <script src="js/OpSphereReactJS.js?v=12"></script>
-    <script src="js/EditPinJS.js?v=12"></script>
-    <script src="js/GestionActivosJS.js?v=12"></script>
-    <script src="js/LabelsJS.js?v=12"></script>
-    <script src="js/BackgroundJobsJS.js?v=12"></script>
+    <script src="js/ImportInvJS.js?v=22"></script>
+    <script src="js/ScannerJS.js?v=22"></script>
+    <script src="js/AzureTestJS.js?v=22"></script>
+    <script src="js/SheetsSyncJS.js?v=22"></script>    
+    <script src="js/CreateBulkPOMACJS.js?v=22"></script>
+    <script src="js/QuoteReportJS.js?v=22"></script>
+    <script src="js/LifecycleReportJS.js?v=22"></script>
+    <script src="js/DashboardJS.js?v=22"></script>
+    <script src="js/ControlCombustibleJS.js?v=22"></script>
+    <script src="js/StockJS.js?v=22"></script>
+    <script src="js/LocationMapJS.js?v=22"></script>
+    <script src="js/OpSphereReactJS.js?v=22"></script>
+    <script src="js/EditPinJS.js?v=22"></script>
+    <script src="js/GestionActivosJS.js?v=22"></script>
+    <script src="js/LabelsJS.js?v=22"></script>
+    <script src="js/BackgroundJobsJS.js?v=22"></script>
 
     <!-- PWA Service Worker Registration & Install Handler -->
     <script>
@@ -3680,3 +3699,8 @@ function startReconApp() {
     </button>
   </body>
 </html>
+
+
+
+
+

@@ -144,7 +144,8 @@
   function legacyCall(fnName, args) {
     var headers = { 'Content-Type': 'application/json' };
     var token = (window.RECON_API && RECON_API.getToken && RECON_API.getToken()) ||
-      (sessionStorage.getItem('recon_auth_token') || localStorage.getItem('recon_auth_token'));
+      (sessionStorage.getItem((location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? 'recon_auth_token_local' : 'recon_auth_token') ||
+        localStorage.getItem((location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? 'recon_auth_token_local' : 'recon_auth_token'));
     if (token) headers['Authorization'] = 'Bearer ' + token;
 
     return fetch(apiBase() + '/legacy/' + fnName, {
