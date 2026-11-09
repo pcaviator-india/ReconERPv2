@@ -151,28 +151,72 @@ const RECON_API = {
     return this._request('/legacy/getPeople', 'POST', {});
   },
 
+  async getFuelTanks(site) {
+    const qs = site ? `?site=${encodeURIComponent(site)}` : '';
+    return this._request(`/fuel/tanks${qs}`);
+  },
+
+  async createFuelTank(data) {
+    return this._request('/fuel/tanks', 'POST', data);
+  },
+
+  async updateFuelTank(id, data) {
+    return this._request(`/fuel/tanks/${id}`, 'PUT', data);
+  },
+
   async getLastFuelEntry(assetId) {
-    return this._request('/legacy/getLastFuelEntry', 'POST', { args: [assetId] });
+    try {
+      const res = await this._request(`/fuel/last-odometer?asset_id=${encodeURIComponent(assetId)}`);
+      return res;
+    } catch (e) {
+      return this._request('/legacy/getLastFuelEntry', 'POST', { args: [assetId] });
+    }
   },
 
   async saveFuelEntry(data) {
-    return this._request('/legacy/saveFuelEntry', 'POST', { args: [data] });
+    try {
+      return await this._request('/fuel/entry', 'POST', data);
+    } catch (e) {
+      return this._request('/legacy/saveFuelEntry', 'POST', { args: [data] });
+    }
   },
 
-  async getFuelHistory() {
-    return this._request('/legacy/getFuelHistory', 'POST', {});
+  async getFuelHistory(tankId) {
+    try {
+      const qs = tankId ? `?tank_id=${encodeURIComponent(tankId)}` : '';
+      const res = await this._request(`/fuel/history${qs}`);
+      return (res && res.data) ? res.data : res;
+    } catch (e) {
+      return this._request('/legacy/getFuelHistory', 'POST', { args: [{ tank_id: tankId }] });
+    }
   },
 
-  async getFuelBalance() {
-    return this._request('/legacy/getFuelBalance', 'POST', {});
+  async getFuelBalance(tankId) {
+    try {
+      const qs = tankId ? `?tank_id=${encodeURIComponent(tankId)}` : '';
+      const res = await this._request(`/fuel/balance${qs}`);
+      return (res && res.data) ? res.data : res;
+    } catch (e) {
+      return this._request('/legacy/getFuelBalance', 'POST', { args: [{ tank_id: tankId }] });
+    }
   },
 
-  async getFuelPurchaseHistory() {
-    return this._request('/legacy/getFuelPurchaseHistory', 'POST', {});
+  async getFuelPurchaseHistory(tankId) {
+    try {
+      const qs = tankId ? `?tank_id=${encodeURIComponent(tankId)}` : '';
+      const res = await this._request(`/fuel/purchases${qs}`);
+      return (res && res.data) ? res.data : res;
+    } catch (e) {
+      return this._request('/legacy/getFuelPurchaseHistory', 'POST', { args: [{ tank_id: tankId }] });
+    }
   },
 
   async saveFuelPurchase(data) {
-    return this._request('/legacy/saveFuelPurchase', 'POST', { args: [data] });
+    try {
+      return await this._request('/fuel/purchase', 'POST', data);
+    } catch (e) {
+      return this._request('/legacy/saveFuelPurchase', 'POST', { args: [data] });
+    }
   },
 
   // ============================================
@@ -384,8 +428,8 @@ const RECON_API = {
     return this._request('/sheets/preview-transformed', 'POST', { sheetKey, headers, sampleRows, mapping });
   },
 
-  async syncRemoteTab(sheetId, sheetKey, mapping) {
-    return this._request('/sheets/sync-remote-tab', 'POST', { sheetId, sheetKey, mapping });
+  async syncRemoteTab(sheetId, sheetKey, mapping, targetTankId) {
+    return this._request('/sheets/sync-remote-tab', 'POST', { sheetId, sheetKey, mapping, targetTankId });
   },
 
 

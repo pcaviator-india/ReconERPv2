@@ -3283,14 +3283,33 @@ IMPLEMENTED.uploadQuoteAttachment = async function (db, args) {
   }
 };
 // Control Combustible functions
-IMPLEMENTED.getFuelHistory = async (db) => {
-  const rows = await queryAll(db, `
-      SELECT entry_date, proyecto, tipo_activo, asset_id, liters,
-             odometer_km, driver, user_email
-      FROM fuel_entries
-      ORDER BY entry_date DESC, id DESC
-      LIMIT 1000
-    `);
+IMPLEMENTED.getFuelHistory = async (db, args, user) => {
+  const argObj = (args && args[0]) || {};
+  const tankId = argObj.tank_id || argObj.tankId || (typeof args[0] === 'number' ? args[0] : null);
+  const elevated = user && (String(user.role).toLowerCase() === 'admin' || String(user.role).toLowerCase() === 'manager');
+  const userSite = user && user.site ? String(user.site).trim() : '';
+
+  let query = `
+    SELECT e.entry_date, e.proyecto, e.tipo_activo, e.asset_id, e.liters,
+           e.odometer_km, e.driver, e.user_email, e.tank_id, t.name as tank_name
+    FROM fuel_entries e
+    LEFT JOIN fuel_tanks t ON e.tank_id = t.id
+  `;
+  const wheres = [];
+  const params = [];
+
+  if (!elevated) {
+    wheres.push('e.site = ?');
+    params.push(userSite || 'Store');
+  }
+  if (tankId) {
+    wheres.push('e.tank_id = ?');
+    params.push(tankId);
+  }
+  if (wheres.length > 0) query += ' WHERE ' + wheres.join(' AND ');
+  query += ' ORDER BY e.entry_date DESC, e.id DESC LIMIT 1000';
+
+  const rows = await queryAll(db, query, params);
   return rows.map((r) => {
     let raw = String(r.entry_date || '').trim();
     const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
@@ -3306,92 +3325,147 @@ IMPLEMENTED.getFuelHistory = async (db) => {
       r.liters || 0,
       r.odometer_km || '',
       r.driver || '',
-      r.user_email || ''
+      r.user_email || '',
+      r.tank_name || ('Mochila ' + (r.tank_id || 1))
     ];
   });
-},
+};
 
-  IMPLEMENTED.getFuelBalance = async (db) => {
-    const bought = await queryOne(db, `
-      SELECT COALESCE(SUM(litros), 0) AS total FROM fuel_purchases
-    `);
-    const used = await queryOne(db, `
-      SELECT COALESCE(SUM(liters), 0) AS total FROM fuel_entries
-    `);
-    const totalBought = Number(bought && bought.total) || 0;
-    const totalUsed = Number(used && used.total) || 0;
-    return {
-      balance: totalBought - totalUsed,
-      totalBought,
-      totalUsed
-    };
-  },
+IMPLEMENTED.getFuelBalance = async (db, args, user) => {
+  const argObj = (args && args[0]) || {};
+  const tankId = argObj.tank_id || argObj.tankId || (typeof args[0] === 'number' ? args[0] : null);
+  const elevated = user && (String(user.role).toLowerCase() === 'admin' || String(user.role).toLowerCase() === 'manager');
+  const userSite = user && user.site ? String(user.site).trim() : '';
 
-  IMPLEMENTED.getFuelPurchaseHistory = async (db) => {
-    const rows = await queryAll(db, `
-      SELECT purchase_date, proveedor, litros, factura, user_name
-      FROM fuel_purchases
-      ORDER BY purchase_date DESC, id DESC
-      LIMIT 1000
-    `);
-    return rows.map((x) => {
-      let raw = String(x.purchase_date || '').trim();
-      const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
-      if (m) {
-        raw = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}${m[4] || ''}`.trim();
-      }
-      const fecha = raw.length > 16 ? raw.slice(0, 16) : raw;
-      return {
-        fecha,
-        fechaISO: raw,
-        fechaObj: x.purchase_date,
-        proveedor: x.proveedor || '',
-        litros: x.litros || 0,
-        factura: x.factura || '',
-        usuario: x.user_name || ''
-      };
-    });
-  },
+  let bQuery = 'SELECT COALESCE(SUM(litros), 0) AS total FROM fuel_purchases';
+  let uQuery = 'SELECT COALESCE(SUM(liters), 0) AS total FROM fuel_entries';
+  const wheres = [];
+  const params = [];
 
-  IMPLEMENTED.getLastFuelEntry = async (db, args) => {
-    const assetId = String((args && args[0]) || '').trim();
-    if (!assetId) return { status: 'success', success: true, data: { lastKm: null }, lastKm: null };
+  if (!elevated) {
+    wheres.push('site = ?');
+    params.push(userSite || 'Store');
+  }
+  if (tankId) {
+    wheres.push('tank_id = ?');
+    params.push(tankId);
+  }
+  if (wheres.length > 0) {
+    bQuery += ' WHERE ' + wheres.join(' AND ');
+    uQuery += ' WHERE ' + wheres.join(' AND ');
+  }
 
-    const row = await queryOne(db, `
-      SELECT odometer_km FROM fuel_entries
-      WHERE asset_id = ?
-      ORDER BY entry_date DESC
-      LIMIT 1
-    `, [assetId]);
-
-    const km = row ? Number(row.odometer_km) : null;
-    return { status: 'success', success: true, data: { lastKm: km }, lastKm: km };
-  },
-
-  IMPLEMENTED.saveFuelEntry = async (db, args) => {
-    const d = args[0] || {};
-    const r = await exec(db, `
-      INSERT INTO fuel_entries
-        (entry_date, proyecto, tipo_activo, asset_id, liters, odometer_km, driver, user_email)
-      VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      d.proyecto || '', d.tipoActivo || '', d.assetId || '',
-      Number(d.cantidadLitro) || 0, d.kilometraje ? Number(d.kilometraje) : null,
-      d.nombre || '', d.userEmail || ''
-    ]);
-    const id = (r && r.meta && r.meta.last_row_id) || null;
-    return { status: 'success', success: true, id, message: 'Registro guardado exitosamente' };
-  },
-
-  IMPLEMENTED.saveFuelPurchase = async (db, args) => {
-    const d = args[0] || {};
-    const r = await exec(db, `
-      INSERT INTO fuel_purchases (purchase_date, proveedor, litros, factura, user_name)
-      VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)
-    `, [d.proveedor || '', Number(d.litros) || 0, d.factura || '', d.userName || '']);
-    const id = (r && r.meta && r.meta.last_row_id) || null;
-    return { status: 'success', success: true, id, message: 'Compra registrada exitosamente' };
+  const bought = await queryOne(db, bQuery, params);
+  const used = await queryOne(db, uQuery, params);
+  const totalBought = Number(bought && bought.total) || 0;
+  const totalUsed = Number(used && used.total) || 0;
+  return {
+    balance: totalBought - totalUsed,
+    totalBought,
+    totalUsed
   };
+};
+
+IMPLEMENTED.getFuelPurchaseHistory = async (db, args, user) => {
+  const argObj = (args && args[0]) || {};
+  const tankId = argObj.tank_id || argObj.tankId || (typeof args[0] === 'number' ? args[0] : null);
+  const elevated = user && (String(user.role).toLowerCase() === 'admin' || String(user.role).toLowerCase() === 'manager');
+  const userSite = user && user.site ? String(user.site).trim() : '';
+
+  let query = `
+    SELECT p.purchase_date, p.proveedor, p.litros, p.factura, p.user_name, p.tank_id, t.name as tank_name
+    FROM fuel_purchases p
+    LEFT JOIN fuel_tanks t ON p.tank_id = t.id
+  `;
+  const wheres = [];
+  const params = [];
+
+  if (!elevated) {
+    wheres.push('p.site = ?');
+    params.push(userSite || 'Store');
+  }
+  if (tankId) {
+    wheres.push('p.tank_id = ?');
+    params.push(tankId);
+  }
+  if (wheres.length > 0) query += ' WHERE ' + wheres.join(' AND ');
+  query += ' ORDER BY p.purchase_date DESC, p.id DESC LIMIT 1000';
+
+  const rows = await queryAll(db, query, params);
+  return rows.map((x) => {
+    let raw = String(x.purchase_date || '').trim();
+    const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+    if (m) {
+      raw = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}${m[4] || ''}`.trim();
+    }
+    const fecha = raw.length > 16 ? raw.slice(0, 16) : raw;
+    return {
+      fecha,
+      fechaISO: raw,
+      fechaObj: x.purchase_date,
+      proveedor: x.proveedor || '',
+      litros: x.litros || 0,
+      factura: x.factura || '',
+      usuario: x.user_name || '',
+      tank_name: x.tank_name || ('Mochila ' + (x.tank_id || 1))
+    };
+  });
+};
+
+IMPLEMENTED.getLastFuelEntry = async (db, args) => {
+  const assetId = String((args && args[0]) || '').trim();
+  if (!assetId) return { status: 'success', success: true, data: { lastKm: null }, lastKm: null };
+
+  const row = await queryOne(db, `
+    SELECT odometer_km FROM fuel_entries
+    WHERE asset_id = ?
+    ORDER BY entry_date DESC
+    LIMIT 1
+  `, [assetId]);
+
+  const km = row ? Number(row.odometer_km) : null;
+  return { status: 'success', success: true, data: { lastKm: km }, lastKm: km };
+};
+
+IMPLEMENTED.saveFuelEntry = async (db, args, user) => {
+  const d = args[0] || {};
+  let tankId = d.tank_id || d.tankId || 1;
+  let site = 'Store';
+  try {
+    const t = await queryOne(db, 'SELECT id, site FROM fuel_tanks WHERE id = ?', [tankId]);
+    if (t) { site = t.site; tankId = t.id; }
+  } catch (e) {}
+
+  const r = await exec(db, `
+    INSERT INTO fuel_entries
+      (tank_id, site, entry_date, proyecto, tipo_activo, asset_id, liters, odometer_km, driver, user_email)
+    VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    tankId, site,
+    d.proyecto || '', d.tipoActivo || '', d.assetId || '',
+    Number(d.cantidadLitro) || 0, d.kilometraje ? Number(d.kilometraje) : null,
+    d.nombre || '', d.userEmail || (user ? user.email : '')
+  ]);
+  const id = (r && r.meta && r.meta.last_row_id) || null;
+  return { status: 'success', success: true, id, message: 'Registro guardado exitosamente' };
+};
+
+IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
+  const d = args[0] || {};
+  let tankId = d.tank_id || d.tankId || 1;
+  let site = 'Store';
+  try {
+    const t = await queryOne(db, 'SELECT id, site FROM fuel_tanks WHERE id = ?', [tankId]);
+    if (t) { site = t.site; tankId = t.id; }
+  } catch (e) {}
+
+  const r = await exec(db, `
+    INSERT INTO fuel_purchases (tank_id, site, purchase_date, proveedor, litros, factura, user_name)
+    VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+  `, [tankId, site, d.proveedor || '', Number(d.litros) || 0, d.factura || '', d.userName || (user ? user.name : '')]);
+  const id = (r && r.meta && r.meta.last_row_id) || null;
+  return { status: 'success', success: true, id, message: 'Compra registrada exitosamente' };
+};
 
   IMPLEMENTED.processPendingHSEPDFs = async (db) => {
     const pendingRows = await queryAll(db, `

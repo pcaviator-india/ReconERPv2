@@ -282,6 +282,13 @@
           <h5 class="fw-bold text-dark mb-2" id="ssStudioSyncTitle">Ready to Sync</h5>
           <p class="text-muted small mb-3" id="ssStudioSyncDesc">All columns verified. Click below to execute the live sync to Cloudflare D1.</p>
 
+          <!-- Target Mochila selector for Control Combustible / Compra Combustible -->
+          <div class="mb-3 d-none text-start mx-auto" id="ssStudioMochilaSelectorBox" style="max-width: 420px;">
+            <label class="form-label small fw-bold text-dark"><i class="bi bi-fuel-pump me-1 text-primary"></i>Mochila Destino para la Sincronización:</label>
+            <select id="ssStudioTargetMochilaSelect" class="form-select form-select-sm shadow-none"></select>
+            <small class="text-muted d-block mt-1">Todos los registros de combustible sincronizados se asignarán a esta mochila.</small>
+          </div>
+
           <button class="btn btn-success btn-lg px-5 fw-bold shadow-sm" id="ssStudioExecBtn" onclick="window.SheetsSyncStudio.executeSync()">
             <i class="bi bi-cloud-arrow-up-fill me-2"></i> Sync This Sheet to Database
           </button>

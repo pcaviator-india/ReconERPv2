@@ -26,6 +26,10 @@ const COLUMN_MIGRATIONS = [
   ['fuel_entries', 'asset_id', 'TEXT'],
   ['fuel_entries', 'user_email', 'TEXT'],
   ['fuel_entries', 'vehicle', 'TEXT'],
+  ['fuel_entries', 'tank_id', 'INTEGER'],
+  ['fuel_entries', 'site', 'TEXT'],
+  ['fuel_purchases', 'tank_id', 'INTEGER'],
+  ['fuel_purchases', 'site', 'TEXT'],
   ['labels', 'canvas_height', 'INTEGER'],
   ['bundles', 'name', 'TEXT'],
   ['bundles', 'is_active', 'INTEGER DEFAULT 1'],
@@ -149,6 +153,52 @@ function applyMigrations(sqlite) {
 
   // Ensure default roles and permissions are seeded
   seedPermissions(sqlite);
+
+  // Ensure initial mochilas exist and unassigned fuel records are migrated to Store Mochila 1
+  seedFuelTanksAndMigrate(sqlite);
+}
+
+function seedFuelTanksAndMigrate(sqlite) {
+  try {
+    const tableExists = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fuel_tanks'").get();
+    if (!tableExists) return;
+
+    // Seed Store Mochila 1 & Store Mochila 2
+    const insertTank = sqlite.prepare(`
+      INSERT OR IGNORE INTO fuel_tanks (site, tank_code, name, capacity_liters, fuel_type, is_active)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    insertTank.run('Store', 'STORE-MOC-1', 'Mochila 1 (Principal)', 5000, 'Diesel', 1);
+    insertTank.run('Store', 'STORE-MOC-2', 'Mochila 2', 5000, 'Diesel', 1);
+
+    // Get ID of Store Mochila 1
+    const m1 = sqlite.prepare("SELECT id FROM fuel_tanks WHERE tank_code = 'STORE-MOC-1'").get();
+    if (m1 && m1.id) {
+      // Migrate unassigned fuel_entries
+      const updateEntries = sqlite.prepare(`
+        UPDATE fuel_entries 
+        SET tank_id = ?, site = COALESCE(NULLIF(site, ''), 'Store')
+        WHERE tank_id IS NULL OR tank_id = 0
+      `);
+      const r1 = updateEntries.run(m1.id);
+      if (r1.changes > 0) {
+        console.log(`[db] Migrated ${r1.changes} fuel_entries to Store Mochila 1 (ID: ${m1.id})`);
+      }
+
+      // Migrate unassigned fuel_purchases
+      const updatePurchases = sqlite.prepare(`
+        UPDATE fuel_purchases 
+        SET tank_id = ?, site = COALESCE(NULLIF(site, ''), 'Store')
+        WHERE tank_id IS NULL OR tank_id = 0
+      `);
+      const r2 = updatePurchases.run(m1.id);
+      if (r2.changes > 0) {
+        console.log(`[db] Migrated ${r2.changes} fuel_purchases to Store Mochila 1 (ID: ${m1.id})`);
+      }
+    }
+  } catch (err) {
+    console.error('[seedFuelTanksAndMigrate] Warning:', err.message);
+  }
 }
 
 class Database {

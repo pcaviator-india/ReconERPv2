@@ -173,11 +173,28 @@ CREATE TABLE IF NOT EXISTS movement_val (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Fuel Tanks / Mochilas (Multi-container per site)
+CREATE TABLE IF NOT EXISTS fuel_tanks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site TEXT NOT NULL,
+  tank_code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  capacity_liters REAL DEFAULT 0,
+  fuel_type TEXT DEFAULT 'Diesel',
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_fuel_tanks_site ON fuel_tanks(site);
+
 -- Fuel purchases (replaces the "CompraCombustible" sheet). Kept separate
 -- from `fuel_entries` (the "ControlCombustible" consumption sheet) so the
 -- balance calculation stays faithful to the GAS original.
 CREATE TABLE IF NOT EXISTS fuel_purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tank_id INTEGER REFERENCES fuel_tanks(id),
+  site TEXT DEFAULT 'Store',
   purchase_date TEXT DEFAULT CURRENT_TIMESTAMP,
   proveedor TEXT,
   litros REAL DEFAULT 0,
@@ -465,6 +482,8 @@ CREATE TABLE IF NOT EXISTS item_location_map (
 --   Date, Proyecto, TipoActivo, ID/Patente, Litros, KM, Nombre, User
 CREATE TABLE IF NOT EXISTS fuel_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tank_id INTEGER REFERENCES fuel_tanks(id),
+  site TEXT DEFAULT 'Store',
   entry_date TEXT DEFAULT CURRENT_TIMESTAMP,
   proyecto TEXT,
   tipo_activo TEXT,

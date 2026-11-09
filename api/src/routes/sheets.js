@@ -1033,6 +1033,24 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         ));
       }
     } else if (sheetKey === 'controlCombustible') {
+      let targetTankId = req.body.targetTankId || req.body.tank_id || 1;
+      let targetSite = 'Store';
+      try {
+        const tRow = await (await db.prepare('SELECT id, site FROM fuel_tanks WHERE id = ?')).bind(targetTankId).first();
+        if (tRow) {
+          targetTankId = tRow.id;
+          targetSite = tRow.site || 'Store';
+        } else {
+          const firstT = await (await db.prepare('SELECT id, site FROM fuel_tanks ORDER BY id ASC LIMIT 1')).first();
+          if (firstT) {
+            targetTankId = firstT.id;
+            targetSite = firstT.site || 'Store';
+          }
+        }
+      } catch (te) {
+        console.warn('Could not resolve target tank for controlCombustible:', te.message);
+      }
+
       const normalizeDateStr = (raw) => {
         if (!raw) return new Date().toISOString().slice(0, 19).replace('T', ' ');
         const s = String(raw).trim();
@@ -1044,15 +1062,34 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       };
       for (const r of transformed.records || []) {
         const stmt = await db.prepare(`
-          INSERT INTO fuel_entries (entry_date, proyecto, tipo_activo, asset_id, liters, odometer_km, driver, user_email)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO fuel_entries (entry_date, proyecto, tipo_activo, asset_id, liters, odometer_km, driver, user_email, tank_id, site)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmts.push(stmt.bind(
           normalizeDateStr(r.entry_date), r.proyecto || null, r.tipo_activo || null,
-          r.asset_id || null, r.liters || 0, r.odometer_km || 0, r.driver || null, r.user_email || null
+          r.asset_id || null, r.liters || 0, r.odometer_km || 0, r.driver || null, r.user_email || null,
+          targetTankId, targetSite
         ));
       }
     } else if (sheetKey === 'compraCombustible') {
+      let targetTankId = req.body.targetTankId || req.body.tank_id || 1;
+      let targetSite = 'Store';
+      try {
+        const tRow = await (await db.prepare('SELECT id, site FROM fuel_tanks WHERE id = ?')).bind(targetTankId).first();
+        if (tRow) {
+          targetTankId = tRow.id;
+          targetSite = tRow.site || 'Store';
+        } else {
+          const firstT = await (await db.prepare('SELECT id, site FROM fuel_tanks ORDER BY id ASC LIMIT 1')).first();
+          if (firstT) {
+            targetTankId = firstT.id;
+            targetSite = firstT.site || 'Store';
+          }
+        }
+      } catch (te) {
+        console.warn('Could not resolve target tank for compraCombustible:', te.message);
+      }
+
       const normalizeDateStr = (raw) => {
         if (!raw) return new Date().toISOString().slice(0, 19).replace('T', ' ');
         const s = String(raw).trim();
@@ -1064,12 +1101,13 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
       };
       for (const r of transformed.records || []) {
         const stmt = await db.prepare(`
-          INSERT INTO fuel_purchases (purchase_date, proveedor, litros, factura, user_name)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO fuel_purchases (purchase_date, proveedor, litros, factura, user_name, tank_id, site)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
         stmts.push(stmt.bind(
           normalizeDateStr(r.purchase_date), r.proveedor || null, r.litros || 0,
-          r.factura || null, r.user_name || null
+          r.factura || null, r.user_name || null,
+          targetTankId, targetSite
         ));
       }
     } else if (sheetKey === 'sites') {

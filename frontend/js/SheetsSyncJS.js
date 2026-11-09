@@ -1031,8 +1031,51 @@
 
       previewBody.innerHTML = html;
       previewCard.scrollIntoView({ behavior: 'smooth' });
+
+      // If fuel sheet, show and populate Mochila destination selector
+      var mochilaBox = el('ssStudioMochilaSelectorBox');
+      if (mochilaBox) {
+        if (key === 'controlCombustible' || key === 'compraCombustible') {
+          mochilaBox.classList.remove('d-none');
+          populateStudioMochilas();
+        } else {
+          mochilaBox.classList.add('d-none');
+        }
+      }
     } catch (err) {
       previewBody.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-2"></i>Failed to generate preview: ' + esc(err.message) + '</div>';
+    }
+  }
+
+  async function populateStudioMochilas() {
+    var sel = el('ssStudioTargetMochilaSelect');
+    if (!sel) return;
+    try {
+      var tanks = [];
+      if (window.RECON_API && typeof window.RECON_API.getFuelTanks === 'function') {
+        var res = await window.RECON_API.getFuelTanks();
+        tanks = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+      }
+      if (!tanks || !tanks.length) {
+        var resp = await fetch('/api/v1/fuel/tanks', {
+          headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('recon_token') || '') }
+        });
+        if (resp.ok) {
+          var rjson = await resp.json();
+          tanks = rjson.data || [];
+        }
+      }
+      if (Array.isArray(tanks) && tanks.length > 0) {
+        sel.innerHTML = tanks.map(function (t) {
+          var label = (t.name || ('Mochila ' + t.id)) + ' (' + (t.site || 'Store') + ' - ' + (t.tank_code || '') + ')';
+          return '<option value="' + t.id + '"' + (Number(t.id) === 1 ? ' selected' : '') + '>' + esc(label) + '</option>';
+        }).join('');
+      } else {
+        sel.innerHTML = '<option value="1" selected>Store - Mochila 1 Principal</option>';
+      }
+    } catch (e) {
+      console.warn('Failed to load mochilas for studio sync selector:', e);
+      sel.innerHTML = '<option value="1" selected>Store - Mochila 1 Principal</option>';
     }
   }
 
@@ -1067,7 +1110,12 @@
     if (progressPct) progressPct.textContent = '35%';
 
     try {
-      var res = await window.RECON_API.syncRemoteTab(sheetId, key, studioState.activeMapping);
+      var targetTankId = 1;
+      var targetSelect = el('ssStudioTargetMochilaSelect');
+      if (targetSelect && (key === 'controlCombustible' || key === 'compraCombustible')) {
+        targetTankId = parseInt(targetSelect.value, 10) || 1;
+      }
+      var res = await window.RECON_API.syncRemoteTab(sheetId, key, studioState.activeMapping, targetTankId);
       var result = res.data || {};
 
       if (progressBar) { progressBar.style.width = '100%'; progressBar.textContent = '100%'; }
