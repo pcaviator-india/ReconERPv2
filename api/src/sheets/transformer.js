@@ -563,7 +563,6 @@ const SCHEMA_DEFINITIONS = {
       { field: 'asset_id', label: 'Asset ID / Patente' },
       { field: 'liters', label: 'Liters', type: 'number' },
       { field: 'odometer_km', label: 'Odometer KM', type: 'number' },
-      { field: 'vehicle', label: 'Vehicle Name' },
       { field: 'driver', label: 'Driver / Person Name' },
       { field: 'user_email', label: 'User' },
     ],

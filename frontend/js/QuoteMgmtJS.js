@@ -1,4 +1,4 @@
-﻿let groupedQuotes = [];
+let groupedQuotes = [];
   let allQuotesRaw = [];
   let visibleQuoteGroups = [];
   // Rows of the quote currently open in the edit modal (see openEditQuote).
@@ -191,6 +191,16 @@
     }).join("");
   }
   window.renderQuoteStatusLegend = renderQuoteStatusLegend;
+
+  function isQuoteUserRole() {
+    try {
+      const u = JSON.parse(localStorage.getItem("recon_user_secure") || sessionStorage.getItem("recon_user_secure") || "null");
+      return Boolean(u && String(u.role || "").trim().toLowerCase() === "user");
+    } catch (e) {
+      return false;
+    }
+  }
+  window.isQuoteUserRole = isQuoteUserRole;
 
   function isQuotedOrLaterStatus(value) {
     return QUOTED_OR_LATER_STATUSES.includes(normalizeQuoteItemStatus(value));
@@ -1366,7 +1376,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     // Only the "User" role is locked to their assigned category (data + dropdown).
     let isUserCatLocked = false;
     try {
-      const u = JSON.parse(localStorage.getItem("recon_user_secure") || "null");
+      const u = JSON.parse(localStorage.getItem("recon_user_secure") || sessionStorage.getItem("recon_user_secure") || "null");
       isUserCatLocked = u && String(u.role || "").trim().toLowerCase() === "user";
     } catch (e) {
       console.warn("Failed to parse user for quote category primary:", e);
@@ -2065,7 +2075,15 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       const latestDate = (groups) => {
         let max = new Date(0);
         groups.forEach((q) => {
-          const d = new Date(q.date || q.items?.[0]?.timestamp || 0);
+          const raw = q.date || q.items?.[0]?.timestamp || 0;
+          let d = null;
+          if (typeof raw === 'string') {
+            const m = raw.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+            if (m) {
+              d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), m[4] ? parseInt(m[4], 10) : 0, m[5] ? parseInt(m[5], 10) : 0);
+            }
+          }
+          if (!d || isNaN(d.getTime())) d = new Date(raw || 0);
           if (d > max) max = d;
         });
         return max;
@@ -2923,7 +2941,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       // line, joined from Ordenes per Req ID + GEO (drive URLs, newline joined
       // so each link opens on its own line straight from Excel).
       const header = [
-        "Req", "Quote ID", "Supplier", "Site", "GEO", "P/N", "Description",
+        "Req No", "Quote No", "Supplier", "Site", "GEO", "P/N", "Description",
         "Qty", "Currency", "Exch. Rate", "Unit Price", "Discount %", "Net Unit Price",
         "Transport", "Total", "Category", "SubCategory", "Status",
         "Supplier Quote No.", "PDF Link", "Quoted Doc Link", "Photos (Item Images)",
@@ -2961,8 +2979,8 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       // transport counted ONCE (it is printed on every row above for reference).
       const money = quoteMoneySummary(exportItems);
       const summaryRows = [
-        { Field: "Req", Value: quote.orderId || "" },
-        { Field: "Quote ID", Value: quote.quoteId || "" },
+        { Field: "Req No", Value: quote.orderId || "" },
+        { Field: "Quote No", Value: quote.quoteId || "" },
         { Field: "Supplier", Value: quote.supplier || "" },
         { Field: "Site", Value: quote.site || "" },
         { Field: "Category", Value: quote.category || "" },
@@ -3403,7 +3421,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           .withFailureHandler(function (err) {
     Swal.fire(i18n("msg_error"), String(err), "error");
           })
-          .markQuoteDeleted(q.orderId, q.supplier, q.category);
+          .markQuoteDeleted(q.orderId, q.supplier, q.category, q.quoteId || q.quoteDbId || "");
         }
       });
   };
@@ -3606,7 +3624,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     window._editingQuote = {
       index, // can keep for UI, but not for DB
       orderId: q.orderId,
-      quoteId: q.quoteId,   // âœ… ADD THIS
+      quoteId: q.quoteId || q.quoteDbId || '',
       supplier: q.supplier,
       category: q.category,
       site: q.site || "",
@@ -3614,26 +3632,22 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       quotedDoc: { url: "", fileName: "" },
     };
 
-    // Pre-fill the shared Supplier Quote No + Quoted Doc controls from any item
-    // that already has values (kept per-row and re-applied on save).
-    const existingNo = editRows.map((it) => String(it.supplierQuoteNo || "").trim()).find((v) => v !== "") || "";
-    const existingDoc = editRows.map((it) => String(it.quotedDocUrl || "").trim()).find((v) => v !== "") || "";
-    window._editingQuote.supplierQuoteNo = existingNo;
-    window._editingQuote.quotedDoc = { url: existingDoc, fileName: "" };
+    // Bottom toolbar for Quote No + Document is exclusively for assigning
+    // to selected rows. It starts empty so it never re-applies previous values to unticked rows.
+    window._editingQuote.supplierQuoteNo = "";
+    window._editingQuote.quotedDoc = { url: "", fileName: "" };
     const quoteNoInput = document.getElementById("quoteEditSupplierNo");
     if (quoteNoInput) {
-      quoteNoInput.value = existingNo;
-      // Clear the invalid highlight as soon as the user types a value.
+      quoteNoInput.value = "";
+      quoteNoInput.classList.remove("is-invalid");
       quoteNoInput.oninput = function () { this.classList.remove("is-invalid"); };
     }
     const docStatusEl = document.getElementById("quoteEditDocStatus");
     if (docStatusEl) {
-      docStatusEl.innerHTML = existingDoc
-        ? `<span class="text-success"><i class="bi bi-check2"></i> ${i18n('msg_doc_uploaded').replace('{file}', i18n('lbl_quoted_doc'))}</span> <a href="${attr_(existingDoc)}" target="_blank" class="ms-1 small" title="${i18n('btn_open_pdf')}"><i class="bi bi-paperclip"></i> ${i18n('btn_open_pdf')}</a> <a href="javascript:void(0)" onclick="window.removeQuoteDoc()" class="ms-1 small text-danger">${i18n('btn_remove_doc')}</a>`
-        : `<span class="text-muted">${i18n('quote_doc_empty')}</span>`;
+      docStatusEl.innerHTML = `<span class="text-muted">${escHtml_(i18n("quote_doc_empty", "No document uploaded"))}</span>`;
     }
     
-    const summary = document.getElementById("quoteEditSummary");
+        const summary = document.getElementById("quoteEditSummary");
     summary.innerHTML = `<div><strong>${i18n('lbl_req')}:</strong> ${q.orderId} &nbsp; <strong>${i18n('lbl_supplier')}:</strong> ${q.supplier} &nbsp; <strong>${i18n('lbl_category')}:</strong> ${q.category} &nbsp; <strong>${i18n('lbl_date', 'Date')}:</strong> ${escHtml_(q.date || q.createdDate || "-")}</div>`;
     // ðŸ• AUDIT LINE: when this quote was created and who last changed it (Quotes
     // sheet "Created By/Date" + "Last Modified By/Date", aggregated across the
@@ -3750,7 +3764,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const exchangeVal = (it.exchangeRate !== undefined && it.exchangeRate !== null && String(it.exchangeRate).trim() !== "")
           ? (Number(it.exchangeRate) || 0)
           : "";
-        return `<tr data-row="${i}" data-quote-id="${attr_(it.quoteId || '')}" data-orig-recv="${storedRecv}" data-orig-sent="${qty}" data-orig-approved="${qtys.approved}" data-qty-frozen="${qtyFrozen ? "1" : "0"}" data-orig-cat="${attr_(it.category || "")}" data-orig-sub="${attr_(it.subCategory || "")}" data-orig-discount="${discountPct}" data-orig-freight="${freightVal}" data-saved-quote-no="${attr_(it.supplierQuoteNo)}" data-saved-doc-url="${attr_(it.quotedDocUrl)}" data-saved-doc-name="${attr_(quoteDocFileNameFromUrl(it.quotedDocUrl))}" data-pending-doc="" data-clear-doc="0">
+        return `<tr data-row="${i}" data-quote-id="${attr_(it.quoteId || it.quote_id || q.quoteId || q.quoteDbId || '')}" data-orig-recv="${storedRecv}" data-orig-sent="${qty}" data-orig-approved="${qtys.approved}" data-qty-frozen="${qtyFrozen ? "1" : "0"}" data-orig-cat="${attr_(it.category || "")}" data-orig-sub="${attr_(it.subCategory || "")}" data-orig-discount="${discountPct}" data-orig-freight="${freightVal}" data-saved-quote-no="${attr_(it.supplierQuoteNo)}" data-saved-doc-url="${attr_(it.quotedDocUrl)}" data-saved-doc-name="${attr_(quoteDocFileNameFromUrl(it.quotedDocUrl))}" data-pending-doc="" data-clear-doc="0">
         <td class="text-center"><input type="checkbox" class="form-check-input edit-item-select" data-i="${i}"></td>
         <td>
           <div class="d-flex align-items-center gap-2">
@@ -3955,6 +3969,33 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const tr = cb.closest("tr");
         if (tr) tr.classList.remove("table-active");
       });
+      toggleBottomDocUploadState(tbodyEl);
+    }
+
+    // Enable/disable the bottom document upload zone based on whether any row is
+    // checked. When nothing is checked there is nowhere to apply a bulk document,
+    // so the dropzone is visually disabled to avoid a silent no-op upload. A user
+    // may still upload first and tick rows afterwards – the upload URL is held in
+    // meta.quotedDoc and applies to every checked row at save time.
+    function toggleBottomDocUploadState(tbodyEl) {
+      const dropzone = document.getElementById("quoteEditDocDropzone");
+      const fileInput = document.getElementById("quoteEditDocFile");
+      const docBar = document.getElementById("quoteEditDocBar");
+      if (!dropzone || !fileInput) return;
+      const anyChecked = tbodyEl.querySelectorAll(".edit-item-select:checked").length > 0;
+      if (anyChecked) {
+        dropzone.classList.remove("opacity-50", "pointer-events-none");
+        dropzone.style.pointerEvents = "";
+        dropzone.style.opacity = "";
+        fileInput.disabled = false;
+        if (docBar) docBar.classList.remove("border-warning");
+      } else {
+        dropzone.classList.add("opacity-50", "pointer-events-none");
+        dropzone.style.pointerEvents = "none";
+        dropzone.style.opacity = "0.5";
+        fileInput.disabled = true;
+        if (docBar) docBar.classList.add("border-warning");
+      }
     }
 
     // Live "applying to N selected lines" counter, so the blast radius of a bulk
@@ -4172,6 +4213,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
           },
         );
         updateSelectAllState(tbody);
+        toggleBottomDocUploadState(tbody);
       };
     }
 
@@ -4181,6 +4223,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const tr = cb.closest("tr");
         if (tr) tr.classList.toggle("table-active", !!cb.checked);
         updateSelectAllState(tbody);
+        toggleBottomDocUploadState(tbody);
       });
     });
 
@@ -4382,6 +4425,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     // a stale value would be re-applied to whatever the user ticks next. Each line
     // already shows its own stored quote no. / document in the table.
     updateSelectAllState(tbody);
+    toggleBottomDocUploadState(tbody);
 
     const modalEl = document.getElementById("quoteEditModal");
     if (modalEl && window.bootstrap) {
@@ -4854,7 +4898,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
       return {
         orderId: meta.orderId,
-        quoteId: (tr.dataset.quoteId !== undefined ? tr.dataset.quoteId : (meta.quoteId || "")),
+        quoteId: tr.dataset.quoteId || meta.quoteId,
         origGeo: origGeo,
 
         deleted: status === "Deleted",
@@ -4940,6 +4984,37 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       return;
     }
 
+    // PRE-SAVE GUARD: if no bulk document URL is held but there are checked rows
+    // whose status is Quoted and that lack per-line or stored documents, warn the
+    // user. bulkDocUrl is populated only after the bottom upload callback
+    // completes (async), so clicking Save too early would otherwise produce false
+    // "missing doc" errors even though a document may be on its way.
+    const anyCheckedQuotedNeedsDoc = rows.some((tr) => {
+      const sel = tr.querySelector(".edit-status");
+      const status = normalizeQuoteItemStatus(sel ? sel.value : "");
+      if (status !== "Quoted") return false;
+      const selected = !!tr.querySelector(".edit-item-select")?.checked;
+      if (!selected) return false;
+      const pending = String(tr.dataset.pendingDoc || "").trim();
+      const saved = String(tr.dataset.savedDocUrl || "").trim();
+      return !pending && !saved;
+    });
+
+    if (!bulkDocUrl && anyCheckedQuotedNeedsDoc) {
+      const warnEl = document.getElementById("quoteEditDocStatus");
+      if (warnEl) warnEl.textContent = i18n("msg_warning") || "Missing document";
+      if (typeof restoreSaveBtn === "function") restoreSaveBtn();
+      Swal.fire(
+        i18n("msg_warning") || "Warning",
+        i18n(
+          "msg_quote_doc_upload_incomplete",
+          "No quotation document has been uploaded yet. Upload the document, then click Save."
+        ),
+        "warning"
+      );
+      return;
+    }
+
     // 2) HARD BLOCK: a line saved as Quoted MUST carry BOTH the Supplier Quote
     // No. and the supplier quotation PDF. The PDF is only ever uploaded at the
     // moment a line becomes Quoted, so one without the other is rejected.
@@ -4962,7 +5037,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
                (selected ? bulkDocUrl : "") ||
                String(tr.dataset.savedDocUrl || "").trim());
           const missingNo = !effNo;
-          const missingDoc = !effDoc || !/^https?:\/\//i.test(effDoc);
+          const missingDoc = !effDoc;
           if (!missingNo && !missingDoc) return null;
           const geoEl = tr.querySelector(".edit-geo-label");
           const descEl = tr.querySelector(".edit-desc");
@@ -4999,6 +5074,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
 
     const newStatus = "Pending";
     console.log("Calling updateQuoteWithItems with items:", items);
+    console.log("[saveEditedQuote] meta.quoteId:", meta.quoteId, "meta:", meta);
 
     const payload = {
 
@@ -5006,6 +5082,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       quoteId: meta.quoteId,
       supplier: meta.supplier,
       category: meta.category,
+      quotedDocUrl: bulkDocUrl || undefined,
       items: items,
       status: newStatus,
       currentUserEmail: (() => {

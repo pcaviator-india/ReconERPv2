@@ -813,57 +813,148 @@ window.reqCardDetails = function(ev, orderId) {
   const t = (typeof getI18nText === 'function') ? getI18nText : function (k) { return k; };
   const inv = window.inventory || window.fullInventory || [];
 
-  const headHtml = '<div class="text-start small mb-2">'
-    + '<div><strong>#' + escHtml(orderId) + '</strong>'
-    + (main.pdfUrl ? ' &nbsp;<a href="' + main.pdfUrl + '" target="_blank">PDF</a>' : '') + '</div>'
-    + '<div class="text-muted">' + escHtml(main.fecha || '') + ' &middot; ' + escHtml(main.faena || '')
-    + (main.subArea ? ' &middot; ' + escHtml(main.subArea) + (main.subAreaNo ? ' #' + escHtml(main.subAreaNo) : '') : '')
-    + ' &middot; ' + escHtml(main.user || main.solicitante || 'System') + ' &middot; ' + escHtml(main.category || '') + '</div>'
-    + (main.notes ? '<div class="mt-1"><i class="bi bi-sticky-fill text-warning me-1"></i>' + (window.notesToHtml ? window.notesToHtml(main.notes) : escHtml(main.notes)) + '</div>' : '')
-    + '</div>';
+  const headHtml = `
+    <div class="card bg-light border-0 mb-3 shadow-none text-start">
+      <div class="card-body p-3">
+        <div class="row g-2 align-items-center">
+          <div class="col-sm-6 col-md-3">
+            <small class="text-muted d-block text-uppercase" style="font-size:0.7rem; font-weight:600;">${escHtml(t('tbl_date') || 'Date')}</small>
+            <div class="fw-semibold small">${escHtml(main.fecha || '—')}</div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <small class="text-muted d-block text-uppercase" style="font-size:0.7rem; font-weight:600;">${escHtml(t('site') || 'Site')}</small>
+            <div class="fw-semibold small">
+              ${escHtml(main.faena || '—')}
+              ${main.subArea ? `<span class="text-muted"> / ${escHtml(main.subArea)}${main.subAreaNo ? ' #' + escHtml(main.subAreaNo) : ''}</span>` : ''}
+            </div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <small class="text-muted d-block text-uppercase" style="font-size:0.7rem; font-weight:600;">${escHtml(t('user') || 'Requester')}</small>
+            <div class="fw-semibold small text-primary text-uppercase">${escHtml(main.user || main.solicitante || 'System')}</div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <small class="text-muted d-block text-uppercase" style="font-size:0.7rem; font-weight:600;">${escHtml(t('category') || 'Category')}</small>
+            <div class="fw-semibold small"><span class="badge bg-white text-dark border">${escHtml(main.category || 'General')}</span></div>
+          </div>
+        </div>
+        ${main.pdfUrl ? `
+          <div class="mt-2 pt-2 border-top d-flex align-items-center gap-2">
+            <a href="${escAttr(main.pdfUrl)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-danger py-0 px-2">
+              <i class="bi bi-file-pdf me-1"></i>PDF
+            </a>
+            <small class="text-muted">Click to view/download original PDF</small>
+          </div>
+        ` : ''}
+        ${main.notes ? `
+          <div class="mt-2 pt-2 border-top">
+            <small class="text-muted d-block text-uppercase" style="font-size:0.7rem; font-weight:600;"><i class="bi bi-sticky-fill text-warning me-1"></i>${escHtml(t('lbl_req_notes') || 'Requirement Notes')}</small>
+            <div class="small mt-1 p-2 bg-white rounded border" style="max-height:80px; overflow-y:auto;">
+              ${window.notesToHtml ? window.notesToHtml(main.notes) : escHtml(main.notes)}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
 
-  const itemsHtml = rows.map(function(item) {
+  const itemRowsHtml = rows.map(function(item) {
     const product = inv.find(function(p) { return String(p.geo) === String(item.geo); });
     const descEs = product ? (product.es || '') : (item.desc || '');
     const descEn = product ? (product.en || '') : '';
     const st = window.reqStatusInfo(item.estado || 'Pending');
     const rowIdx = (typeof fullHistory !== 'undefined' && Array.isArray(fullHistory)) ? fullHistory.indexOf(item) : -1;
-    const notesHtml = String(item.itemNotes || '').trim()
-      ? '<div class="small text-warning-emphasis req-clickable" onclick="window.showReqCellFull(event, ' + rowIdx + ', \'notes\')"><i class="bi bi-sticky me-1"></i>'
-        + (window.notesToHtml ? window.notesToHtml(item.itemNotes) : escHtml(item.itemNotes)) + '</div>'
-      : '';
-    const suppHtml = String(item.supplierNotes || '').trim()
-      ? '<div class="small req-clickable" style="color:#1971c2;" onclick="window.showReqCellFull(event, ' + rowIdx + ', \'supplier\')"><i class="bi bi-send me-1"></i>'
-        + (window.notesToHtml ? window.notesToHtml(item.supplierNotes) : escHtml(item.supplierNotes)) + '</div>'
-      : '';
+
+    const rawNotes = String(item.itemNotes || '').trim();
+    const notesHtml = rawNotes
+      ? `<div class="small text-warning-emphasis req-clickable" onclick="window.showReqCellFull(event, ${rowIdx}, 'notes')" title="Click for full note">
+           <i class="bi bi-sticky me-1"></i><span>${window.notesToPlainText ? escHtml(window.notesToPlainText(rawNotes, 80)) : escHtml(rawNotes)}</span>
+         </div>`
+      : '<span class="text-muted">—</span>';
+
+    const rawSupp = String(item.supplierNotes || '').trim();
+    const suppHtml = rawSupp
+      ? `<div class="small req-clickable" style="color:#1971c2;" onclick="window.showReqCellFull(event, ${rowIdx}, 'supplier')" title="Click for full supplier note">
+           <i class="bi bi-send me-1"></i><span>${window.notesToPlainText ? escHtml(window.notesToPlainText(rawSupp, 80)) : escHtml(rawSupp)}</span>
+         </div>`
+      : '<span class="text-muted">—</span>';
+
     const thumbs = window.reqThumbStripHtml_
-      ? '<div class="mt-1">' + window.reqThumbStripHtml_(item.images, escAttr, 34, true) + '</div>' : '';
-    const refsHtml = st.refs.length
-      ? '<div class="small"><a class="req-more" onclick="window.showReqCellFull(event, ' + rowIdx + ', \'status\')">'
-        + escHtml(st.refs.join(', ')) + '</a></div>'
+      ? window.reqThumbStripHtml_(item.images, escAttr, 32, true)
       : '';
-    return '<div class="text-start border-top pt-2 mt-2">'
-      + '<div class="d-flex justify-content-between align-items-start gap-2">'
-      + '<div><strong>' + escHtml(item.geo || '---') + '</strong>'
-      + '<span class="text-muted small"> &middot; ' + escHtml(item.pn || '') + ' &middot; ' + escHtml(t('qty')) + ': ' + escHtml(item.cant || 0) + '</span></div>'
-      + '<span class="badge ' + st.badgeClass + '" title="' + escAttr(st.refs.length ? st.raw : st.label) + '">' + escHtml(st.label) + '</span>'
-      + '</div>'
-      + '<div class="small fw-bold">' + escHtml(descEs) + '</div>'
-      + (descEn ? '<div class="small text-muted fst-italic">' + escHtml(descEn) + '</div>' : '')
-      + notesHtml + suppHtml + thumbs + refsHtml
-      + '</div>';
+    const imagesCell = thumbs ? `<div class="d-inline-flex gap-1">${thumbs}</div>` : '<span class="text-muted">—</span>';
+
+    const refsHtml = st.refs.length
+      ? `<div class="req-status-refs mt-1"><a class="req-more" onclick="window.showReqCellFull(event, ${rowIdx}, 'status')">${escHtml(st.refs.join(', '))}</a></div>`
+      : '';
+
+    return `
+      <tr>
+        <td class="fw-bold text-dark text-nowrap">${escHtml(item.geo || '---')}</td>
+        <td class="small text-nowrap">${escHtml(item.pn || '—')}</td>
+        <td class="text-start">
+          <div class="fw-semibold text-dark">${escHtml(descEs || '—')}</div>
+          ${descEn ? `<div class="text-muted small fst-italic">${escHtml(descEn)}</div>` : ''}
+        </td>
+        <td class="text-center fw-bold">${escHtml(item.cant || 0)}</td>
+        <td class="text-start" style="max-width: 180px;">${notesHtml}</td>
+        <td class="text-start" style="max-width: 180px;">${suppHtml}</td>
+        <td class="text-center">${imagesCell}</td>
+        <td class="text-start text-nowrap">
+          <span class="badge ${st.badgeClass}">${escHtml(st.label)}</span>
+          ${refsHtml}
+        </td>
+      </tr>
+    `;
   }).join('');
 
+  const tableHtml = `
+    <div class="table-responsive rounded border bg-white" style="max-height: 55vh; overflow-y: auto;">
+      <table class="table table-sm table-hover align-middle mb-0 text-start" style="font-size: 0.84rem;">
+        <thead class="table-light sticky-top">
+          <tr>
+            <th style="width: 100px;">${escHtml(t('geo') || 'Geo')}</th>
+            <th style="width: 120px;">${escHtml(t('m_pn') || 'P/N')}</th>
+            <th style="min-width: 200px;">${escHtml(t('desc') || 'Description')}</th>
+            <th style="width: 60px;" class="text-center">${escHtml(t('qty') || 'Qty')}</th>
+            <th style="width: 160px;">${escHtml(t('item_notes') || 'Item Notes')}</th>
+            <th style="width: 160px;">${escHtml(t('supplier_notes') || 'Supplier Notes')}</th>
+            <th style="width: 100px;" class="text-center">${escHtml(t('item_images') || 'Images')}</th>
+            <th style="width: 120px;">${escHtml(t('status') || 'Status')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemRowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+
   window.Swal.fire({
-    title: '#' + escHtml(orderId) + ' — ' + escHtml(t('req_view_details_hint')),
-    html: '<div style="max-height:60vh;overflow-y:auto;">' + headHtml + itemsHtml + '</div>',
-    width: '640px',
-    confirmButtonColor: '#3085d6'
+    title: `<div class="d-flex align-items-center gap-2 justify-content-center text-primary">
+              <i class="bi bi-box-seam"></i>
+              <span>Requirement #${escHtml(orderId)}</span>
+            </div>`,
+    html: `<div class="p-1">${headHtml}${tableHtml}</div>`,
+    width: 'min(1150px, 95vw)',
+    confirmButtonColor: '#0d6efd',
+    confirmButtonText: escHtml(t('modal_close') || 'Close'),
+    customClass: {
+      popup: 'shadow-lg border-0'
+    }
   });
 };
 
+// Global alias for compatibility across modules (Dashboard timeline, etc.)
+window.viewRequirementDetail = function(orderId) {
+  if (typeof window.reqCardDetails === 'function') {
+    window.reqCardDetails(null, orderId);
+  }
+};
+
+
 /** Build one requirement card element (summary only — no item rows). */
 window.buildReqCard_ = function(group, ctx) {
+
   const escAttr = ctx.escAttr, escHtml = ctx.escHtml, t = ctx.t;
   const n = group.items.length;
   let totalQty = 0;

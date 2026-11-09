@@ -39,9 +39,11 @@ router.get('/', authenticateToken, async (req, res) => {
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const stmt = await db.prepare(`
-      SELECT p.*, c.name as category_name, b.name as brand_name, s.name as supplier_name
+      SELECT p.*, c.name as category_name, sc.name as sub_category_name,
+             b.name as brand_name, s.name as supplier_name
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN sub_categories sc ON p.sub_category_id = sc.id
       LEFT JOIN brands b ON p.brand_id = b.id
       LEFT JOIN suppliers s ON p.supplier_id = s.id
       ${whereSql}
@@ -82,9 +84,11 @@ router.get('/:geo', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
     const stmt = await db.prepare(`
-      SELECT p.*, c.name as category_name, b.name as brand_name, s.name as supplier_name
+      SELECT p.*, c.name as category_name, sc.name as sub_category_name,
+             b.name as brand_name, s.name as supplier_name
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN sub_categories sc ON p.sub_category_id = sc.id
       LEFT JOIN brands b ON p.brand_id = b.id
       LEFT JOIN suppliers s ON p.supplier_id = s.id
       WHERE p.geo = ? AND p.is_active = 1

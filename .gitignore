@@ -1,3 +1,19 @@
+# Uploads & Brain
+api/uploads/
+uploads/
+api/brain/
+brain/
+scratch/
+
+# Temp helper fix scripts
+fix*.js
+fix*.py
+add-handlers.js
+apply-handlers.js
+new-handlers.txt
+replacements.json
+write-gas.js
+
 # Dependencies
 node_modules/
 */node_modules/

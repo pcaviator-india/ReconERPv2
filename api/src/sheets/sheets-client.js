@@ -121,6 +121,29 @@ class SheetsClient {
       throw new Error(`Failed to read spreadsheet metadata for ${sheetId}: ${err.message}`);
     }
   }
+
+  /**
+   * Fetch rows from a tab and return structured data with headers and rows.
+   * Used by the Importer for direct sheet imports.
+   *
+   * @param {string} tabName
+   * @param {string} [range='A:ZZ'] A1 notation range within the tab
+   * @param {string} [sheetId] Override the default sheet ID
+   * @returns {Promise<{headers: string[], rows: string[][]}>}
+   */
+  async readSheet(tabName, range = 'A:ZZ', sheetId) {
+    const targetSheetId = sheetId || this.env.GOOGLE_SHEET_ID;
+    if (!targetSheetId) {
+      throw new Error('GOOGLE_SHEET_ID is not set');
+    }
+    const values = await this.getValues(targetSheetId, tabName, range);
+    if (!values.length) {
+      return { headers: [], rows: [] };
+    }
+    const headers = values[0] || [];
+    const rows = values.slice(1);
+    return { headers, rows };
+  }
 }
 
 module.exports = { SheetsClient };

@@ -1,3 +1,4 @@
+const fs = require('fs');
 require('dotenv').config();
 
 const path = require('path');
@@ -87,6 +88,9 @@ app.use('/api/v1/legacy', legacyRoutes);
 
 // Serve the frontend statically for local dev
 if (!isWorker && typeof express.static === 'function') {
+  const uploadsDir = path.join(__dirname, '..', 'uploads');
+  if (!fs.existsSync(uploadsDir)) { fs.mkdirSync(uploadsDir, { recursive: true }); }
+  app.use('/uploads', express.static(uploadsDir));
   app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
 }
 

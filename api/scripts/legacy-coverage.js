@@ -6,6 +6,8 @@ const keys = [];
 const re = /^\s{2}([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(async\s*)?\(/gm;
 let m;
 while ((m = re.exec(implBlock)) !== null) keys.push(m[1]);
+const reDot = /^\s*IMPLEMENTED\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(async\s*)?\(/gm;
+while ((m = reDot.exec(implBlock)) !== null) keys.push(m[1]);
 
 const knownBlock = src.slice(src.indexOf('const KNOWN_UNIMPLEMENTED'));
 const known = new Set();

@@ -5,6 +5,12 @@ const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+let PDFDocument = null;
+try {
+  PDFDocument = require('pdfkit');
+} catch (e) {
+  // pdfkit not loaded
+}
 
 let graphTokenCache = { token: null, expiresAt: 0 };
 
@@ -73,6 +79,52 @@ async function getGraphAccessToken() {
   return data.access_token;
 }
 
+function buildReqItemsTable(items) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  const rows = items.map(i => {
+    const geo = String(i.geo || i.product_geo || '').trim();
+    const pn = String(i.pn || i.product_pn || '').trim();
+    const desc = String(i.desc || i.es || i.description || i.en || '').trim();
+    const qty = Number(i.qty || i.quantity || i.quantity_requested || i.cant || 0);
+    const notes = String(i.itemNotes || i.notes || '').trim();
+    // Item images: stored as JSON array string or comma-separated Drive URLs
+    let imagesHtml = '';
+    try {
+      const imgs = Array.isArray(i.images) ? i.images : (typeof i.images === 'string' && i.images.trim() ? JSON.parse(i.images) : null);
+      if (Array.isArray(imgs) && imgs.length) {
+        imagesHtml = imgs.map(u => `<img src="${String(u).trim()}" style="max-width:60px;max-height:60px;margin:2px;border:1px solid #ddd;" alt="item image">`).join('');
+      }
+    } catch (e) {
+      // If images is a raw URL string, show it directly
+      if (typeof i.images === 'string' && i.images.trim() && i.images.startsWith('http')) {
+        imagesHtml = `<img src="${i.images.trim()}" style="max-width:60px;max-height:60px;margin:2px;border:1px solid #ddd;" alt="item image">`;
+      }
+    }
+    return `<tr>
+      <td style="border:1px solid #ddd;padding:4px;">${geo}</td>
+      <td style="border:1px solid #ddd;padding:4px;">${pn}</td>
+      <td style="border:1px solid #ddd;padding:4px;">${desc}</td>
+      <td style="border:1px solid #ddd;padding:4px;text-align:center;">${qty}</td>
+      <td style="border:1px solid #ddd;padding:4px;">${notes}</td>
+      <td style="border:1px solid #ddd;padding:4px;text-align:center;">${imagesHtml || '—'}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:12px;margin:12px 0;">
+      <thead>
+        <tr style="background:#f2f2f2;">
+          <th style="border:1px solid #ddd;padding:4px;text-align:left;">Geo</th>
+          <th style="border:1px solid #ddd;padding:4px;text-align:left;">P/N</th>
+          <th style="border:1px solid #ddd;padding:4px;text-align:left;">Description</th>
+          <th style="border:1px solid #ddd;padding:4px;text-align:center;">Qty</th>
+          <th style="border:1px solid #ddd;padding:4px;text-align:left;">Notes</th>
+          <th style="border:1px solid #ddd;padding:4px;text-align:center;">Images</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 async function sendRequirementEmail(shipment, orderId, authenticatedUser) {
   const sender = String(authenticatedUser && authenticatedUser.email || '').trim().toLowerCase();
   if (!sender || !/@recondrilling\.com$/i.test(sender)) {
@@ -90,6 +142,35 @@ async function sendRequirementEmail(shipment, orderId, authenticatedUser) {
     .map((email) => email.trim())
     .filter(Boolean)
     .map((address) => ({ emailAddress: { address } }));
+
+  // Build the full email body: header info + user's message + item table + signature + company logo
+  const userBody = shipment.body || '';
+  const itemsTable = buildReqItemsTable(shipment.items);
+  const createdBy = String(shipment.createdBy || shipment.userName || '').trim();
+  const solicitedBy = String(shipment.solicitedBy || shipment.userName || '').trim();
+  const headerInfo = `
+    <div style="margin-bottom:12px;font-size:12px;color:#555;">
+      <strong>Req No:</strong> ${orderId}<br>
+      ${createdBy ? `<strong>Created By:</strong> ${createdBy}<br>` : ''}
+      ${solicitedBy ? `<strong>Solicitated By:</strong> ${solicitedBy}<br>` : ''}
+    </div>`;
+  const signatureHtml = shipment.signature ? `<div style="margin-top:16px;font-size:11px;color:#555;">${shipment.signature}</div>` : '';
+
+  // Company logo at bottom with signature (from config table)
+  const logoRow = await queryOne(db, "SELECT value FROM config WHERE key = 'company_logo' LIMIT 1");
+  const logoUrl = logoRow ? String(logoRow.value || '').trim() : '';
+  const logoBottomHtml = logoUrl ? `<div style="margin-top:16px;text-align:center;"><img src="${logoUrl}" style="max-height:50px;max-width:160px;" alt="Company Logo"></div>` : '';
+
+  const emailContent = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;">
+      ${headerInfo}
+      ${userBody ? `<div style="margin-bottom:12px;">${userBody}</div>` : ''}
+      <h3 style="font-size:14px;margin:0 0 8px 0;">Items</h3>
+      ${itemsTable || '<p style="font-size:12px;color:#666;">No items.</p>'}
+      ${signatureHtml}
+      ${logoBottomHtml}
+    </div>`;
+
   const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
     method: 'POST',
     headers: {
@@ -98,8 +179,8 @@ async function sendRequirementEmail(shipment, orderId, authenticatedUser) {
     },
     body: JSON.stringify({
       message: {
-        subject: shipment.subject || `Requirement: ${orderId}`,
-        body: { contentType: 'HTML', content: shipment.body || 'Material Requirement Created' },
+        subject: shipment.subject || `REQ ${orderId} - Material Requirement`,
+        body: { contentType: 'HTML', content: emailContent || 'Material Requirement Created' },
         toRecipients: recipients(shipment.to),
         ccRecipients: recipients(shipment.cc)
       },
@@ -359,15 +440,36 @@ const IMPLEMENTED = {
       if (estado === 'Draft' || String(order).trim().startsWith('DRAFT-')) return;
       if (!order) return;
 
-      const created = row.created_at ? new Date(row.created_at) : null;
-      const validDate = created && !isNaN(created.getTime()) ? created : null;
-      const reqLastMod = row.updated_at ? new Date(row.updated_at) : null;
-      const validMod = reqLastMod && !isNaN(reqLastMod.getTime()) ? reqLastMod : null;
+      const parseFlexibleDate = (str) => {
+        if (!str) return null;
+        const s = String(str).trim();
+        const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+        if (dmyMatch) {
+          const day = parseInt(dmyMatch[1], 10);
+          const month = parseInt(dmyMatch[2], 10) - 1;
+          const year = parseInt(dmyMatch[3], 10);
+          const hour = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+          const min = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+          const sec = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+          const d = new Date(year, month, day, hour, min, sec);
+          if (!isNaN(d.getTime())) return d;
+        }
+        const d = new Date(s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s);
+        return !isNaN(d.getTime()) ? d : null;
+      };
+
+      const validDate = parseFlexibleDate(row.created_at);
+      const validMod = parseFlexibleDate(row.updated_at);
+
+      const formatDisplayDate = (d, rawFallback) => {
+        if (!d) return rawFallback || '';
+        return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+      };
 
       out.push({
         rowNum: rowNum--,
         order,
-        fecha: validDate ? validDate.toLocaleString() : '',
+        fecha: formatDisplayDate(validDate, row.created_at),
         fechaIso: validDate ? validDate.toISOString() : '',
         pn: row.ri_pn || row.product_pn || row.geo_product_pn || '',
         geo: row.ri_geo || row.product_geo || row.geo_product_geo || '',
@@ -753,14 +855,48 @@ const IMPLEMENTED = {
     };
   },
 
+
+  // Get last fuel entry for an asset (for odometer validation)
+  getLastFuelEntry: async (db, args) => {
+    const assetId = String((args && args[0]) || '').trim();
+    if (!assetId) return { status: 'success', success: true, data: { lastKm: null }, lastKm: null };
+
+    const row = await queryOne(db, `
+      SELECT odometer_km FROM fuel_entries 
+      WHERE asset_id = ? 
+      ORDER BY entry_date DESC 
+      LIMIT 1
+    `, [assetId]);
+
+    const km = row ? Number(row.odometer_km) : null;
+    return { status: 'success', success: true, data: { lastKm: km }, lastKm: km };
+  },
+
   // RFQGS.getRFQStockMap — available stock per geo for RFQ.
-  getRFQStockMap: async (db) => {
-    const rows = await queryAll(db, `SELECT p.geo, p.pn, p.name, p.description_es, SUM(COALESCE(s.available_qty, s.quantity, 0)) AS available FROM products p LEFT JOIN stock s ON s.item_id = p.id AND s.is_active = 1 WHERE p.is_active = 1 GROUP BY p.geo`);
-    const map = {};
+  getRFQStockMap: async (db, args) => {
+    const site = String((args && args[0]) || '').trim().toUpperCase();
+    const rows = await queryAll(db, `
+      SELECT COALESCE(s.geo, p.geo) AS geo, s.location_id,
+             SUM(COALESCE(s.available_qty, s.quantity, 0)) AS available
+      FROM stock s
+      LEFT JOIN products p ON p.id = s.item_id
+      WHERE s.is_active = 1
+      GROUP BY COALESCE(s.geo, p.geo), s.location_id
+    `);
+    const siteStock = {};
+    const bodegaStock = {};
     (rows || []).forEach((x) => {
-      map[x.geo] = { pn: x.pn || '', name: x.name || '', description: x.description_es || '', available: Number(x.available) || 0 };
+      if (!x.geo) return;
+      const loc = String(x.location_id || '').trim().toUpperCase();
+      const avail = Number(x.available) || 0;
+      if (site && loc === site) {
+        siteStock[x.geo] = (siteStock[x.geo] || 0) + avail;
+      }
+      if (loc === 'BODEGA' || loc === 'STORE') {
+        bodegaStock[x.geo] = (bodegaStock[x.geo] || 0) + avail;
+      }
     });
-    return map;
+    return { siteStock, bodegaStock };
   },
 
   // QuoteMgmtGS.getRequirementQuoteRows — quotes for a requisition/order.
@@ -770,9 +906,120 @@ const IMPLEMENTED = {
     return queryAll(db, `SELECT q.id, q.quote_no, q.supplier_id, q.status, q.total, q.created_at FROM quotes q WHERE q.requisition_id = ? ORDER BY q.created_at DESC`, [orderId]);
   },
 
-  // Código.js.getPendingRequirementsForRFQ — pending requisitions with items.
-  getPendingRequirementsForRFQ: async (db) => {
-    return queryAll(db, `SELECT r.id AS order_id, r.requisition_no, r.created_at AS fecha, r.site_id AS faena, r.status AS estado, ri.id AS item_id, p.geo, p.pn, p.description_es AS desc, ri.quantity_requested AS cant, ri.status AS item_status FROM requisitions r LEFT JOIN requisition_items ri ON ri.requisition_id = r.id LEFT JOIN products p ON p.id = ri.product_id WHERE r.status = 'pending' ORDER BY r.created_at DESC`);
+  // Código.js.getPendingRequirementsForRFQ — requirements grouped by order for RFQ page.
+  getPendingRequirementsForRFQ: async (db, args = []) => {
+    const site = args && args[0] ? String(args[0]).trim() : '';
+    const statusFilter = args && args[1] ? String(args[1]).trim().toLowerCase() : 'approved';
+
+    const allHistory = await IMPLEMENTED.getRequirementsHistory(db);
+
+    let pending;
+    if (statusFilter === 'all') {
+      pending = allHistory.filter((item) => item.estado && !item.estado.toString().toLowerCase().includes('pend'));
+    } else {
+      pending = allHistory.filter((item) => item.estado && item.estado.toString().toLowerCase().includes(statusFilter));
+    }
+    if (site) {
+      pending = pending.filter((item) => item.faena === site);
+    }
+
+    const products = await queryAll(db, `
+      SELECT p.geo, p.pn,
+             p.description_es AS es, p.description AS en,
+             c.name AS category,
+             sc.name AS subCategory,
+             s.name AS supplier
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.category_id
+      LEFT JOIN sub_categories sc ON sc.id = p.sub_category_id
+      LEFT JOIN suppliers s ON s.id = p.supplier_id
+      WHERE p.is_active = 1
+    `);
+    const masterMap = new Map();
+    (products || []).forEach((p) => {
+      if (p.geo && !masterMap.has(p.geo)) {
+        masterMap.set(p.geo, {
+          en: p.en || '',
+          es: p.es || '',
+          supplier: p.supplier || '',
+          category: p.category || '',
+          subCategory: p.subCategory || '',
+          pn: p.pn || ''
+        });
+      }
+    });
+
+    const quotes = await queryAll(db, `
+      SELECT q.id, q.quote_no, COALESCE(q.ref_id, r.requisition_no) AS ref_order, q.supplier, q.status,
+             qi.geo
+      FROM quotes q
+      LEFT JOIN requisitions r ON r.id = q.requisition_id
+      JOIN quote_items qi ON qi.quote_id = q.id
+      WHERE LOWER(q.status) != 'deleted'
+    `);
+    const quotesByOrderGeo = {};
+    (quotes || []).forEach((q) => {
+      if (!q.geo) return;
+      const key = String(q.ref_order || '').trim() + '||' + String(q.geo || '').trim();
+      (quotesByOrderGeo[key] = quotesByOrderGeo[key] || []).push({
+        supplier: q.supplier || '',
+        quoteId: q.quote_no || '',
+        status: q.status || ''
+      });
+    });
+
+    const GENERAL_TOKENS = ['', 'general', 'generica', 'generico', 'sin categoria', 'sin cat', 'uncategorized', 'varios', 'n/a', 'na', 'none', '-'];
+    const resolveCategory = (reqCat, masterCat) => {
+      let cat = '';
+      const a = String(reqCat || '').trim();
+      if (a && !GENERAL_TOKENS.includes(a.toLowerCase())) {
+        cat = a;
+      } else {
+        const b = String(masterCat || '').trim();
+        if (b && !GENERAL_TOKENS.includes(b.toLowerCase())) {
+          cat = b;
+        } else {
+          cat = 'General';
+        }
+      }
+      if (cat.toUpperCase() === 'OPERACIONES') return 'OPERACIONES';
+      if (cat.toUpperCase() === 'MANTENIMIENTO') return 'MANTENIMIENTO';
+      if (cat.toUpperCase() === 'GENERAL') return 'General';
+      return cat;
+    };
+
+    const groupedReqs = {};
+    pending.forEach((item) => {
+      if (!groupedReqs[item.order]) {
+        groupedReqs[item.order] = {
+          id: item.order,
+          date: item.fecha,
+          site: item.faena,
+          subArea: item.subArea || '',
+          status: item.estado || '',
+          items: []
+        };
+      }
+      const official = masterMap.get(item.geo) || { en: '', es: '', supplier: '', category: '', subCategory: '', pn: '' };
+      const qKey = String(item.order || '').trim() + '||' + String(item.geo || '').trim();
+      groupedReqs[item.order].items.push({
+        p: item.pn || official.pn || '',
+        geo: item.geo || '',
+        es: (official.es || item.desc || '').toString().trim(),
+        en: (official.en || '').toString().trim(),
+        req_desc: (item.desc || '').toString().trim(),
+        qty: item.cant || 0,
+        supplier: official.supplier || '',
+        category: resolveCategory(item.category, official.category),
+        subCategory: official.subCategory || '',
+        quotedBy: quotesByOrderGeo[qKey] || [],
+        reqItemNotes: [{ ref: String(item.order || ''), notes: String(item.itemNotes || '') }],
+        reqSupplierNotes: [{ ref: String(item.order || ''), notes: String(item.supplierNotes || '') }],
+        images: String(item.images || '')
+      });
+    });
+
+    return Object.values(groupedReqs);
   },
 
   // Código.js.getInventoryChunk — paginated product inventory.
@@ -1170,7 +1417,8 @@ const IMPLEMENTED = {
       Number(d.cantidadLitro) || 0, d.kilometraje ? Number(d.kilometraje) : null,
       d.nombre || '', d.userEmail || ''
     ]);
-    return { success: true, id: (r && r.meta && r.meta.last_row_id) || null };
+    const id = (r && r.meta && r.meta.last_row_id) || null;
+    return { status: 'success', success: true, id, message: 'Registro guardado exitosamente' };
   },
 
   // ControlCombustibleGS.saveFuelPurchase — record a fuel purchase.
@@ -1181,7 +1429,8 @@ const IMPLEMENTED = {
       INSERT INTO fuel_purchases (purchase_date, proveedor, litros, factura, user_name)
       VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)
     `, [d.proveedor || '', Number(d.litros) || 0, d.factura || '', d.userName || '']);
-    return { success: true, id: (r && r.meta && r.meta.last_row_id) || null };
+    const id = (r && r.meta && r.meta.last_row_id) || null;
+    return { status: 'success', success: true, id, message: 'Compra registrada exitosamente' };
   },
 
   // InvMovGS.savePerson — create or update a person (People sheet record).
@@ -1200,7 +1449,7 @@ const IMPLEMENTED = {
                             updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `, [p.name || '', p.department || '', active, p.sector || '', p.notes || '',
-            p.rut || '', p.biometricTemplate || '', p.email || '', String(p.id)]);
+        p.rut || '', p.biometricTemplate || '', p.email || '', String(p.id)]);
         return { success: true, message: 'Person updated successfully' };
       }
     }
@@ -1210,7 +1459,7 @@ const IMPLEMENTED = {
       INSERT INTO people (id, name, department, active, sector, notes, rut, biometric_template, email)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [id, p.name || '', p.department || '', active, p.sector || '', p.notes || '',
-        p.rut || '', p.biometricTemplate || '', p.email || '']);
+      p.rut || '', p.biometricTemplate || '', p.email || '']);
     return { success: true, message: 'Person added successfully' };
   },
 
@@ -1255,13 +1504,13 @@ const IMPLEMENTED = {
                           canvas_height = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `, [t.templateName || '', t.elementsJson || '', t.canvasWidth || null,
-          t.canvasHeight || null, id]);
+      t.canvasHeight || null, id]);
     } else {
       await exec(db, `
         INSERT INTO labels (id, name, template_data, canvas_width, canvas_height)
         VALUES (?, ?, ?, ?, ?)
       `, [id, t.templateName || '', t.elementsJson || '', t.canvasWidth || null,
-          t.canvasHeight || null]);
+        t.canvasHeight || null]);
     }
     return { success: true, message: 'Template saved successfully!', templateId: id };
   },
@@ -1387,20 +1636,401 @@ const IMPLEMENTED = {
     return { success: true };
   },
 
-  // Código.js.updateRequirementOnSheetWithItemStatuses — update item statuses.
-  updateRequirementOnSheetWithItemStatuses: async (db, args) => {
-    const updates = args[0] || [];
-    for (const u of updates) {
-      await exec(db, `UPDATE requisition_items SET status = ? WHERE id = ?`, [u.status, u.itemId]);
+  // updateRequirementOnSheetWithItemStatuses: updates requisition header + items and finishes bg job
+  updateRequirementOnSheetWithItemStatuses: async (db, args, authenticatedUser) => {
+    let orderId, header, items, customRecipient, jobId;
+
+    // Handle both signatures:
+    // Signature A (standard webapp): [orderId, header, items, customRecipient, jobId]
+    // Signature B (array of updates): [[{ itemId, status }]]
+    if (typeof args[0] === 'string') {
+      orderId = String(args[0] || '').trim();
+      header = args[1] || {};
+      items = Array.isArray(args[2]) ? args[2] : [];
+      customRecipient = args[3] || null;
+      jobId = args[4] || (header && header._jobId) || null;
+    } else if (Array.isArray(args[0])) {
+      const updates = args[0] || [];
+      for (const u of updates) {
+        if (u && u.itemId) {
+          await exec(db, 'UPDATE requisition_items SET status = ? WHERE id = ?', [u.status || 'Pending', u.itemId]);
+        }
+      }
+      return { success: true, count: updates.length };
     }
-    return { success: true, count: updates.length };
+
+    try {
+      const req = await queryOne(db, 'SELECT id, mod_count FROM requisitions WHERE requisition_no = ? OR id = ? LIMIT 1', [orderId, orderId]);
+      if (!req) {
+        if (jobId) await IMPLEMENTED.bgFinishJob(db, [jobId, false, { step: 'Requirement not found', error: 'Requirement ' + orderId + ' not found' }]);
+        return { success: false, message: 'Requirement not found: ' + orderId };
+      }
+
+      const newModCount = (Number(req.mod_count) || 0) + 1;
+      const editorName = header.userName || (authenticatedUser && (authenticatedUser.name || authenticatedUser.email)) || 'System Edit';
+
+      const site = String(header.faena || header.site || '').trim();
+      const siteRow = site
+        ? await queryOne(db, 'SELECT id, name FROM sites WHERE lower(name) = lower(?) OR lower(site_id) = lower(?) LIMIT 1', [site, site])
+        : null;
+
+      // Update requisition header
+      await exec(db, `
+        UPDATE requisitions
+        SET site_id = COALESCE(?, site_id),
+            site = COALESCE(?, site),
+            sub_area = COALESCE(?, sub_area),
+            emails = CASE WHEN ? != '' THEN ? ELSE emails END,
+            last_modified_by = ?,
+            last_modified_date = CURRENT_TIMESTAMP,
+            mod_count = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [
+        siteRow ? siteRow.id : null,
+        siteRow ? siteRow.name : (site || null),
+        header.subArea !== undefined ? header.subArea : null,
+        String(header.emails || '').trim(),
+        String(header.emails || '').trim(),
+        editorName,
+        newModCount,
+        req.id
+      ]);
+
+      // Update line items
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (!it) continue;
+
+        let existingItem = null;
+        if (it.id || it.itemId) {
+          existingItem = await queryOne(db, 'SELECT id FROM requisition_items WHERE id = ?', [it.id || it.itemId]);
+        }
+        if (!existingItem && it.geo) {
+          existingItem = await queryOne(db, 'SELECT id FROM requisition_items WHERE requisition_id = ? AND geo = ? LIMIT 1', [req.id, it.geo]);
+        }
+
+        if (existingItem) {
+          await exec(db, `
+            UPDATE requisition_items
+            SET quantity_requested = COALESCE(?, quantity_requested),
+                status = COALESCE(?, status),
+                notes = COALESCE(?, notes),
+                item_notes = COALESCE(?, item_notes),
+                supplier_notes = COALESCE(?, supplier_notes),
+                pn = COALESCE(?, pn),
+                description_es = COALESCE(?, description_es)
+            WHERE id = ?
+          `, [
+            it.cant !== undefined && it.cant !== null ? Number(it.cant) : null,
+            it.estado || it.status || null,
+            it.itemNotes !== undefined ? it.itemNotes : null,
+            it.itemNotes !== undefined ? it.itemNotes : null,
+            it.supplierNotes !== undefined ? it.supplierNotes : null,
+            it.pn || null,
+            it.es || it.desc || null,
+            existingItem.id
+          ]);
+        }
+      }
+
+      // Finish background job so UI bubble shows 100% DONE
+      if (jobId) {
+        await IMPLEMENTED.bgFinishJob(db, [jobId, true, { step: 'Done', progress: 100 }]);
+      }
+
+      return { success: true, orderId: orderId, modCount: newModCount };
+    } catch (err) {
+      console.error('updateRequirementOnSheetWithItemStatuses error:', err);
+      if (jobId) {
+        await IMPLEMENTED.bgFinishJob(db, [jobId, false, { step: 'Failed', error: String(err && err.message || err) }]);
+      }
+      throw err;
+    }
   },
 
-  // Código.js.updateRequirementOnSheetWithRecipient — set requisition recipient.
-  updateRequirementOnSheetWithRecipient: async (db, args) => {
-    const u = args[0] || {};
-    await exec(db, `UPDATE requisitions SET requested_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? OR requisition_no = ?`, [u.recipient, u.orderId, u.orderId]);
-    return { success: true };
+  // Código.js.updateRequirementOnSheetWithRecipient — set requisition recipient + send update email.
+  updateRequirementOnSheetWithRecipient: async (db, args, authenticatedUser) => {
+    const orderId = args[0] || '';
+    const header = args[1] || {};
+    const items = Array.isArray(args[2]) ? args[2] : [];
+    const recipientEmail = args[3] || '';
+
+    // Update the DB (recipient / requested_by)
+    await exec(db, `UPDATE requisitions SET requested_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? OR requisition_no = ?`, [recipientEmail || '', orderId, orderId]);
+
+    // Build email with item table (parity with GAS update email)
+    const sender = String(authenticatedUser && authenticatedUser.email || '').trim().toLowerCase();
+    if (!sender || !/@recondrilling\.com$/i.test(sender)) {
+      return { success: true, emailSent: false, emailError: 'Email was not sent: the logged-in user must have a recondrilling.com email address.' };
+    }
+
+    const token = await getGraphAccessToken();
+    if (!token) return { success: true, emailSent: false, emailError: 'Microsoft Graph credentials are not configured.' };
+
+    const recipients = (value) => String(value || '')
+      .split(/[;, \n]+/)
+      .map((email) => email.trim())
+      .filter(Boolean)
+      .map((address) => ({ emailAddress: { address } }));
+
+    const toEmails = recipients(header.emails || recipientEmail || '');
+    const ccEmails = recipients('');
+
+    const userBody = header.notes || '';
+    const itemsTable = buildReqItemsTable(items);
+    const createdBy = String(header.createdBy || header.userName || '').trim();
+    const solicitedBy = String(header.solicitedBy || header.userName || '').trim();
+    const headerInfo = `
+      <div style="margin-bottom:12px;font-size:12px;color:#555;">
+        <strong>Req No:</strong> ${orderId}<br>
+        ${createdBy ? `<strong>Created By:</strong> ${createdBy}<br>` : ''}
+        ${solicitedBy ? `<strong>Solicitated By:</strong> ${solicitedBy}<br>` : ''}
+      </div>`;
+    const subject = `REQ ${orderId} - Requirement Updated`;
+
+    // Company logo at bottom with signature (from config table)
+    const logoRow = await queryOne(db, "SELECT value FROM config WHERE key = 'company_logo' LIMIT 1");
+    const logoUrl = logoRow ? String(logoRow.value || '').trim() : '';
+    const logoBottomHtml = logoUrl ? `<div style="margin-top:16px;text-align:center;"><img src="${logoUrl}" style="max-height:50px;max-width:160px;" alt="Company Logo"></div>` : '';
+
+    const emailContent = `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;">
+        ${headerInfo}
+        ${userBody ? `<div style="margin-bottom:12px;">${userBody}</div>` : ''}
+        <h3 style="font-size:14px;margin:0 0 8px 0;">Items</h3>
+        ${itemsTable || '<p style="font-size:12px;color:#666;">No items.</p>'}
+        ${logoBottomHtml}
+      </div>`;
+
+    let emailResult = { emailSent: false, emailError: 'No recipients configured' };
+    if (toEmails.length > 0) {
+      try {
+        const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: {
+              subject,
+              body: { contentType: 'HTML', content: emailContent || 'Material Requirement Created' },
+              toRecipients: toEmails,
+              ccRecipients: ccEmails
+            },
+            saveToSentItems: true
+          })
+        });
+        if (!response.ok) {
+          const detail = await response.text();
+          emailResult = { emailSent: false, emailError: `Graph send failed (${response.status}): ${detail.slice(0, 300)}` };
+        } else {
+          emailResult = { emailSent: true, emailService: 'Microsoft Graph' };
+        }
+      } catch (err) {
+        emailResult = { emailSent: false, emailError: err.message };
+      }
+    }
+
+    return {
+      success: true,
+      emailSent: emailResult.emailSent,
+      emailError: emailResult.emailError,
+      emailService: emailResult.emailService,
+      emailCc: ccEmails.map(r => r.emailAddress.address).join(', ')
+    };
+  },
+
+  // Código.js.sendFinalRFQ — send final RFQ/quote email with item table via Microsoft Graph,
+  // save quote + quote_items into the database, and update requisition status.
+  sendFinalRFQ: async (db, args, authenticatedUser) => {
+    const details = args[0] || {};
+    const orderId = String(details.orderId || details.refId || 'PENDING');
+    const items = Array.isArray(details.items) ? details.items : (Array.isArray(details.deficitItems) ? details.deficitItems : []);
+    const toEmailsRaw = String(details.to || details.emails || '').trim();
+    const ccEmailsRaw = String(details.cc || '').trim();
+    const subject = String(details.subject || `REQ ${orderId} - Quote / RFQ`);
+    const userBody = String(details.body || details.message || '');
+    const createdBy = String(details.createdBy || details.userName || (authenticatedUser && authenticatedUser.name) || '').trim();
+    const solicitedBy = String(details.solicitedBy || details.userName || (authenticatedUser && authenticatedUser.name) || '').trim();
+    const mode = String(details.mode || 'EMAIL_AND_PDF');
+
+    // 1. Send Email (if mode is EMAIL_AND_PDF and recipients are provided)
+    let emailSent = false;
+    let emailService = 'Saved without email';
+    let emailError = null;
+
+    if (mode !== 'PDF_ONLY' && toEmailsRaw) {
+      const sender = String(authenticatedUser && authenticatedUser.email || '').trim().toLowerCase();
+      if (sender && /@recondrilling\.com$/i.test(sender)) {
+        const token = await getGraphAccessToken();
+        if (token) {
+          const recipients = (value) => String(value || '')
+            .split(/[;, \n]+/)
+            .map((email) => email.trim())
+            .filter(Boolean)
+            .map((address) => ({ emailAddress: { address } }));
+
+          const toRecipients = recipients(toEmailsRaw);
+          const ccRecipients = recipients(ccEmailsRaw);
+
+          if (toRecipients.length > 0) {
+            const itemsTable = buildReqItemsTable(items);
+            const headerInfo = `
+              <div style="margin-bottom:12px;font-size:12px;color:#555;">
+                <strong>Req No:</strong> ${orderId}<br>
+                ${createdBy ? `<strong>Created By:</strong> ${createdBy}<br>` : ''}
+                ${solicitedBy ? `<strong>Solicitated By:</strong> ${solicitedBy}<br>` : ''}
+              </div>`;
+
+            const signatureHtml = details.signature ? `<div style="margin-top:16px;font-size:11px;color:#555;">${details.signature}</div>` : '';
+
+            const logoRow = await queryOne(db, "SELECT value FROM config WHERE key = 'company_logo' LIMIT 1");
+            const logoUrl = logoRow ? String(logoRow.value || '').trim() : '';
+            const logoBottomHtml = logoUrl ? `<div style="margin-top:16px;text-align:center;"><img src="${logoUrl}" style="max-height:50px;max-width:160px;" alt="Company Logo"></div>` : '';
+
+            const emailContent = `
+              <div style="font-family:Arial,sans-serif;line-height:1.6;">
+                ${headerInfo}
+                ${userBody ? `<div style="margin-bottom:12px;">${userBody}</div>` : ''}
+                <h3 style="font-size:14px;margin:0 0 8px 0;">Items</h3>
+                ${itemsTable || '<p style="font-size:12px;color:#666;">No items.</p>'}
+                ${signatureHtml}
+                ${logoBottomHtml}
+              </div>`;
+
+            try {
+              const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  message: {
+                    subject,
+                    body: { contentType: 'HTML', content: emailContent || 'Quote / RFQ Created' },
+                    toRecipients,
+                    ccRecipients
+                  },
+                  saveToSentItems: true
+                })
+              });
+              if (response.ok) {
+                emailSent = true;
+                emailService = 'Microsoft Graph';
+              } else {
+                const detail = await response.text();
+                emailError = `Graph send failed (${response.status}): ${detail.slice(0, 300)}`;
+              }
+            } catch (err) {
+              emailError = err.message;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Persist Quote in DB (quotes and quote_items)
+    const quoteId = 'quo-' + uuidv4();
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const timestampStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const quoteNo = details.quoteId || `RFQ-${orderId}-${timestampStr}-${uuidv4().slice(0, 8)}`;
+    const displayDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    // Lookup requisition by requisition_no
+    const reqRow = await queryOne(db, 'SELECT id, requisition_no, site FROM requisitions WHERE requisition_no = ? OR id = ? LIMIT 1', [orderId, orderId]);
+    const requisitionId = reqRow ? reqRow.id : null;
+
+    // Lookup supplier
+    const supplierName = String(details.supplier || '').trim();
+    const supplierRow = supplierName ? await queryOne(db, 'SELECT id, name FROM suppliers WHERE lower(name) = lower(?) LIMIT 1', [supplierName]) : null;
+
+    const emailsToSave = ccEmailsRaw || toEmailsRaw || '';
+
+    await exec(db, `
+      INSERT INTO quotes (
+        id, quote_no, requisition_id, supplier_id, ref_id, supplier, site, category,
+        comprador, created_by, notes, comments, status, currency, subtotal, discount, freight, iva, total,
+        pdf_url, emails, quoted_doc_url, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'CLP', 0, 0, 0, 0, 0, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [
+      quoteId,
+      quoteNo,
+      requisitionId,
+      supplierRow ? supplierRow.id : null,
+      orderId,
+      supplierName || 'N/A',
+      details.site || (reqRow ? reqRow.site : ''),
+      details.category || 'General',
+      details.userName || (authenticatedUser && authenticatedUser.name) || '',
+      authenticatedUser ? (authenticatedUser.user_id || authenticatedUser.id || authenticatedUser.email) : null,
+      userBody,
+      details.comments || userBody,
+      details.pdfUrl || details.attachmentUrl || '',
+      emailsToSave,
+      details.attachmentUrl || '',
+      displayDate
+    ]);
+
+    // Insert line items into quote_items
+    for (const item of items) {
+      const geo = String(item.geo || '').trim();
+      const product = geo ? await queryOne(db, 'SELECT id, geo, pn, description, description_es FROM products WHERE geo = ? LIMIT 1', [geo]) : null;
+      const qty = Number(item.qty || item.cant || 0);
+
+      await exec(db, `
+        INSERT INTO quote_items (
+          quote_id, product_id, geo, pn, description_es, description_en, quantity,
+          unit_price, total_price, supplier, category, sub_category, status, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 'Pending', ?)
+      `, [
+        quoteId,
+        product ? product.id : null,
+        geo,
+        item.pn || item.p || (product ? product.pn : ''),
+        item.es || (product ? product.description_es : (item.desc || item.req_desc || '')),
+        item.en || (product ? product.description : ''),
+        qty,
+        supplierName || 'N/A',
+        item.category || details.category || 'General',
+        item.subCategory || item.sub_category || '',
+        displayDate
+      ]);
+    }
+
+    // 3. Update requisition & requisition_items status
+    if (requisitionId) {
+      const currentReq = await queryOne(db, 'SELECT status FROM requisitions WHERE id = ?', [requisitionId]);
+      const curStatus = String(currentReq && currentReq.status || '');
+      let newReqStatus;
+      if (curStatus.toLowerCase().startsWith('quoted')) {
+        newReqStatus = `${curStatus}, ${quoteNo}`;
+      } else {
+        newReqStatus = `Quoted | ${quoteNo}`;
+      }
+      await exec(db, `UPDATE requisitions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [newReqStatus, requisitionId]);
+
+      for (const item of items) {
+        if (item.geo) {
+          await exec(db, `UPDATE requisition_items SET status = 'Quoted' WHERE requisition_id = ? AND geo = ?`, [requisitionId, item.geo]);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      emailSent,
+      emailService,
+      quoteId: quoteNo,
+      quoteDbId: quoteId,
+      pdfUrl: details.pdfUrl || '',
+      message: emailSent ? 'Quote email sent and saved.' : 'Quote saved successfully.'
+    };
   },
 
   // EditPinGS.updateUserPin — hash and store a user PIN.
@@ -1412,10 +2042,60 @@ const IMPLEMENTED = {
   },
 
   // QuoteMgmtGS.markQuoteDeleted — mark a quote deleted.
+  // QuoteMgmtGS.markQuoteDeleted — mark a quote deleted (all items and quote row).
   markQuoteDeleted: async (db, args) => {
-    const [quoteId] = args;
-    await exec(db, `UPDATE quotes SET status = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE id = ? OR quote_no = ?`, [quoteId, quoteId]);
-    return { success: true };
+    // Supports both signatures:
+    // 1) (orderId, supplier, category, quoteId)
+    // 2) (quoteId)
+    const [a1, a2, a3, a4] = args;
+    let targetQuoteIds = [];
+
+    if (a2 !== undefined) {
+      const orderId = String(a1 || '').trim();
+      const supplier = String(a2 || '').trim();
+      const category = String(a3 || '').trim();
+      const directQuoteId = String(a4 || '').trim();
+
+      let whereParts = [];
+      let params = [];
+      if (orderId) {
+        whereParts.push(`(LOWER(TRIM(COALESCE(q.ref_id, r.requisition_no, ''))) = LOWER(TRIM(?)) OR LOWER(TRIM(q.quote_no)) = LOWER(TRIM(?)))`);
+        params.push(orderId, orderId);
+      }
+      if (supplier) {
+        whereParts.push(`LOWER(TRIM(COALESCE(q.supplier, s.name, ''))) = LOWER(TRIM(?))`);
+        params.push(supplier);
+      }
+      if (category && category.toLowerCase() !== 'all') {
+        whereParts.push(`LOWER(TRIM(COALESCE(q.category, ''))) = LOWER(TRIM(?))`);
+        params.push(category);
+      }
+      if (directQuoteId) {
+        whereParts.push(`(q.id = ? OR q.quote_no = ?)`);
+        params.push(directQuoteId, directQuoteId);
+      }
+
+      if (whereParts.length > 0) {
+        const rows = await queryAll(db, `
+          SELECT q.id FROM quotes q
+          LEFT JOIN requisitions r ON r.id = q.requisition_id
+          LEFT JOIN suppliers s ON s.id = q.supplier_id
+          WHERE ${whereParts.join(' AND ')}
+        `, params);
+        targetQuoteIds = (rows || []).map(r => r.id);
+      }
+    } else if (a1) {
+      const quoteId = String(a1).trim();
+      const rows = await queryAll(db, `SELECT id FROM quotes WHERE id = ? OR quote_no = ?`, [quoteId, quoteId]);
+      targetQuoteIds = (rows || []).map(r => r.id);
+      if (!targetQuoteIds.length) targetQuoteIds = [quoteId];
+    }
+
+    for (const qid of targetQuoteIds) {
+      await exec(db, `UPDATE quotes SET status = 'Deleted', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [qid]);
+      await exec(db, `UPDATE quote_items SET status = 'Deleted' WHERE quote_id = ?`, [qid]);
+    }
+    return { success: true, count: targetQuoteIds.length };
   },
 
   // CreateReqGS.processMassOrders — create ISSUE movements for pending requisition items.
@@ -1473,11 +2153,20 @@ const IMPLEMENTED = {
           ]);
         }
 
+        // Gate email sending on the DB feature flag (parity with GAS config sheet).
+        // Defaults to disabled when the row is missing.
+        const reqEmailRow = await queryOne(db, "SELECT value FROM config WHERE key = 'reqEmailEnabled' LIMIT 1");
+        const isReqEmailEnabled = reqEmailRow ? String(reqEmailRow.value).toLowerCase() === 'true' : false;
+
         let emailResult;
-        try {
-          emailResult = await sendRequirementEmail(shipment, requisitionNo, authenticatedUser);
-        } catch (error) {
-          emailResult = { emailSent: false, emailError: error.message };
+        if (!isReqEmailEnabled) {
+          emailResult = { emailSent: false, emailError: 'Requisition email delivery is not enabled.' };
+        } else {
+          try {
+            emailResult = await sendRequirementEmail(shipment, requisitionNo, authenticatedUser);
+          } catch (error) {
+            emailResult = { emailSent: false, emailError: error.message };
+          }
         }
         results.push({
           orderId: requisitionNo,
@@ -1521,7 +2210,7 @@ const IMPLEMENTED = {
       INSERT INTO background_jobs (job_id, job_type, ref_id, title, status, progress, step, created_by)
       VALUES (?, ?, ?, ?, 'RUNNING', 5, ?, ?)
     `, [jobId, type || 'REQ', String(refId || ''), String(title || (type + ' ' + refId)),
-        'Sheet saved - finishing in background...', String(userEmail || '')]);
+      'Sheet saved - finishing in background...', String(userEmail || '')]);
 
     return { jobId, job: { jobId, type, refId: String(refId || ''), title: String(title || ''), status: 'RUNNING', progress: 5, step: 'Sheet saved - finishing in background...', createdBy: String(userEmail || ''), pdfUrl: '', emailSent: null, error: '' } };
   },
@@ -1541,10 +2230,10 @@ const IMPLEMENTED = {
           updated_at = CURRENT_TIMESTAMP
       WHERE job_id = ?
     `, [status, progress, step,
-        e.pdfUrl === undefined ? null : e.pdfUrl,
-        e.emailSent === undefined ? null : (e.emailSent ? 1 : 0),
-        e.error === undefined ? null : String(e.error || ''),
-        String(jobId || '')]);
+      e.pdfUrl === undefined ? null : e.pdfUrl,
+      e.emailSent === undefined ? null : (e.emailSent ? 1 : 0),
+      e.error === undefined ? null : String(e.error || ''),
+      String(jobId || '')]);
 
     return { jobId, status, progress, step };
   },
@@ -1612,8 +2301,8 @@ const IMPLEMENTED = {
              maquina, generador, vehiculo, condition, comments, site, performed_by)
           VALUES (?, 'ISSUE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [movementId, ts, it.geo, qty, qty, payload.person || '', payload.sector || '',
-            payload.maquina || '', payload.generador || '', payload.vehiculo || '',
-            condition, payload.comments || '', site, payload.person || 'System']);
+          payload.maquina || '', payload.generador || '', payload.vehiculo || '',
+          condition, payload.comments || '', site, payload.person || 'System']);
 
         // Item status → IN_USE
         await exec(db, `UPDATE item_status SET status = 'IN_USE', person = ?, sector = ?, condition = ? WHERE geo = ?`,
@@ -1628,9 +2317,9 @@ const IMPLEMENTED = {
              maquina, generador, vehiculo, condition, comments, site, performed_by)
           VALUES (?, 'RETURN', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Good', ?, ?, ?)
         `, [movementId, ts, it.geo, returnQty, returnQty, payload.person || '',
-            payload.sector || '', payload.maquina || '', payload.generador || '',
-            payload.vehiculo || '', '[Exchange/Return via Issue] ' + (payload.comments || ''),
-            site, payload.person || 'System']);
+          payload.sector || '', payload.maquina || '', payload.generador || '',
+          payload.vehiculo || '', '[Exchange/Return via Issue] ' + (payload.comments || ''),
+          site, payload.person || 'System']);
 
         await exec(db, `UPDATE item_status SET status = 'IN_STORE', person = '', sector = 'STORE', condition = 'Good' WHERE geo = ?`, [it.geo]);
       }
@@ -1640,10 +2329,18 @@ const IMPLEMENTED = {
     if (payload.isHSE && Array.isArray(payload.hseItems) && payload.hseItems.length > 0) {
       await exec(db, `
         INSERT INTO hse_signatures
-          (movement_id, worker_id, worker_name, fingerprint_base64, match_score, status)
-        VALUES (?, ?, ?, ?, ?, 'PENDING')
-      `, [movementId, payload.personId || 'N/A', payload.person || 'UNKNOWN',
-          payload.fingerprintBase64 || '', payload.matchScore || 0]);
+          (movement_id, worker_id, worker_name, fingerprint_base64, match_score, match_timestamp, items_count, items_json, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+      `, [
+        movementId,
+        payload.personId || 'N/A',
+        payload.person || 'UNKNOWN',
+        payload.fingerprintBase64 || '',
+        payload.matchScore || 0,
+        ts,
+        payload.hseItems.length,
+        JSON.stringify(payload.hseItems)
+      ]);
     }
 
     return {
@@ -1673,8 +2370,8 @@ const IMPLEMENTED = {
            maquina, generador, vehiculo, condition, comments, site, performed_by)
         VALUES (?, 'RETURN', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Good', ?, ?, ?)
       `, [movementId, ts, it.geo, qty, qty, payload.person || '', payload.sector || '',
-          payload.maquina || '', payload.generador || '', payload.vehiculo || '',
-          payload.comments || '', site, payload.person || 'System']);
+        payload.maquina || '', payload.generador || '', payload.vehiculo || '',
+        payload.comments || '', site, payload.person || 'System']);
 
       await exec(db, `UPDATE item_status SET status = 'IN_STORE', person = '', sector = 'STORE', condition = 'Good' WHERE geo = ?`, [it.geo]);
     }
@@ -1715,7 +2412,7 @@ const IMPLEMENTED = {
                             notes = ?, biometric_template = ?, email = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `, [p.name || '', p.department || '', active, p.sector || '', p.notes || '',
-            p.biometricTemplate || '', p.email || '', targetId]);
+        p.biometricTemplate || '', p.email || '', targetId]);
         if ((r && r.meta && r.meta.changes) > 0) {
           updated++;
           summary.push(`✓ ${p.name || rut} updated`);
@@ -1726,7 +2423,7 @@ const IMPLEMENTED = {
           INSERT INTO people (id, name, department, active, sector, notes, rut, biometric_template, email)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [id, p.name || '', p.department || '', active, p.sector || '', p.notes || '',
-            rut, p.biometricTemplate || '', p.email || '']);
+          rut, p.biometricTemplate || '', p.email || '']);
         created++;
         summary.push(`✓ ${p.name || rut} created`);
       }
@@ -1742,17 +2439,78 @@ const IMPLEMENTED = {
   },
 
   // Delete draft requisitions.
+  // Delete draft requisitions.
   deleteDraftRows: async (db, args) => {
-    const ids = args[0] || [];
+    const raw = args[0];
+    const ids = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    let count = 0;
     for (const id of ids) {
-      await exec(db, `DELETE FROM requisitions WHERE id = ? AND status = 'draft'`, [id]);
+      const draft = await queryOne(db, `SELECT id FROM requisitions WHERE (id = ? OR requisition_no = ?) AND status = 'draft'`, [id, id]);
+      if (draft) {
+        await exec(db, `DELETE FROM requisition_items WHERE requisition_id = ?`, [draft.id]);
+        await exec(db, `DELETE FROM requisitions WHERE id = ?`, [draft.id]);
+        count++;
+      }
     }
-    return { success: true, count: ids.length };
+    return { success: true, count };
   },
 
   // Get draft requisitions.
+  // Get draft requisitions in the shape CreateReqJS expects.
   getDrafts: async (db) => {
-    return queryAll(db, `SELECT r.id, r.requisition_no, r.site_id, r.requested_by, r.priority, r.notes, r.status, r.created_at, r.updated_at FROM requisitions r WHERE r.status = 'draft' ORDER BY r.created_at DESC`);
+    const draftRows = await queryAll(db, `
+      SELECT r.id, r.requisition_no, r.site_id, r.site, r.requested_by, r.priority,
+             r.notes, r.status, r.created_at, r.updated_at, r.category,
+             r.sub_area, r.sub_area_no, r.emails,
+             s.name AS site_name
+      FROM requisitions r
+      LEFT JOIN sites s ON s.id = r.site_id
+      WHERE r.status = 'draft' OR r.requisition_no LIKE 'DRAFT-%'
+      ORDER BY r.created_at DESC
+    `);
+
+    const result = [];
+    for (const d of draftRows) {
+      const items = await queryAll(db, `
+        SELECT ri.id, ri.quantity_requested AS qty, ri.item_notes, ri.supplier_notes,
+               ri.images, ri.geo, ri.pn, ri.description_es AS desc, ri.description_es AS es,
+               p.name AS product_name, p.description AS product_desc
+        FROM requisition_items ri
+        LEFT JOIN products p ON p.id = ri.product_id
+        WHERE ri.requisition_id = ?
+        ORDER BY ri.id ASC
+      `, [d.id]);
+
+      result.push({
+        draftId: d.requisition_no || d.id,
+        id: d.id,
+        fecha: d.created_at ? new Date(d.created_at).toISOString() : new Date().toISOString(),
+        site: d.site || d.site_name || '',
+        user: d.requested_by || '',
+        category: d.category || 'General',
+        subArea: d.sub_area || '',
+        subAreaNo: d.sub_area_no || '',
+        emails: d.emails || '',
+        notes: d.notes || '',
+        items: (items || []).map(it => {
+          let imgs = it.images;
+          if (typeof imgs === 'string' && imgs.startsWith('[')) {
+            try { imgs = JSON.parse(imgs); } catch (e) { }
+          }
+          return {
+            pn: it.pn || '',
+            geo: it.geo || '',
+            desc: it.desc || it.product_desc || it.product_name || '',
+            es: it.es || it.desc || it.product_desc || it.product_name || '',
+            qty: Number(it.qty) || 0,
+            itemNotes: it.item_notes || '',
+            supplierNotes: it.supplier_notes || '',
+            images: imgs || ''
+          };
+        })
+      });
+    }
+    return result;
   },
 
   // Import min/max levels from array of rows.
@@ -1784,25 +2542,147 @@ const IMPLEMENTED = {
     return { success: true, processed };
   },
 
-  // CreateReqGS.saveDraft(shipments) — save a draft requisition.
-  // Re-saving the same requisition_no updates the existing draft.
-  saveDraft: async (db, args) => {
-    const d = args[0] || {};
-    const reqNo = d.requisition_no || d.requisitionNo || `DRAFT-${Date.now()}`;
-    const id = d.id || uuidv4();
-
-    const existing = await queryOne(db, `SELECT id FROM requisitions WHERE requisition_no = ? LIMIT 1`, [reqNo]);
-    if (existing) {
-      await exec(db, `
-        UPDATE requisitions SET site_id = ?, requested_by = ?, priority = ?, notes = ?,
-                               status = 'draft', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `, [d.site_id || null, d.requested_by || '', d.priority || 'normal', d.notes || '', existing.id]);
-      return { success: true, id: existing.id, updated: true };
+  // CreateReqGS.uploadRequirementItemImages - saves uploaded photos to local uploads/images directory
+  uploadRequirementItemImages: async (db, args) => {
+    const payload = args[0] || {};
+    if (!payload || !Array.isArray(payload.files) || payload.files.length === 0) {
+      return { success: false, error: 'No file content provided.' };
     }
 
-    await exec(db, `INSERT INTO requisitions (id, requisition_no, site_id, requested_by, priority, notes, status) VALUES (?, ?, ?, ?, ?, ?, 'draft')`, [id, reqNo, d.site_id || null, d.requested_by || '', d.priority || 'normal', d.notes || '']);
-    return { success: true, id };
+    const uploadsBase = path.join(__dirname, '..', '..', 'uploads', 'images');
+    const siteSanitized = String(payload.site || 'General').replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const targetDir = path.join(uploadsBase, siteSanitized);
+
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    const stamp = Date.now();
+    const urls = [];
+
+    for (let i = 0; i < payload.files.length; i++) {
+      const f = payload.files[i];
+      if (!f || !f.base64) continue;
+
+      let raw = String(f.base64 || '');
+      const commaAt = raw.indexOf(',');
+      if (raw.indexOf('data:') === 0 && commaAt !== -1) {
+        raw = raw.substring(commaAt + 1);
+      }
+      if (!raw) continue;
+
+      const mime = String(f.mimeType || 'image/jpeg').toLowerCase();
+      const ext = mime.indexOf('png') !== -1 ? '.png' : (mime.indexOf('webp') !== -1 ? '.webp' : '.jpg');
+      const baseName = String(f.name || 'image').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_') || 'image';
+      const fileName = `${baseName}_${stamp}_${i + 1}${ext}`;
+      const filePath = path.join(targetDir, fileName);
+
+      fs.writeFileSync(filePath, Buffer.from(raw, 'base64'));
+
+      // Serve path matching /uploads/images/<site>/<filename>
+      const publicUrl = `/uploads/images/${siteSanitized}/${fileName}`;
+      urls.push(publicUrl);
+    }
+
+    if (!urls.length) {
+      return { success: false, error: 'No readable image content was provided.' };
+    }
+
+    return { success: true, urls };
+  },
+
+  // CreateReqGS.saveDraft(shipments) — save a draft requisition.
+  // Re-saving the same requisition_no updates the existing draft.
+
+
+  // CreateReqGS.saveDraft(shipments) — save draft requisition(s).
+  saveDraft: async (db, args) => {
+    const raw = args[0];
+    const shipments = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    if (!shipments.length) return { success: false, message: 'No shipments provided' };
+
+    const timestamp = Date.now();
+    const results = [];
+
+    for (let idx = 0; idx < shipments.length; idx++) {
+      const shipment = shipments[idx];
+      const items = Array.isArray(shipment.items) ? shipment.items : [];
+      const draftId = shipment.draftId || shipment.requisition_no || shipment.requisitionNo || `DRAFT-${timestamp}${shipments.length > 1 ? '-' + (idx + 1) : ''}`;
+
+      const site = String(shipment.site || '').trim();
+      const siteRow = site
+        ? await queryOne(db, 'SELECT id, name FROM sites WHERE lower(name) = lower(?) OR lower(site_id) = lower(?) LIMIT 1', [site, site])
+        : null;
+
+      let reqId = shipment.id;
+      const existing = await queryOne(db, 'SELECT id FROM requisitions WHERE requisition_no = ? OR id = ? LIMIT 1', [draftId, reqId || '']);
+      if (existing) {
+        reqId = existing.id;
+        await exec(db, `
+          UPDATE requisitions
+          SET site_id = ?, site = ?, requested_by = ?, notes = ?, category = ?,
+              sub_area = ?, sub_area_no = ?, emails = ?, status = 'draft', updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `, [
+          siteRow ? siteRow.id : null,
+          siteRow ? siteRow.name : site,
+          shipment.userName || shipment.currentUserEmail || '',
+          shipment.body || shipment.notes || '',
+          shipment.category || 'General',
+          shipment.subArea || '',
+          shipment.subAreaNumber || shipment.subAreaNo || '',
+          shipment.to || shipment.emails || '',
+          reqId
+        ]);
+        await exec(db, 'DELETE FROM requisition_items WHERE requisition_id = ?', [reqId]);
+      } else {
+        reqId = reqId || uuidv4();
+        await exec(db, `
+          INSERT INTO requisitions (
+            id, requisition_no, site_id, site, requested_by, notes, status, category,
+            sub_area, sub_area_no, emails
+          )
+          VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+        `, [
+          reqId,
+          draftId,
+          siteRow ? siteRow.id : null,
+          siteRow ? siteRow.name : site,
+          shipment.userName || shipment.currentUserEmail || '',
+          shipment.body || shipment.notes || '',
+          shipment.category || 'General',
+          shipment.subArea || '',
+          shipment.subAreaNumber || shipment.subAreaNo || '',
+          shipment.to || shipment.emails || ''
+        ]);
+      }
+
+      for (const item of items) {
+        const product = await queryOne(db, 'SELECT id, geo, pn, description, description_es FROM products WHERE geo = ? LIMIT 1', [item.geo]);
+        await exec(db, `
+          INSERT INTO requisition_items (
+            requisition_id, product_id, quantity_requested, notes,
+            geo, pn, description_es, item_notes, supplier_notes, images, status
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+        `, [
+          reqId,
+          product ? product.id : null,
+          Number(item.qty) || 0,
+          item.itemNotes || '',
+          item.geo || (product ? product.geo : ''),
+          item.pn || (product ? product.pn : ''),
+          item.es || (product ? product.description_es : (item.desc || '')),
+          item.itemNotes || '',
+          item.supplierNotes || '',
+          Array.isArray(item.images) ? JSON.stringify(item.images) : (item.images || '')
+        ]);
+      }
+
+      results.push({ draftId, id: reqId });
+    }
+
+    return { success: true, drafts: results };
   },
 
   // Import min/max (alias with alternate field names).
@@ -1817,17 +2697,233 @@ const IMPLEMENTED = {
   },
 
   // Update quote with items (create/update quote_items).
+  // Frontend field names: qty, price, es, total, supplierQuoteNo, quotedDocUrl,
+  // clearQuotedDoc, status, deleted, approvedQty. Map to DB columns: quantity, unit_price,
+  // description_es, total_price, supplier_quote_no, quoted_doc_url, status, approved_qty.
   updateQuoteWithItems: async (db, args) => {
     const q = args[0] || {};
     const items = q.items || [];
-    let total = 0;
-    for (const it of items) {
-      const itemTotal = Number(it.quantity || 0) * Number(it.unit_price || 0);
-      total += itemTotal;
-      await exec(db, `INSERT INTO quote_items (quote_id, product_id, quantity, unit_price, total_price, geo, pn, description_es, description_en, supplier, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [q.quoteId, it.product_id, it.quantity, it.unit_price, itemTotal, it.geo || '', it.pn || '', it.description_es || '', it.description_en || '', it.supplier || '', it.category || '']);
+    console.log('[updateQuoteWithItems] Received q:', JSON.stringify({
+      orderId: q.orderId,
+      quoteId: q.quoteId,
+      id: q.id,
+      quoteNo: q.quoteNo,
+      status: q.status,
+      quotedDocUrl: q.quotedDocUrl,
+      itemsCount: items.length
+    }));
+    if (items.length > 0) {
+      console.log('[updateQuoteWithItems] First item sample:', JSON.stringify({
+        quoteId: items[0].quoteId,
+        geo: items[0].geo,
+        pn: items[0].pn,
+        status: items[0].status,
+        deleted: items[0].deleted,
+        price: items[0].price,
+        qty: items[0].qty,
+        approvedQty: items[0].approvedQty
+      }));
     }
-    await exec(db, `UPDATE quotes SET subtotal = ?, total = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? OR quote_no = ?`, [total, total, q.quoteId, q.quoteId]);
-    return { success: true, total };
+
+    // Helper to resolve quote uuid from id or quote_no
+    async function resolveQuoteUuid(rawId) {
+      if (!rawId) return null;
+      const r = await queryOne(db, 'SELECT id FROM quotes WHERE id = ? OR quote_no = ? LIMIT 1', [rawId, rawId]);
+      return r ? r.id : null;
+    }
+
+    let defaultQuoteId = q.quoteId || q.id || null;
+    if (!defaultQuoteId && items.length > 0) {
+      defaultQuoteId = items[0].quoteId || items[0].quote_id || null;
+    }
+
+    let quoteId = await resolveQuoteUuid(defaultQuoteId);
+    const quoteNo = q.quoteNo || '';
+
+    // If no quote row found by ID, try looking up by orderId + supplier
+    if (!quoteId && (q.orderId || (items[0] && items[0].orderId))) {
+      const orderId = q.orderId || (items[0] && items[0].orderId) || '';
+      const supplier = q.supplier || (items[0] && items[0].supplier) || '';
+      if (orderId && supplier) {
+        const existingQuote = await queryOne(db,
+          'SELECT q.id FROM quotes q LEFT JOIN requisitions r ON q.requisition_id = r.id WHERE (r.requisition_no = ? OR q.ref_id = ? OR q.requisition_id = ?) AND LOWER(TRIM(q.supplier)) = LOWER(TRIM(?)) LIMIT 1',
+          [orderId, orderId, orderId, supplier]
+        );
+        if (existingQuote) {
+          quoteId = existingQuote.id;
+          console.log('[updateQuoteWithItems] Resolved quote row by orderId + supplier:', quoteId);
+        }
+      }
+    }
+
+    // If no quote row exists yet, create one
+    if (!quoteId) {
+      console.log('[updateQuoteWithItems] Creating new quote row');
+      const newId = 'quo-' + uuidv4();
+      const orderId = q.orderId || '';
+      const supplier = q.supplier || (items[0] && items[0].supplier) || '';
+      const category = q.category || (items[0] && items[0].category) || '';
+      const reqRow = orderId
+        ? await queryOne(db, 'SELECT id FROM requisitions WHERE requisition_no = ? OR id = ? LIMIT 1', [orderId, orderId])
+        : null;
+      const reqId = reqRow ? reqRow.id : null;
+      await exec(db, "INSERT INTO quotes (id, quote_no, requisition_id, ref_id, supplier, category, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        [newId, quoteNo || newId, reqId, orderId || null, supplier, category, q.createdBy || 'system']);
+      quoteId = newId;
+      console.log('[updateQuoteWithItems] Created quote row with id:', quoteId);
+    }
+
+    const affectedQuoteIds = new Set();
+    if (quoteId) affectedQuoteIds.add(quoteId);
+
+    // Upsert / update each item
+    for (const it of items) {
+      const isDeleted = Boolean(it.deleted || it.status === 'Deleted');
+      const itemStatus = isDeleted ? 'Deleted' : (it.status || 'Pending');
+
+      let itQuoteId = quoteId;
+      if (it.quoteId) {
+        const resolved = await resolveQuoteUuid(it.quoteId);
+        if (resolved) itQuoteId = resolved;
+      }
+      affectedQuoteIds.add(itQuoteId);
+
+      const itemGeo = it.origGeo || it.geo || '';
+      const itemPn = it.origPn || it.pn || '';
+
+      // Find existing item
+      let existing = null;
+      if (it.id) {
+        existing = await queryOne(db, 'SELECT id, supplier_quote_no, quoted_doc_url, status, approved_qty, quantity, unit_price FROM quote_items WHERE id = ? LIMIT 1', [it.id]);
+      }
+      if (!existing && itemGeo) {
+        existing = await queryOne(db, 'SELECT id, supplier_quote_no, quoted_doc_url, status, approved_qty, quantity, unit_price FROM quote_items WHERE quote_id = ? AND geo = ? LIMIT 1', [itQuoteId, itemGeo]);
+      }
+      if (!existing && itemPn) {
+        existing = await queryOne(db, 'SELECT id, supplier_quote_no, quoted_doc_url, status, approved_qty, quantity, unit_price FROM quote_items WHERE quote_id = ? AND pn = ? LIMIT 1', [itQuoteId, itemPn]);
+      }
+
+      const quantity = (it.qty !== undefined && it.qty !== null) ? Number(it.qty)
+        : (it.quantity !== undefined && it.quantity !== null) ? Number(it.quantity)
+          : (existing ? Number(existing.quantity || 0) : 0);
+
+      const unitPrice = (it.price !== undefined && it.price !== null) ? Number(it.price)
+        : (it.unit_price !== undefined && it.unit_price !== null) ? Number(it.unit_price)
+          : (existing ? Number(existing.unit_price || 0) : 0);
+
+      const itemTotal = quantity * unitPrice;
+
+      let approvedQty = 0;
+      if (it.approvedQty !== undefined && it.approvedQty !== null) {
+        approvedQty = Number(it.approvedQty) || 0;
+      } else if (itemStatus === 'Approved') {
+        approvedQty = quantity;
+      } else if (existing && existing.approved_qty !== undefined && existing.approved_qty !== null && !isDeleted) {
+        approvedQty = Number(existing.approved_qty) || 0;
+      }
+
+      const itemSupplierQuoteNo = it.supplierQuoteNo !== undefined ? it.supplierQuoteNo : null;
+      const itemDocUrl = it.clearQuotedDoc ? '' : (it.quotedDocUrl !== undefined ? it.quotedDocUrl : null);
+
+      if (existing) {
+        await exec(db, `UPDATE quote_items SET
+          quantity = ?,
+          unit_price = ?,
+          total_price = ?,
+          geo = CASE WHEN ? != '' THEN ? ELSE geo END,
+          pn = CASE WHEN ? != '' THEN ? ELSE pn END,
+          description_es = COALESCE(?, description_es),
+          description_en = COALESCE(?, description_en),
+          supplier = COALESCE(?, supplier),
+          category = COALESCE(?, category),
+          status = ?,
+          approved_qty = ?,
+          supplier_quote_no = COALESCE(?, supplier_quote_no),
+          quoted_doc_url = CASE WHEN ? = 1 THEN '' ELSE COALESCE(?, quoted_doc_url) END
+        WHERE id = ?`,
+          [
+            quantity,
+            unitPrice,
+            itemTotal,
+            it.geo || '', it.geo || '',
+            it.pn || '', it.pn || '',
+            it.es || it.description_es || null,
+            it.description_en || null,
+            it.supplier || null,
+            it.category || null,
+            itemStatus,
+            approvedQty,
+            itemSupplierQuoteNo,
+            it.clearQuotedDoc ? 1 : 0,
+            itemDocUrl,
+            existing.id
+          ]
+        );
+      } else {
+        await exec(db, 'INSERT INTO quote_items (quote_id, product_id, quantity, unit_price, total_price, geo, pn, description_es, description_en, supplier, category, status, approved_qty, supplier_quote_no, quoted_doc_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            itQuoteId,
+            it.product_id || null,
+            quantity,
+            unitPrice,
+            itemTotal,
+            it.geo || '',
+            it.pn || '',
+            it.es || it.description_es || '',
+            it.description_en || '',
+            it.supplier || '',
+            it.category || '',
+            itemStatus,
+            approvedQty,
+            itemSupplierQuoteNo,
+            itemDocUrl
+          ]
+        );
+      }
+    }
+
+    // Recalculate quote totals and status for each affected quote
+    let finalTotal = 0;
+    const quotedDocUrl = q.quotedDocUrl || '';
+    const supplierQuoteNo = q.supplierQuoteNo || (items.find(it => it.supplierQuoteNo) || {}).supplierQuoteNo || null;
+
+    for (const qId of affectedQuoteIds) {
+      const qItems = await queryAll(db, 'SELECT status, total_price FROM quote_items WHERE quote_id = ?', [qId]);
+      const activeTotal = qItems
+        .filter(item => item.status !== 'Deleted')
+        .reduce((sum, item) => sum + (Number(item.total_price) || 0), 0);
+
+      if (qId === quoteId) {
+        finalTotal = activeTotal;
+      }
+
+      // Compute dominant status
+      let newStatus = q.status;
+      if (!newStatus || newStatus === 'Pending') {
+        if (qItems.length > 0 && qItems.every(item => item.status === 'Deleted')) {
+          newStatus = 'Deleted';
+        } else if (qItems.some(item => ['Approved', 'Sent', 'Received', 'Despatched', 'Final Received'].includes(item.status))) {
+          newStatus = 'Approved';
+        } else if (qItems.some(item => item.status === 'Quoted')) {
+          newStatus = 'Quoted';
+        } else if (qItems.length > 0 && qItems.every(item => item.status === 'Not Quoted')) {
+          newStatus = 'Not Quoted';
+        } else {
+          newStatus = 'Pending';
+        }
+      }
+
+      await exec(db, 'UPDATE quotes SET status = ?, subtotal = ?, total = ?, ref_cotiz = COALESCE(?, ref_cotiz), quoted_doc_url = COALESCE(?, quoted_doc_url), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [newStatus, activeTotal, activeTotal, supplierQuoteNo, quotedDocUrl || null, qId]);
+    }
+
+    // Finish background job if called via bgFireAndForget
+    const jobId = q._jobId || args[1];
+    if (jobId) {
+      await IMPLEMENTED.bgFinishJob(db, [jobId, true, { step: 'Done', progress: 100 }]);
+    }
+
+    return { success: true, total: finalTotal };
   },
 
   // Update validation items and system feature flags.
@@ -1984,7 +3080,7 @@ const IMPLEMENTED = {
       const loc = locRows.find((l) =>
         String(l.location_id || '').toLowerCase() === String(r.location_id || '').toLowerCase() &&
         (String(l.item_id || '') === String(r.item_id || '') ||
-         String(l.item_id || '') === String(r.geo || ''))
+          String(l.item_id || '') === String(r.geo || ''))
       ) || locRows.find((l) =>
         String(l.item_id || '') === String(r.item_id || '') ||
         String(l.item_id || '') === String(r.geo || '')
@@ -2116,14 +3212,348 @@ const IMPLEMENTED = {
 
     if (!fs.existsSync(resolved)) {
       return `<div style='color:red; padding:20px; background:#fff1f1; border:1px solid red;'>` +
-             `<h4>⚠️ Error in ${moduleName} or its Included Files</h4>` +
-             `<p><b>Message:</b> Module not found</p></div>`;
+        `<h4>⚠️ Error in ${moduleName} or its Included Files</h4>` +
+        `<p><b>Message:</b> Module not found</p></div>`;
     }
 
     return fs.readFileSync(resolved, 'utf-8');
   }
 };
 
+// ---------------------------------------------------------------------------
+// uploadQuoteAttachment
+// Saves the base64-encoded file to api/uploads/ and returns a local URL.
+// In production (Cloudflare Worker) this should be replaced with an R2 upload.
+// Payload: { orderId, quoteId, supplier, site, fileName, files: [{ name, mimeType, base64 }] }
+// Returns: { success: true, url: '/uploads/<filename>', fileName: '<filename>' }
+//          | { success: false, error: '<message>' }
+// ---------------------------------------------------------------------------
+IMPLEMENTED.uploadQuoteAttachment = async function (db, args) {
+  try {
+    const payload = (Array.isArray(args) ? args[0] : args) || {};
+
+    if (!Array.isArray(payload.files) || payload.files.length === 0) {
+      return { success: false, error: 'No file content provided.' };
+    }
+
+    const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    // Build a safe, unique base name from supplier + orderId + uuid
+    const sanitize = (s) => String(s || '').replace(/[^a-zA-Z0-9_\-\.]/g, '_').slice(0, 60);
+    const baseName = [
+      sanitize(payload.supplier || 'doc'),
+      sanitize(payload.orderId || ''),
+      uuidv4().slice(0, 8),
+    ].filter(Boolean).join('_');
+
+    const f = payload.files[0]; // client always sends a single file
+    const mime = String(f.mimeType || '').toLowerCase();
+    const ext = mime.includes('pdf') ? '.pdf'
+      : mime.includes('image/') ? '.jpg'
+        : (String(payload.fileName || '').match(/(\.[^.]+)$/) || ['', '.bin'])[1];
+
+    const diskName = baseName + ext;
+    const diskPath = path.join(uploadsDir, diskName);
+
+    const buf = Buffer.from(String(f.base64 || ''), 'base64');
+    if (buf.length === 0) {
+      return { success: false, error: 'File data is empty after base64 decode.' };
+    }
+    fs.writeFileSync(diskPath, buf);
+
+    // Persist URL to the quotes table if quoteId is provided
+    const fileUrl = '/uploads/' + diskName;
+    if (payload.quoteId) {
+      try {
+        await queryOne(db,
+          `UPDATE quotes SET quoted_doc_url = ? WHERE id = ?`,
+          [fileUrl, payload.quoteId]
+        );
+      } catch (_) { /* non-fatal — URL returned to client regardless */ }
+    }
+
+    console.log(`[uploadQuoteAttachment] saved ${diskName} (${buf.length} bytes)`);
+    return { success: true, url: fileUrl, fileName: diskName };
+  } catch (e) {
+    console.error('[uploadQuoteAttachment] error:', e);
+    return { success: false, error: String(e) };
+  }
+};
+// Control Combustible functions
+IMPLEMENTED.getFuelHistory = async (db) => {
+  const rows = await queryAll(db, `
+      SELECT entry_date, proyecto, tipo_activo, asset_id, liters,
+             odometer_km, driver, user_email
+      FROM fuel_entries
+      ORDER BY entry_date DESC, id DESC
+      LIMIT 1000
+    `);
+  return rows.map((r) => {
+    let raw = String(r.entry_date || '').trim();
+    const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+    if (m) {
+      raw = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}${m[4] || ''}`.trim();
+    }
+    const dateStr = raw.length > 16 ? raw.slice(0, 16) : raw;
+    return [
+      dateStr,
+      r.proyecto || '',
+      r.tipo_activo || '',
+      r.asset_id || '',
+      r.liters || 0,
+      r.odometer_km || '',
+      r.driver || '',
+      r.user_email || ''
+    ];
+  });
+},
+
+  IMPLEMENTED.getFuelBalance = async (db) => {
+    const bought = await queryOne(db, `
+      SELECT COALESCE(SUM(litros), 0) AS total FROM fuel_purchases
+    `);
+    const used = await queryOne(db, `
+      SELECT COALESCE(SUM(liters), 0) AS total FROM fuel_entries
+    `);
+    const totalBought = Number(bought && bought.total) || 0;
+    const totalUsed = Number(used && used.total) || 0;
+    return {
+      balance: totalBought - totalUsed,
+      totalBought,
+      totalUsed
+    };
+  },
+
+  IMPLEMENTED.getFuelPurchaseHistory = async (db) => {
+    const rows = await queryAll(db, `
+      SELECT purchase_date, proveedor, litros, factura, user_name
+      FROM fuel_purchases
+      ORDER BY purchase_date DESC, id DESC
+      LIMIT 1000
+    `);
+    return rows.map((x) => {
+      let raw = String(x.purchase_date || '').trim();
+      const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+      if (m) {
+        raw = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}${m[4] || ''}`.trim();
+      }
+      const fecha = raw.length > 16 ? raw.slice(0, 16) : raw;
+      return {
+        fecha,
+        fechaISO: raw,
+        fechaObj: x.purchase_date,
+        proveedor: x.proveedor || '',
+        litros: x.litros || 0,
+        factura: x.factura || '',
+        usuario: x.user_name || ''
+      };
+    });
+  },
+
+  IMPLEMENTED.getLastFuelEntry = async (db, args) => {
+    const assetId = String((args && args[0]) || '').trim();
+    if (!assetId) return { status: 'success', success: true, data: { lastKm: null }, lastKm: null };
+
+    const row = await queryOne(db, `
+      SELECT odometer_km FROM fuel_entries
+      WHERE asset_id = ?
+      ORDER BY entry_date DESC
+      LIMIT 1
+    `, [assetId]);
+
+    const km = row ? Number(row.odometer_km) : null;
+    return { status: 'success', success: true, data: { lastKm: km }, lastKm: km };
+  },
+
+  IMPLEMENTED.saveFuelEntry = async (db, args) => {
+    const d = args[0] || {};
+    const r = await exec(db, `
+      INSERT INTO fuel_entries
+        (entry_date, proyecto, tipo_activo, asset_id, liters, odometer_km, driver, user_email)
+      VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      d.proyecto || '', d.tipoActivo || '', d.assetId || '',
+      Number(d.cantidadLitro) || 0, d.kilometraje ? Number(d.kilometraje) : null,
+      d.nombre || '', d.userEmail || ''
+    ]);
+    const id = (r && r.meta && r.meta.last_row_id) || null;
+    return { status: 'success', success: true, id, message: 'Registro guardado exitosamente' };
+  },
+
+  IMPLEMENTED.saveFuelPurchase = async (db, args) => {
+    const d = args[0] || {};
+    const r = await exec(db, `
+      INSERT INTO fuel_purchases (purchase_date, proveedor, litros, factura, user_name)
+      VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)
+    `, [d.proveedor || '', Number(d.litros) || 0, d.factura || '', d.userName || '']);
+    const id = (r && r.meta && r.meta.last_row_id) || null;
+    return { status: 'success', success: true, id, message: 'Compra registrada exitosamente' };
+  };
+
+  IMPLEMENTED.processPendingHSEPDFs = async (db) => {
+    const pendingRows = await queryAll(db, `
+      SELECT id, movement_id, worker_id, worker_name, fingerprint_base64,
+             match_score, match_timestamp, items_count, items_json
+      FROM hse_signatures
+      WHERE UPPER(status) = 'PENDING'
+      ORDER BY id ASC
+    `);
+
+    if (!pendingRows || pendingRows.length === 0) {
+      return { success: true, processed: 0 };
+    }
+
+    const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
+    const hseDir = path.join(uploadsDir, 'hse');
+    if (!fs.existsSync(hseDir)) {
+      fs.mkdirSync(hseDir, { recursive: true });
+    }
+
+    let processed = 0;
+    for (const row of pendingRows) {
+      const movementId = String(row.movement_id || '').trim();
+      const workerId = String(row.worker_id || 'N/A').trim();
+      const workerName = String(row.worker_name || 'UNKNOWN').trim();
+      const matchScore = Number(row.match_score) || 0;
+      const matchTs = row.match_timestamp || new Date().toISOString();
+
+      let hseItems = [];
+      try {
+        if (row.items_json) {
+          hseItems = typeof row.items_json === 'string' ? JSON.parse(row.items_json) : row.items_json;
+        }
+      } catch (err) {
+        console.warn(`[processPendingHSEPDFs] Failed to parse items_json for ${movementId}:`, err);
+      }
+
+      // Mark row as PROCESSING
+      await exec(db, `UPDATE hse_signatures SET status = 'PROCESSING' WHERE id = ?`, [row.id]);
+
+      try {
+        const fileName = `HSE_Receipt_${movementId.replace(/[^a-zA-Z0-9_\-]/g, '_')}_${Date.now()}.pdf`;
+        const filePath = path.join(hseDir, fileName);
+        const pdfUrl = `/uploads/hse/${fileName}`;
+
+        if (!PDFDocument) {
+          throw new Error('PDFDocument (pdfkit) library not loaded');
+        }
+
+        await new Promise((resolve, reject) => {
+          const doc = new PDFDocument({ margin: 40, size: 'A4' });
+          const stream = fs.createWriteStream(filePath);
+          doc.pipe(stream);
+
+          // Header
+          doc.rect(40, 40, 515, 45).fill('#0066cc');
+          doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold')
+            .text('ENTREGA DE EPP', 40, 53, { align: 'center', width: 515 });
+
+          // Subtitle / Info
+          doc.moveDown(2);
+          const startInfoY = 100;
+          doc.rect(40, startInfoY, 515, 65).fillAndStroke('#f8f9fa', '#e9ecef');
+
+          doc.fillColor('#333333').fontSize(9).font('Helvetica');
+          doc.text(`ID Movimiento:`, 55, startInfoY + 10);
+          doc.font('Helvetica-Bold').text(movementId, 135, startInfoY + 10);
+
+          doc.font('Helvetica').text(`Fecha / Hora:`, 55, startInfoY + 25);
+          doc.font('Helvetica-Bold').text(String(matchTs).replace('T', ' ').slice(0, 19), 135, startInfoY + 25);
+
+          doc.font('Helvetica').text(`Empleado:`, 55, startInfoY + 40);
+          doc.font('Helvetica-Bold').text(`${workerName} (${workerId})`, 135, startInfoY + 40);
+
+          doc.font('Helvetica').text(`Puntaje Biométrico:`, 320, startInfoY + 10);
+          const scoreColor = matchScore >= 60 ? '#27ae60' : '#c0392b';
+          doc.fillColor(scoreColor).font('Helvetica-Bold').text(`${matchScore}/100 (${matchScore >= 60 ? 'VERIFICADO' : 'NO COINCIDE'})`, 425, startInfoY + 10);
+
+          // Table Header
+          let tableY = 180;
+          doc.rect(40, tableY, 515, 22).fill('#0066cc');
+          doc.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold');
+          doc.text('No.', 45, tableY + 6, { width: 30, align: 'center' });
+          doc.text('Código Producto (GEO)', 80, tableY + 6, { width: 130 });
+          doc.text('Descripción', 215, tableY + 6, { width: 250 });
+          doc.text('Cantidad', 470, tableY + 6, { width: 75, align: 'center' });
+
+          // Table Rows
+          tableY += 22;
+          doc.fillColor('#333333').font('Helvetica');
+          if (hseItems && hseItems.length > 0) {
+            hseItems.forEach((item, idx) => {
+              const rowBg = idx % 2 === 0 ? '#ffffff' : '#f8f9fa';
+              doc.rect(40, tableY, 515, 20).fillAndStroke(rowBg, '#dee2e6');
+              doc.fillColor('#333333');
+              doc.text(String(idx + 1), 45, tableY + 5, { width: 30, align: 'center' });
+              doc.font('Helvetica-Bold').text(String(item.geo || ''), 80, tableY + 5, { width: 130 });
+              doc.font('Helvetica').text(String(item.es || item.en || '-'), 215, tableY + 5, { width: 250, ellipsis: true });
+              doc.font('Helvetica-Bold').text(String(item.qty || 0), 470, tableY + 5, { width: 75, align: 'center' });
+              tableY += 20;
+            });
+          } else {
+            doc.rect(40, tableY, 515, 20).fillAndStroke('#ffffff', '#dee2e6');
+            doc.text('Sin ítems especificados', 45, tableY + 5, { align: 'center', width: 505 });
+            tableY += 20;
+          }
+
+          // Fingerprint & Signature Block
+          const sigY = Math.max(tableY + 25, 450);
+          doc.rect(40, sigY, 515, 170).fillAndStroke('#ffffff', '#cccccc');
+
+          doc.fillColor('#0066cc').fontSize(11).font('Helvetica-Bold')
+            .text('FIRMA BIOMÉTRICA DE RECEPCIÓN', 40, sigY + 12, { align: 'center', width: 515 });
+
+          // If fingerprint image base64 is present, draw image
+          let imgDrawn = false;
+          if (row.fingerprint_base64 && String(row.fingerprint_base64).length > 50) {
+            try {
+              let cleanBase64 = String(row.fingerprint_base64);
+              const commaIdx = cleanBase64.indexOf(',');
+              if (commaIdx !== -1) {
+                cleanBase64 = cleanBase64.substring(commaIdx + 1);
+              }
+              const imgBuf = Buffer.from(cleanBase64, 'base64');
+              doc.image(imgBuf, 252, sigY + 30, { fit: [90, 80], align: 'center' });
+              imgDrawn = true;
+            } catch (imgErr) {
+              console.warn('[processPendingHSEPDFs] Could not embed fingerprint image:', imgErr.message);
+            }
+          }
+
+          const workerTextY = imgDrawn ? sigY + 115 : sigY + 50;
+          doc.fillColor('#333333').fontSize(9).font('Helvetica-Bold')
+            .text(`Receptor: ${workerName}  |  RUT/ID: ${workerId}`, 40, workerTextY, { align: 'center', width: 515 });
+
+          doc.fillColor('#666666').fontSize(8).font('Helvetica')
+            .text('Por medio de mi huella digital, confirmo la recepción conforme de elementos de protección personal (EPP).', 40, workerTextY + 16, { align: 'center', width: 515 })
+            .text('CONFORME LA LEY VIGENTE - Artículo 184 del Código del Trabajo, Ley N°16.744 y D.S. N°594.', 40, workerTextY + 28, { align: 'center', width: 515 });
+
+          doc.end();
+          stream.on('finish', resolve);
+          stream.on('error', reject);
+        });
+
+        // Update database with pdf_url and status = DONE
+        await exec(db, `
+          UPDATE hse_signatures
+          SET pdf_url = ?, status = 'DONE'
+          WHERE id = ?
+        `, [pdfUrl, row.id]);
+
+        processed++;
+        console.log(`[processPendingHSEPDFs] Successfully created PDF for movement ${movementId}: ${pdfUrl}`);
+      } catch (err) {
+        console.error(`[processPendingHSEPDFs] Failed for ${movementId}:`, err);
+        await exec(db, `UPDATE hse_signatures SET status = 'ERROR' WHERE id = ?`, [row.id]);
+      }
+    }
+
+    return { success: true, processed };
+  };
+// Names that are recognized but not implemented yet. The client receives
 // Names that are recognized but not implemented yet. The client receives
 // { __legacy: true } and degrades gracefully; unknown names get a 404.
 //
@@ -2133,17 +3563,16 @@ const IMPLEMENTED = {
 // clean "not supported" signal instead of a 404.
 const KNOWN_UNIMPLEMENTED = new Set([
   // Email / Microsoft Graph
-  'dispatchEmailWithProvider', 'sendFinalRFQ', 'sendPoReminderEmail',
+  'dispatchEmailWithProvider', 'sendPoReminderEmail',
   'testMailReadWriteCapability', 'testSendEmailViaGraph',
   'testSendThreadReply', 'testSendThreadSeed', 'getUiLastReceivedEmail',
   // Drive / file export
   'master_ExportToDrive',
   // PDF / invoice import
-  'extractInvoicePDFText', 'saveImportedInvoice', 'processPendingHSEPDFs',
+  'extractInvoicePDFText', 'saveImportedInvoice',
   // Bulk PO compilation (Drive spreadsheet export)
   'processAndSaveBulkPO',
-  // File uploads (R2)
-  'uploadQuoteAttachment', 'uploadRequirementItemImages'
+  // uploadQuoteAttachment is now implemented above
 ]);
 
 router.post('/:fn', authenticateToken, async (req, res) => {
@@ -2167,3 +3596,4 @@ router.post('/:fn', authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.IMPLEMENTED = IMPLEMENTED;

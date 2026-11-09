@@ -777,6 +777,7 @@ const translations = {
     msg_doc_upload_failed: "Upload failed. Please try again.",
     msg_doc_libs_missing: "Document processing library is not available.",
     msg_quote_doc_autofill: "When saved, the quote number and document above will be applied automatically to every item marked Quoted or later.",
+    msg_quote_doc_upload_incomplete: "No quotation document has been uploaded yet. Upload the document, then click Save.",
     quote_doc_empty: "—",
     msg_no_supplier_doc: "No supplier quote number or document for this item.",
 

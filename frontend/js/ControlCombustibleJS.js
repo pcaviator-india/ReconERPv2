@@ -1,54 +1,144 @@
 window.fuelPurchaseHistory = [];
 
-window.initControlCombustible = function() {
-  // We call your existing GS function to get the fresh data
-  google.script.run.withSuccessHandler(data => {
-    // Save locally so the dropdowns have access
-    window.fuelData = data; 
-    
-    // Populate Projects using 'Sector' data
-    updateSelectOptions('fuel_proyecto', data.Sector || [], 'Seleccione Proyecto');
-    
-    // Clear asset dropdown
-    document.getElementById('fuel_asset_id').innerHTML = '<option value="">Seleccione Activo</option>';
+// Cache for dropdown data
+window.fuelDropdownCache = {
+  sites: [],
+  movementVal: { Vehiculo: [], Generador: [], Maquina: [] },
+  people: []
+};
+
+window.initControlCombustible = async function () {
+  try {
+    const [sitesRes, movementValRes, peopleRes] = await Promise.all([
+      window.RECON_API.getSites(),
+      window.RECON_API.getMovementValidation(),
+      window.RECON_API.getPeople()
+    ]);
+
+    window.fuelDropdownCache.sites = (sitesRes.data || []).map(s => s.name).filter(Boolean);
+
+    if (movementValRes) {
+      window.fuelDropdownCache.movementVal.Vehiculo = movementValRes.Vehiculo || [];
+      window.fuelDropdownCache.movementVal.Generador = movementValRes.Generador || [];
+      window.fuelDropdownCache.movementVal.Maquina = movementValRes.Maquina || [];
+    }
+
+    window.fuelDropdownCache.people = (peopleRes || []).filter(p => p.active === true);
+
+    populateProyectoDropdown();
+    populateAssetTypeDropdown();
+    updateAssetDropdown();
+
+    populatePeopleDropdown();
 
     refreshFuelHistory();
     refreshBalance();
-    populatePeopleDropdown();
     loadFuelPurchaseData();
 
-    const fuelReceptionModal = document.getElementById('modalFuelReception');
+    setupModalListeners();
 
-    if (fuelReceptionModal && !fuelReceptionModal.dataset.historyListener) {
-      fuelReceptionModal.addEventListener('shown.bs.modal', function () {
-        
-        loadFuelPurchaseHistory();
-      });
+    document.getElementById('fuel_proyecto')?.focus();
 
-      document.getElementById('fuel_purchase_date_from')
-            ?.addEventListener('change', loadFuelPurchaseHistory);
-
-        document.getElementById('fuel_purchase_date_to')
-            ?.addEventListener('change', loadFuelPurchaseHistory);
-
-        document.getElementById('fuel_purchase_supplier')
-            ?.addEventListener('change', loadFuelPurchaseHistory);
-
-        document.getElementById('fuel_purchase_invoice')
-            ?.addEventListener('input', loadFuelPurchaseHistory);
-
-      fuelReceptionModal.dataset.historyListener = "true";
-    }
-
-    document.getElementById('fuel_proyecto').focus();
-  }).getMovementValidation();
+  } catch (err) {
+    console.error('Error initializing Control Combustible:', err);
+    Swal.fire('Error', 'Failed to initialize: ' + err.message, 'error');
+  }
 };
 
+function populateProyectoDropdown() {
+  const select = document.getElementById('fuel_proyecto');
+  if (!select) return;
+  const currentValue = select.value;
+  select.innerHTML = '<option value="">Seleccione Proyecto</option>';
+  window.fuelDropdownCache.sites.forEach(site => {
+    const opt = document.createElement('option');
+    opt.value = site;
+    opt.textContent = site;
+    select.appendChild(opt);
+  });
+  if (currentValue && window.fuelDropdownCache.sites.includes(currentValue)) {
+    select.value = currentValue;
+  }
+}
 
+function populateAssetTypeDropdown() {
+  const select = document.getElementById('fuel_asset_type');
+  if (!select) return;
+  const types = ['Vehiculo', 'Generador', 'Maquina'];
+  const labels = { 'Vehiculo': 'Vehículo', 'Generador': 'Generador', 'Maquina': 'Maquinaria' };
+  select.innerHTML = '<option value="">Seleccione...</option>';
+  types.forEach(type => {
+    const opt = document.createElement('option');
+    opt.value = type;
+    opt.textContent = labels[type];
+    select.appendChild(opt);
+  });
+}
 
-function saveFuelEntry(btnElement) {
+function updateAssetDropdown() {
+  const type = document.getElementById('fuel_asset_type')?.value;
+  const assetSelect = document.getElementById('fuel_asset_id');
+  if (!assetSelect) return;
+  const currentValue = assetSelect.value;
+  assetSelect.innerHTML = '<option value="">Seleccione...</option>';
+  if (type && window.fuelDropdownCache.movementVal[type]) {
+    window.fuelDropdownCache.movementVal[type].forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item;
+      opt.textContent = item;
+      assetSelect.appendChild(opt);
+    });
+  }
+  if (currentValue && window.fuelDropdownCache.movementVal[type]?.includes(currentValue)) {
+    assetSelect.value = currentValue;
+  }
+}
+
+async function validateOdometer(assetId, tipoActivo, km) {
+  if (!assetId || !km || !tipoActivo) return { valid: true };
+  try {
+    console.log('validateOdometer: checking assetId:', assetId, 'km:', km);
+    const res = await window.RECON_API.getLastFuelEntry(assetId);
+    console.log('validateOdometer response:', res);
+    const lastKmVal = (res && res.data && res.data.lastKm !== undefined) ? res.data.lastKm : (res && res.lastKm !== undefined ? res.lastKm : null);
+    if (lastKmVal !== null && lastKmVal !== undefined) {
+      const lastKm = Number(lastKmVal);
+      const currentKm = Number(km);
+      if (currentKm < lastKm) {
+        return {
+          valid: false,
+          message: `El ${tipoActivo === 'Generador' ? 'horómetro' : 'kilometraje'} (${currentKm}) no puede ser menor al último registro (${lastKm}) para este activo.`
+        };
+      }
+    }
+  } catch (err) {
+    console.error('Could not validate odometer:', err);
+  }
+  return { valid: true };
+}
+
+function populatePeopleDropdown() {
+}
+
+function setupModalListeners() {
+  const fuelReceptionModal = document.getElementById('modalFuelReception');
+  if (fuelReceptionModal && !fuelReceptionModal.dataset.historyListener) {
+    fuelReceptionModal.addEventListener('shown.bs.modal', function () {
+      loadFuelPurchaseHistory();
+    });
+    document.getElementById('fuel_purchase_date_from')?.addEventListener('change', loadFuelPurchaseHistory);
+    document.getElementById('fuel_purchase_date_to')?.addEventListener('change', loadFuelPurchaseHistory);
+    document.getElementById('fuel_purchase_supplier')?.addEventListener('change', loadFuelPurchaseHistory);
+    document.getElementById('fuel_purchase_invoice')?.addEventListener('input', loadFuelPurchaseHistory);
+    fuelReceptionModal.dataset.historyListener = "true";
+  }
+}
+
+async function saveFuelEntry(btnElement) {
+  console.log('=== saveFuelEntry START ===');
   const user = JSON.parse(localStorage.getItem("recon_user_secure"));
-  
+  console.log('User:', user);
+
   // Get values
   const proyecto = document.getElementById('fuel_proyecto')?.value;
   const tipoActivo = document.getElementById('fuel_asset_type')?.value;
@@ -56,19 +146,34 @@ function saveFuelEntry(btnElement) {
   const litros = document.getElementById('fuel_litros')?.value;
   const km = document.getElementById('fuel_km')?.value;
   const nombreInput = document.getElementById('fuel_nombre_input')?.value.trim();
-  
+
+  console.log('Form values:', { proyecto, tipoActivo, assetId, litros, km, nombreInput });
+
   // Basic validation
   if (!proyecto || !tipoActivo || !assetId || !nombreInput) {
+    console.log('Validation failed: missing fields');
     Swal.fire('Error', 'Por favor complete todos los campos (incluyendo el nombre)', 'error');
     return;
   }
 
-  const person = resolveFuelPerson(nombreInput);
-  if (!person) {
-    Swal.fire('Person Not Found', 'No se encontró la persona con ese nombre o ID.', 'error');
+  // Validate odometer/horometer
+  console.log('Calling validateOdometer...');
+  const odometerValidation = await validateOdometer(assetId, tipoActivo, km);
+  console.log('validateOdometer result:', odometerValidation);
+  if (!odometerValidation.valid) {
+    Swal.fire('Validación Fallida', odometerValidation.message, 'error');
     return;
   }
 
+  console.log('Resolving person...');
+  const person = resolveFuelPerson(nombreInput);
+  console.log('Resolved person:', person);
+  if (!person) {
+    Swal.fire('Persona No Encontrada', 'No se encontró la persona con ese nombre o ID.', 'error');
+    return;
+  }
+
+  // Prepare data BEFORE confirmation dialog
   const data = {
     proyecto: proyecto,
     tipoActivo: tipoActivo,
@@ -80,240 +185,361 @@ function saveFuelEntry(btnElement) {
     userEmail: user ? user.email : 'n/a'
   };
 
-  // Find button reference
+  console.log('Data to save:', data);
+
+  // Confirmation before execution
+  const assetLabel = { 'Vehiculo': 'vehículo', 'Generador': 'generador', 'Maquina': 'maquinaria' }[tipoActivo] || 'activo';
+  const odometerLabel = tipoActivo === 'Generador' ? 'Horómetro' : 'Kilometraje';
+
+  Swal.fire({
+    title: 'Confirmar Registro',
+    html: `
+      <div class="text-start">
+        <p><strong>Proyecto:</strong> ${proyecto}</p>
+        <p><strong>Tipo de Activo:</strong> ${assetLabel} (${assetId})</p>
+        <p><strong>Litros:</strong> ${litros}</p>
+        <p><strong>${odometerLabel}:</strong> ${km}</p>
+        <p><strong>Persona:</strong> ${person.name} (${person.id})</p>
+      </div>
+    `,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, Guardar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#28a745',
+    cancelButtonColor: '#6c757d'
+  }).then((confirmed) => {
+    console.log('Swal confirmed:', confirmed.isConfirmed);
+    if (!confirmed.isConfirmed) {
+      return;
+    }
+
+    executeSaveFuelEntry(data, btnElement);
+  });
+}
+
+function executeSaveFuelEntry(data, btnElement) {
   const btn = btnElement || document.getElementById('btn_save_fuel_entry');
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Guardando...';
   }
 
-  google.script.run
-    .withSuccessHandler(() => {
-      Swal.fire('Guardado!', 'Registro exitoso', 'success');
-      
-      // Clear the form
-      if (document.getElementById('fuel_litros')) document.getElementById('fuel_litros').value = '';
-      if (document.getElementById('fuel_km')) document.getElementById('fuel_km').value = '';
-      if (document.getElementById('fuel_nombre_input')) document.getElementById('fuel_nombre_input').value = '';
-      
-      refreshFuelHistory();
-      refreshBalance();
+  window.RECON_API.saveFuelEntry(data)
+    .then(res => {
+      console.log('saveFuelEntry response:', res);
+      if (res && (res.status === 'success' || res.success === true)) {
+        Swal.fire('¡Guardado!', 'Registro exitoso', 'success');
 
-      // Re-enable button
+        // Clear the form
+        document.getElementById('fuel_litros').value = '';
+        document.getElementById('fuel_km').value = '';
+        document.getElementById('fuel_nombre_input').value = '';
+
+        refreshFuelHistory();
+        refreshBalance();
+      } else {
+        throw new Error((res && (res.message || res.error)) || 'Error al guardar');
+      }
+    })
+    .catch(err => {
+      console.error('saveFuelEntry error:', err);
+      // Show more detailed error
+      const msg = err.message || (err.response && err.response.data && err.response.data.message) || 'Ocurrió un error al guardar.';
+      Swal.fire('Error', msg, 'error');
+    })
+    .finally(() => {
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Guardar Registro';
       }
-    })
-    .withFailureHandler((err) => {
-      Swal.fire('Error', err.message || 'Ocurrió un error al guardar.', 'error');
-      
-      // Re-enable button on failure
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Guardar Registro';
-      }
-    })
-    .saveFuelEntry(data);
+    });
 }
+
+// ============================================================
+// FUEL HISTORY FUNCTIONS (Updated for API)
+// ============================================================
+
+window.fuelHistoryCache = [];
+window.fuelPeopleCache = [];
+
+function parseFuelDate(str) {
+  if (!str) return new Date(0);
+  const s = String(str).trim();
+  const dm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (dm) {
+    return new Date(parseInt(dm[3], 10), parseInt(dm[2], 10) - 1, parseInt(dm[1], 10), parseInt(dm[4] || 0, 10), parseInt(dm[5] || 0, 10), parseInt(dm[6] || 0, 10));
+  }
+  const ym = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[\sT](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (ym) {
+    return new Date(parseInt(ym[1], 10), parseInt(ym[2], 10) - 1, parseInt(ym[3], 10), parseInt(ym[4] || 0, 10), parseInt(ym[5] || 0, 10), parseInt(ym[6] || 0, 10));
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? new Date(0) : d;
+}
+
+function formatFuelDate(str) {
+  const d = parseFuelDate(str);
+  if (!d || isNaN(d.getTime()) || d.getTime() === 0) return String(str || '');
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day} ${h}:${min}`;
+}
+
+window.refreshFuelHistory = async function () {
+  try {
+    const [peopleRes, historyRes] = await Promise.all([
+      window.RECON_API.getPeople(),
+      window.RECON_API.getFuelHistory()
+    ]);
+    const people = (peopleRes || []).filter(p => p.active === true);
+    window.fuelPeopleCache = people;
+    const data = historyRes || [];
+
+    // Save to cache sorted newest first
+    window.fuelHistoryCache = data.sort((a, b) => parseFuelDate(b[0]).getTime() - parseFuelDate(a[0]).getTime());
+
+    // Populate people filter dropdown
+    const select = document.getElementById('f_person');
+    if (select) {
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">Todas</option>' +
+        people.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      if (currentVal) select.value = currentVal;
+    }
+
+    applyFilters();
+  } catch (err) {
+    console.error('Error refreshing fuel history:', err);
+    Swal.fire('Error', 'Failed to load fuel history: ' + err.message, 'error');
+  }
+};
 
 function refreshBalance() {
-  google.script.run.withSuccessHandler(res => {
-    const el = document.getElementById('fuel_balance_display');
-    if (el) el.innerText = res.balance.toFixed(2) + ' L';
-  }).getFuelBalance();
+  window.RECON_API.getFuelBalance()
+    .then(res => {
+      const el = document.getElementById('fuel_balance_display');
+      if (el && res && res.balance !== undefined) {
+        el.innerText = res.balance.toFixed(2) + ' L';
+      }
+    })
+    .catch(err => console.error('Error refreshing balance:', err));
 }
-
-// Global variable to cache the data
-window.fuelHistoryCache = [];
-
-window.refreshFuelHistory = function() {
-  google.script.run.withSuccessHandler(people => {
-    google.script.run.withSuccessHandler(data => {
-      // Save to cache
-      window.fuelHistoryCache = data.sort((a, b) => new Date(b[0]) - new Date(a[0]));
-
-      // Set Default Filter: Last Week
-      setLastWeekDefaults();
-
-      // Populate people filter dropdown once
-      const select = document.getElementById('f_person');
-      select.innerHTML = '<option value="">Todas</option>' + 
-        people.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-        
-      renderTable(data, people);
-    }).getFuelHistory();
-  }).getPeople();
-};
 
 function setLastWeekDefaults() {
   const today = new Date();
   const lastWeek = new Date(today);
   lastWeek.setDate(today.getDate() - 7);
-  
-  // Format to YYYY-MM-DD
+
   const formatDate = (d) => d.toISOString().split('T')[0];
-  
-  document.getElementById('f_date_from').value = formatDate(lastWeek);
-  document.getElementById('f_date_to').value = formatDate(today);
+
+  const fromEl = document.getElementById('f_date_from');
+  const toEl = document.getElementById('f_date_to');
+  if (fromEl) fromEl.value = formatDate(lastWeek);
+  if (toEl) toEl.value = formatDate(today);
+  applyFilters();
 }
 
 function renderTable(data, people) {
   const tbody = document.querySelector('#fuel_table tbody');
+  if (!tbody) return;
+  const pList = people || window.fuelPeopleCache || [];
+  if (!data || data.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No hay registros que coincidan con los filtros</td></tr>';
+    return;
+  }
   tbody.innerHTML = data.map(r => {
-    const personMatch = people.find(p => String(p.id) === String(r[6]));
-    const displayName = personMatch ? personMatch.name : r[6];
+    const personMatch = pList.find(p => String(p.id) === String(r[6]) || String(p.name).toLowerCase() === String(r[6]).toLowerCase());
+    const displayName = personMatch ? personMatch.name : (r[6] || '');
+    const dateFormatted = formatFuelDate(r[0]);
     return `<tr>
-      <td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td>
-      <td>${r[4]}</td><td>${r[5]}</td><td>${displayName}</td><td>${r[7]}</td>
+      <td>${dateFormatted}</td>
+      <td>${r[1] || ''}</td>
+      <td>${r[2] || ''}</td>
+      <td>${r[3] || ''}</td>
+      <td>${r[4] !== undefined && r[4] !== null ? r[4] : ''}</td>
+      <td>${r[5] !== undefined && r[5] !== null ? r[5] : ''}</td>
+      <td>${displayName}</td>
+      <td>${r[7] || ''}</td>
     </tr>`;
   }).join('');
 }
 
 function applyFilters() {
-  const dateFrom = document.getElementById('f_date_from').value;
-  const dateTo = document.getElementById('f_date_to').value;
-  const project = document.getElementById('f_project').value.toLowerCase();
-  const patente = document.getElementById('f_patente').value.toLowerCase();
-  const person = document.getElementById('f_person').value;
+  const dateFrom = document.getElementById('f_date_from')?.value || '';
+  const dateTo = document.getElementById('f_date_to')?.value || '';
+  const project = (document.getElementById('f_project')?.value || '').trim().toLowerCase();
+  const patente = (document.getElementById('f_patente')?.value || '').trim().toLowerCase();
+  const person = (document.getElementById('f_person')?.value || '').trim();
 
-  const filtered = window.fuelHistoryCache.filter(r => {
-    const rowDate = r[0].split(' ')[0]; // YYYY-MM-DD
-    const matchDate = (!dateFrom || rowDate >= dateFrom) && (!dateTo || rowDate <= dateTo);
-    const matchProj = !project || String(r[1]).toLowerCase().includes(project);
-    const matchPatente = !patente || String(r[3]).toLowerCase().includes(patente);
-    const matchPerson = !person || String(r[6]) === String(person);
-    
+  const people = window.fuelPeopleCache || [];
+  const selectedPerson = person ? people.find(p => String(p.id) === String(person)) : null;
+
+  const filtered = (window.fuelHistoryCache || []).filter(r => {
+    let matchDate = true;
+    if (dateFrom || dateTo) {
+      const d = parseFuelDate(r[0]);
+      if (d && !isNaN(d.getTime()) && d.getTime() !== 0) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const rowDate = `${y}-${m}-${day}`;
+        if (dateFrom && rowDate < dateFrom) matchDate = false;
+        if (dateTo && rowDate > dateTo) matchDate = false;
+      }
+    }
+    const matchProj = !project || String(r[1] || '').toLowerCase().includes(project);
+    const matchPatente = !patente || String(r[3] || '').toLowerCase().includes(patente);
+
+    let matchPerson = true;
+    if (person) {
+      const driverStr = String(r[6] || '').trim().toLowerCase();
+      const personId = String(person).toLowerCase();
+      const personName = selectedPerson ? String(selectedPerson.name || '').toLowerCase() : '';
+      matchPerson = driverStr === personId ||
+        (personName && (driverStr === personName || driverStr.includes(personName) || personName.includes(driverStr)));
+    }
+
     return matchDate && matchProj && matchPatente && matchPerson;
   });
 
-  google.script.run.withSuccessHandler(people => {
-    renderTable(filtered, people);
-  }).getPeople();
+  renderTable(filtered, people);
 }
 
 function clearFilters() {
-  document.getElementById('f_date_from').value = '';
-  document.getElementById('f_date_to').value = '';
-  document.getElementById('f_project').value = '';
-  document.getElementById('f_patente').value = '';
-  document.getElementById('f_person').value = '';
+  const fromEl = document.getElementById('f_date_from');
+  const toEl = document.getElementById('f_date_to');
+  const projEl = document.getElementById('f_project');
+  const patEl = document.getElementById('f_patente');
+  const persEl = document.getElementById('f_person');
+  if (fromEl) fromEl.value = '';
+  if (toEl) toEl.value = '';
+  if (projEl) projEl.value = '';
+  if (patEl) patEl.value = '';
+  if (persEl) persEl.value = '';
   applyFilters();
 }
 
-// This handles the logic when the Asset Category changes
-function updateAssetDropdown() {
-  const type = document.getElementById('fuel_asset_type').value; 
-  // Expecting values: "Vehiculo", "Generador", "Maquina"
-  
-  const assetSelect = document.getElementById('fuel_asset_id');
-  const data = window.fuelData; // The data we fetched above
-  
-  assetSelect.innerHTML = '<option value="">Seleccione...</option>';
-  
-  if (data && data[type]) {
-    data[type].forEach(item => {
-      let opt = document.createElement('option');
-      opt.value = item;
-      opt.text = item;
-      assetSelect.appendChild(opt);
+// ============================================================
+// FUEL PURCHASE HISTORY (Reception Modal)
+// ============================================================
+
+window.fuelPurchaseHistory = [];
+
+function loadFuelPurchaseData() {
+  window.RECON_API.getFuelPurchaseHistory()
+    .then(data => {
+      window.fuelPurchaseHistory = data || [];
+      console.log("Data from getFuelPurchaseHistory", data);
+      populateSupplierFilter(data);
+      loadFuelPurchaseHistory();
+      console.log("fuel purchase history retrieved successfully");
+    })
+    .catch(err => {
+      console.error("Error loading fuel purchase history:", err);
     });
-  }
 }
 
+function loadFuelPurchaseHistory() {
+  const dateFrom = document.getElementById('fuel_purchase_date_from')?.value || '';
+  const dateTo = document.getElementById('fuel_purchase_date_to')?.value || '';
+  const supplier = document.getElementById('fuel_purchase_supplier')?.value || '';
+  const invoice = document.getElementById('fuel_purchase_invoice')?.value.trim().toLowerCase() || '';
+  const tbody = document.getElementById('fuel_purchase_history_body');
+  if (!tbody) return;
 
-function saveFuelPurchase(btnElement) {
-  const proveedor = document.getElementById('rec_proveedor')?.value?.trim();
-  const litros = document.getElementById('rec_litros')?.value?.trim();
-  const factura = document.getElementById('rec_factura')?.value?.trim();
+  let data = window.fuelPurchaseHistory || [];
 
-  // Validación rápida en cliente
-  if (!proveedor || !litros) {
-    Swal.fire('Error', 'Por favor ingrese al menos Proveedor y Litros.', 'error');
+  data = data.filter(row => {
+    // Date
+    if (dateFrom || dateTo) {
+      const rowDate = new Date(row.fechaISO);
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        if (rowDate < fromDate) return false;
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        if (rowDate > toDate) return false;
+      }
+    }
+    // Supplier
+    if (supplier && row.proveedor !== supplier) return false;
+    // Invoice
+    if (invoice && !(row.factura || '').toLowerCase().includes(invoice)) return false;
+    return true;
+  });
+
+  if (data.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="text-center text-muted" data-i18n="no_records">
+          No hay registros
+        </td>
+      </tr>
+    `;
     return;
   }
 
-  const data = {
-    proveedor: proveedor,
-    litros: litros,
-    factura: factura,
-    userName: window.currentUser ? window.currentUser.name : "Unknown"
-  };
-
-  // Obtener referencia al botón
-  const btn = btnElement || document.getElementById('btn_save_fuel_purchase');
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Guardando...';
-  }
-
-  google.script.run
-    .withSuccessHandler(() => {
-      // 1. Ocultar la modal
-      const modalEl = document.getElementById('modalFuelReception');
-      if (modalEl) {
-        const modal = bootstrap.Modal.getInstance(modalEl);
-        if (modal) modal.hide();
-      }
-      
-      // 2. Limpiar inputs
-      if (document.getElementById('rec_proveedor')) document.getElementById('rec_proveedor').value = '';
-      if (document.getElementById('rec_litros')) document.getElementById('rec_litros').value = '';
-      if (document.getElementById('rec_factura')) document.getElementById('rec_factura').value = '';
-      
-      // 3. Notificar y actualizar stock
-      Swal.fire('Éxito', 'Compra de combustible registrada', 'success');
-      
-      if (typeof window.refreshBalance === "function") {
-        window.refreshBalance();
-      }
-
-      // 4. Restaurar estado del botón
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = 'Guardar Recepción';
-      }
-      loadFuelPurchaseData();
-    })
-    .withFailureHandler((err) => {
-      Swal.fire('Error', err.message || 'No se pudo guardar la compra.', 'error');
-
-      // Restaurar estado del botón si ocurre un error
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = 'Guardar Recepción';
-      }
-    })
-    .saveFuelPurchase(data);
+  tbody.innerHTML = data.map(row => `
+    <tr>
+      <td>${row.fecha || ''}</td>
+      <td>${row.proveedor || ''}</td>
+      <td>${row.litros || ''}</td>
+      <td>${row.factura || ''}</td>
+      <td>${row.usuario || ''}</td>
+    </tr>
+  `).join('');
 }
 
+function populateSupplierFilter(data) {
+  const supplierSelect = document.getElementById('fuel_purchase_supplier');
+  if (!supplierSelect) return;
+
+  const suppliers = [
+    ...new Set(
+      data
+        .map(row => row.proveedor)
+        .filter(s => s && s.trim() !== '')
+    )
+  ];
+
+  supplierSelect.innerHTML = `
+    <option value="">Todos</option>
+  `;
+
+  suppliers.sort().forEach(proveedor => {
+    supplierSelect.innerHTML += `
+      <option value="${proveedor}">
+        ${proveedor}
+      </option>
+    `;
+  });
+}
+
+// ============================================================
+// PEOPLE AUTOCOMPLETE
+// ============================================================
+
 function populatePeopleDropdown() {
-  google.script.run.withSuccessHandler(people => {
-    window.fuelPeopleList = (people || []).filter(p => p.active === true);
-    updateFuelPersonSuggestions();
-  }).getPeople();
+  // People are already cached in fuelDropdownCache.people from init
+  // The suggestions are handled by updateFuelPersonSuggestions()
 }
 
 function getFuelPersonMatches(query) {
   const normalized = normalizeText(query).trim();
-
-  // Do not show suggestions until user types 2 characters
   if (normalized.length < 2) return [];
-
   const searchWords = normalized.split(/\s+/);
-
-  return (window.fuelPeopleList || []).filter(p => {
-
+  return (window.fuelDropdownCache.people || []).filter(p => {
     const name = normalizeText(p.name);
     const id = normalizeText(p.id);
     const rut = normalizeText(p.rut);
-
     const nameMatch = searchWords.every(word => name.includes(word));
-
-    return id.includes(normalized)
-      || rut.includes(normalized)
-      || nameMatch;
-
+    return id.includes(normalized) || rut.includes(normalized) || nameMatch;
   }).slice(0, 50);
 }
 
@@ -321,20 +547,16 @@ function updateFuelPersonSuggestions() {
   const query = document.getElementById('fuel_nombre_input')?.value || '';
   const resultsElement = document.getElementById('fuel_nombre_results');
   const matches = getFuelPersonMatches(query);
-
   if (!resultsElement) return;
   window.fuelPersonSuggestionIndex = -1;
-
-if (query.trim().length < 2) {
-      resultsElement.style.display = 'none';
+  if (query.trim().length < 2) {
+    resultsElement.style.display = 'none';
     resultsElement.innerHTML = '';
     return;
   }
-
   resultsElement.innerHTML = matches.map((person, index) => {
     return `<button type="button" data-index="${index}" class="list-group-item list-group-item-action" onclick="selectFuelPerson('${String(person.id).replace(/'/g, "\\'")}', '${String(person.name).replace(/'/g, "\\'")}')">${person.id} | ${person.name}</button>`;
   }).join('');
-
   if (matches.length > 0) {
     resultsElement.style.display = 'block';
   } else {
@@ -345,17 +567,14 @@ if (query.trim().length < 2) {
 function handleFuelPersonKeyDown(event) {
   const resultsElement = document.getElementById('fuel_nombre_results');
   if (!resultsElement || resultsElement.style.display === 'none') return;
-
   const items = Array.from(resultsElement.querySelectorAll('.list-group-item'));
   if (!items.length) return;
-
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault();
     const current = typeof window.fuelPersonSuggestionIndex === 'number' ? window.fuelPersonSuggestionIndex : -1;
     const nextIndex = event.key === 'ArrowDown'
       ? Math.min(current + 1, items.length - 1)
       : Math.max(current - 1, 0);
-
     window.fuelPersonSuggestionIndex = nextIndex;
     highlightFuelPersonSuggestion(nextIndex);
   } else if (event.key === 'Enter') {
@@ -373,7 +592,6 @@ function handleFuelPersonKeyDown(event) {
 function highlightFuelPersonSuggestion(index) {
   const resultsElement = document.getElementById('fuel_nombre_results');
   if (!resultsElement) return;
-
   const items = Array.from(resultsElement.querySelectorAll('.list-group-item'));
   items.forEach((item, idx) => {
     if (idx === index) {
@@ -406,118 +624,16 @@ function hideFuelPersonSuggestions() {
 }
 
 function resolveFuelPerson(value) {
-  const people = window.fuelPeopleList || [];
+  const people = window.fuelDropdownCache.people || [];
   const normalized = String(value || '').trim();
   if (!normalized) return null;
-
   const byId = people.find(p => String(p.id).toLowerCase() === normalized.toLowerCase());
   if (byId) return byId;
-
   const byNameExact = people.find(p => String(p.name).toLowerCase() === normalized.toLowerCase());
   if (byNameExact) return byNameExact;
-
   const byCombined = people.find(p => `${p.id} | ${p.name}`.toLowerCase() === normalized.toLowerCase());
   if (byCombined) return byCombined;
-
   return null;
-}
-
-
-// export code
-
-// Get currently displayed rows (filtered)
-function getFilteredTableData() {
-  const tbody = document.querySelector('#fuel_table tbody');
-  const rows = Array.from(tbody.querySelectorAll('tr'));
-  
-  // Convert rows back to array of arrays
-  return rows.map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.innerText));
-}
-
-// Export to Excel (CSV format is easiest for Excel)
-function exportToExcel() {
-  const data = getFilteredTableData(); // Gets current table rows
-  const headers = ["Fecha", "Proyecto", "Tipo", "ID/Patente", "Litros", "KM", "Nombre", "Usuario"];
-  
-  // 1. Combine headers and data into a single array
-  const worksheetData = [headers, ...data];
-  
-  // 2. Create a new workbook
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(worksheetData);
-  
-  // 3. Add worksheet to workbook
-  XLSX.utils.book_append_sheet(wb, ws, "Combustible");
-  
-  // 4. Generate and trigger download
-  XLSX.writeFile(wb, "Reporte_Combustible.xlsx");
-}
-
-
-
-// Export to PDF (Using jsPDF library)
-function exportToPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const data = getFilteredTableData();
-  
-  doc.text("Reporte de Combustible", 14, 15);
-  
-  // Basic autoTable implementation
-  doc.autoTable({
-    head: [['Fecha', 'Proyecto', 'Tipo', 'ID', 'Litros', 'KM', 'Nombre', 'Usuario']],
-    body: data,
-    startY: 20
-  });
-  
-  doc.save("Reporte_Combustible.pdf");
-}
-
-function exportToCSV() {
-  const data = getFilteredTableData(); // Uses your existing filter logic
-  const headers = ["Fecha", "Proyecto", "Tipo", "ID/Patente", "Litros", "KM", "Nombre", "Usuario"];
-  
-  // Combine headers and data
-  let csvContent = headers.join(",") + "\n";
-  data.forEach(row => {
-    // Add quotes to fields to handle commas inside text
-    const escapedRow = row.map(field => `"${field}"`).join(",");
-    csvContent += escapedRow + "\n";
-  });
-
-  // Create Blob and download
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  
-  link.setAttribute("href", url);
-  link.setAttribute("download", "Reporte_Combustible_Rapido.csv");
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
-
-
-function copyToClipboard() {
-  const data = getFilteredTableData(); // Gets the current filtered table state
-  const headers = ["Fecha", "Proyecto", "Tipo", "ID/Patente", "Litros", "KM", "Nombre", "Usuario"];
-  
-  // Combine headers and data rows with tabs (\t)
-  const tsvContent = [headers, ...data].map(row => row.join("\t")).join("\n");
-  
-  // Use the Clipboard API
-  navigator.clipboard.writeText(tsvContent).then(() => {
-    Swal.fire({
-      icon: 'success',
-      title: 'Copiado al portapapeles',
-      text: 'Ahora puedes pegar los datos directamente en Excel (Ctrl+V).',
-      timer: 2000,
-      showConfirmButton: false
-    });
-  }).catch(err => {
-    console.error('Error al copiar: ', err);
-    Swal.fire('Error', 'No se pudo copiar al portapapeles', 'error');
-  });
 }
 
 function normalizeText(value) {
@@ -527,136 +643,123 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+// ============================================================
+// EXPORT FUNCTIONS
+// ============================================================
 
-
-function loadFuelPurchaseData() {
-
-  google.script.run
-    .withSuccessHandler(data => {
-
-      window.fuelPurchaseHistory = data || [];
-      console.log("Data from getfuelpurchasehistory", data);
-            
-
-
-      populateSupplierFilter(data);
-
-
-      // If the table exists (modal is open), render it
-      loadFuelPurchaseHistory();
-      console.log("fuel purchase history retreived successfully");
-
-    })
-    .withFailureHandler(err => {
-      console.error("Error loading fuel purchase history:", err);
-    })
-    .getFuelPurchaseHistory();
-
+function getFilteredTableData() {
+  const tbody = document.querySelector('#fuel_table tbody');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  return rows.map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.innerText));
 }
 
+function exportToExcel() {
+  const data = getFilteredTableData();
+  const headers = ["Fecha", "Proyecto", "Tipo", "ID/Patente", "Litros", "KM", "Nombre", "Usuario"];
+  const worksheetData = [headers, ...data];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+  XLSX.utils.book_append_sheet(wb, ws, "Combustible");
+  XLSX.writeFile(wb, "Reporte_Combustible.xlsx");
+}
 
-
-function loadFuelPurchaseHistory() {
-
-  const dateFrom = document.getElementById('fuel_purchase_date_from')?.value || '';
-  const dateTo = document.getElementById('fuel_purchase_date_to')?.value || '';
-  const supplier = document.getElementById('fuel_purchase_supplier')?.value || '';
-  const invoice = document.getElementById('fuel_purchase_invoice')?.value.trim().toLowerCase() || '';
-  const tbody = document.getElementById('fuel_purchase_history_body');
-  if (!tbody) return;
-
-  let data = window.fuelPurchaseHistory || [];
-
-  console.log("FILTER:", {
-  dateFrom,
-  dateTo,
-  sample: data.slice(0,3).map(r => ({
-    fecha: r.fecha,
-    fechaISO: r.fechaISO
-  }))
-});
-
-  data = data.filter(row => {
-
-      // Date
-      if (dateFrom || dateTo) {
-
-          const rowDate = new Date(row.fechaISO);
-
-          if (dateFrom) {
-              const fromDate = new Date(dateFrom);
-              if (rowDate < fromDate) return false;
-          }
-
-          if (dateTo) {
-              const toDate = new Date(dateTo);
-              toDate.setHours(23,59,59,999);
-
-              if (rowDate > toDate) return false;
-          }
-      }
-
-      // Supplier
-      if (supplier && row.proveedor !== supplier) return false;
-
-      // Invoice
-      if (
-          invoice &&
-          !(row.factura || '').toLowerCase().includes(invoice)
-      ) return false;
-
-      return true;
+function exportToPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const data = getFilteredTableData();
+  doc.text("Reporte de Combustible", 14, 15);
+  doc.autoTable({
+    head: [["Fecha", "Proyecto", "Tipo", "ID", "Litros", "KM", "Nombre", "Usuario"]],
+    body: data,
+    startY: 20
   });
+  doc.save("Reporte_Combustible.pdf");
+}
 
-  if (data.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="5" class="text-center text-muted" data-i18n="no_records">
-          No hay registros
-        </td>
-      </tr>
-    `;
+function exportToCSV() {
+  const data = getFilteredTableData();
+  const headers = ["Fecha", "Proyecto", "Tipo", "ID/Patente", "Litros", "KM", "Nombre", "Usuario"];
+  let csvContent = headers.join(",") + "\n";
+  data.forEach(row => {
+    const escapedRow = row.map(field => `"${field}"`).join(",");
+    csvContent += escapedRow + "\n";
+  });
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "Reporte_Combustible_Rapido.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function copyToClipboard() {
+  const data = getFilteredTableData();
+  const headers = ["Fecha", "Proyecto", "Tipo", "ID/Patente", "Litros", "KM", "Nombre", "Usuario"];
+  let tsvContent = headers.join("\t") + "\n";
+  data.forEach(row => {
+    tsvContent += row.join("\t") + "\n";
+  });
+  navigator.clipboard.writeText(tsvContent).then(() => {
+    Swal.fire("Copiado!", "Datos copiados al portapapeles", "success");
+  }).catch(() => {
+    Swal.fire("Error", "No se pudo copiar al portapapeles", "error");
+  });
+}
+
+// ============================================================
+// FUEL PURCHASE SAVE (Reception Modal)
+// ============================================================
+
+function saveFuelPurchase(btnElement) {
+  const proveedor = document.getElementById('rec_proveedor')?.value?.trim();
+  const litros = document.getElementById('rec_litros')?.value?.trim();
+  const factura = document.getElementById('rec_factura')?.value?.trim();
+
+  if (!proveedor || !litros) {
+    Swal.fire('Error', 'Por favor ingrese al menos Proveedor y Litros.', 'error');
     return;
   }
 
-  tbody.innerHTML = data.map(row => `
-    <tr>
-      <td>${row.fecha || ''}</td>
-      <td>${row.proveedor || ''}</td>
-      <td>${row.litros || ''}</td>
-      <td>${row.factura || ''}</td>
-      <td>${row.usuario || ''}</td>
-    </tr>
-  `).join('');
-}
+  const data = {
+    proveedor: proveedor,
+    litros: litros,
+    factura: factura,
+    userName: window.currentUser ? window.currentUser.name : "Unknown"
+  };
 
+  const btn = btnElement || document.getElementById('btn_save_fuel_purchase');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Guardando...';
+  }
 
-function populateSupplierFilter(data) {
-
-  const supplierSelect = document.getElementById('fuel_purchase_supplier');
-
-  if (!supplierSelect) return;
-
-  const suppliers = [
-    ...new Set(
-      data
-        .map(row => row.proveedor)
-        .filter(s => s && s.trim() !== '')
-    )
-  ];
-
-  supplierSelect.innerHTML = `
-    <option value="">Todos</option>
-  `;
-
-  suppliers.sort().forEach(proveedor => {
-
-    supplierSelect.innerHTML += `
-      <option value="${proveedor}">
-        ${proveedor}
-      </option>
-    `;
-
-  });
-
+  window.RECON_API.saveFuelPurchase(data)
+    .then(res => {
+      const modalEl = document.getElementById('modalFuelReception');
+      if (modalEl) {
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      if (document.getElementById('rec_proveedor')) document.getElementById('rec_proveedor').value = '';
+      if (document.getElementById('rec_litros')) document.getElementById('rec_litros').value = '';
+      if (document.getElementById('rec_factura')) document.getElementById('rec_factura').value = '';
+      Swal.fire('Éxito', 'Compra de combustible registrada', 'success');
+      if (typeof window.refreshBalance === "function") {
+        window.refreshBalance();
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = 'Guardar Recepción';
+      }
+      loadFuelPurchaseData();
+    })
+    .catch(err => {
+      Swal.fire('Error', err.message || 'No se pudo guardar la compra.', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = 'Guardar Recepción';
+      }
+    });
 }

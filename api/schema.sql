@@ -224,7 +224,7 @@ CREATE INDEX IF NOT EXISTS idx_stock_item_site ON stock(item_id, site_id);
 -- Inventory movements (replaces Inv_Movement sheet)
 CREATE TABLE IF NOT EXISTS inventory_movements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  movement_id TEXT UNIQUE NOT NULL,
+  movement_id TEXT NOT NULL,
   type TEXT,
   movement_timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
   item_id INTEGER REFERENCES products(id),

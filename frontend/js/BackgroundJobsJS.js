@@ -8,11 +8,15 @@
   }
   function ensureHost() {
     var host = document.getElementById("bgJobsBubbleHost");
-    if (host) return host;
-    host = document.createElement("div");
-    host.id = "bgJobsBubbleHost";
-    host.style.cssText = "position:fixed;right:14px;bottom:14px;z-index:9999;display:flex;flex-direction:column;gap:10px;max-width:min(380px,92vw);";
-    document.body.appendChild(host);
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "bgJobsBubbleHost";
+      document.body.appendChild(host);
+    }
+    host.style.cssText = "position:fixed !important;right:14px !important;bottom:14px !important;z-index:99999 !important;display:flex !important;flex-direction:column !important;gap:10px !important;max-width:min(380px,92vw) !important;pointer-events:auto !important;";
+    if (host.parentElement !== document.body) {
+      document.body.appendChild(host);
+    }
     if (!document.getElementById("bgJobsBubbleCss")) {
       var st = document.createElement("style");
       st.id = "bgJobsBubbleCss";

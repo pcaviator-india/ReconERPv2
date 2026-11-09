@@ -573,6 +573,7 @@ let rfqMasterData = []; // All pending requirements (cached)
   // (everything except Pending, which are still awaiting approval), or a specific
   // status (Quoted, Sent, Received, Despatched, ...) for additional quotes.
   window.fetchRFQRequirements = function () {
+    if (typeof window.loadEmailSuggestionPool === 'function') window.loadEmailSuggestionPool();
     const siteSel2 = document.getElementById("rfqSiteFilter");
     const catSel2 = document.getElementById("rfqCategoryFilter");
     const statusSel = document.getElementById("rfqStatusFilter");
@@ -1312,8 +1313,10 @@ window.renderRFQItemsTable = function(order, selectedCat) {
         ? window.CachedDataVal.suppliers
         : [];
     const quoteEmailEnabled = window.isQuoteEmailEnabled();
-    const currentUserEmail = (window.currentUser && window.currentUser.email)
-      ? String(window.currentUser.email).trim()
+    if (typeof window.loadEmailSuggestionPool === 'function') window.loadEmailSuggestionPool();
+    const currentUser = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure') || 'null');
+    const currentUserEmail = (currentUser && currentUser.email)
+      ? String(currentUser.email).trim()
       : "";
 
     // 🔒 FIX: When "All Categories" is selected, still route CC by the REAL
@@ -1681,8 +1684,11 @@ window.renderRFQItemsTable = function(order, selectedCat) {
               <div id="email_body_${supplierName}" class="form-control form-control-sm edit-body-rich rfq-body-rich" contenteditable="true" style="min-height:90px;"><div>Estimado ${supplierName},</div><div><br></div><div>Por favor cotizar los siguientes artículos (${catLabel}) para ${order.site}:</div></div>
             </div>
             <div class="table-responsive p-2 border rounded bg-white mb-3">${tableHtml}</div>
-            <div style="background:#f8f9fa; padding:10px; border-left:3px solid #0d6efd; margin-bottom:15px; font-size:11px;">
-              ${signature}
+            <div class="mt-2 mb-3">
+              <label class="small fw-bold text-muted" data-i18n="email_preview_signature_label">Signature:</label>
+              <div class="border p-2 bg-white edit-signature" contenteditable="true" style="min-height:60px; font-size:11px;">
+                ${signature || ""}
+              </div>
             </div>
             <div class="d-flex gap-2 align-items-center flex-wrap mb-3 border rounded p-2 bg-light">
               <label class="mb-0 small fw-semibold">${i18n("lbl_rfq_attachments", "Attachments (product reference)")}</label>
@@ -1723,21 +1729,20 @@ window.sendIndividualRFQ('${escapeJsArg_(supplierName)}', '${order.id}')">
             const ccBox = document.getElementById("email_cc_" + nm);
             if (toBox && typeof window.createEmailChipField === "function") {
               window.createEmailChipField(toBox, toBox.getAttribute("data-initial") || "");
+              const toInputRFQ = toBox.querySelector('.email-chip-input');
+              if (toInputRFQ && typeof window.setupEmailAutocomplete === 'function') {
+                window.setupEmailAutocomplete(toInputRFQ);
+              }
             }
             if (ccBox && typeof window.createEmailChipField === "function") {
               window.createEmailChipField(ccBox, ccBox.getAttribute("data-initial") || "");
+              const ccInputRFQ = ccBox.querySelector('.email-chip-input');
+              if (ccInputRFQ && typeof window.setupEmailAutocomplete === 'function') {
+                window.setupEmailAutocomplete(ccInputRFQ);
+              }
             }
           });
-                // Setup email autocomplete on To/CC inputs
-        const toInputRFQ = toBox.querySelector('.email-chip-input');
-        const ccInputRFQ = ccBox.querySelector('.email-chip-input');
-        if (toInputRFQ && typeof window.setupEmailAutocomplete === 'function') {
-          window.setupEmailAutocomplete(toInputRFQ);
-        }
-        if (ccInputRFQ && typeof window.setupEmailAutocomplete === 'function') {
-          window.setupEmailAutocomplete(ccInputRFQ);
-        }
-} catch (e) { console.warn("RFQ chip hydration:", e); }
+        } catch (e) { console.warn("RFQ chip hydration:", e); }
 
       } finally {
         // Always re-enable the button, even on early returns or unexpected errors.
@@ -2091,17 +2096,23 @@ window.sendIndividualRFQ('${escapeJsArg_(supplierName)}', '${order.id}')">
     const bodyForEmail_ = (typeof window.formatBodyForEmail === "function")
       ? window.formatBodyForEmail(bodyHtmlRaw)
       : String(bodyHtmlRaw || "").replace(/\n/g, "<br>");
+    const userObj = window.currentUser || JSON.parse(localStorage.getItem('recon_user_secure') || 'null');
+    const rfqCard = document.getElementById(`email_to_${supplierName}`)?.closest(".card") || document;
+    const sigEl = rfqCard.querySelector('.edit-signature');
+    const sigContent = sigEl ? sigEl.innerHTML : "";
+
     const emailPayload = {
       to: toEmail,
       cc: ccEmail,
       subject: subject,
       body: bodyForEmail_,
+      signature: sigContent,
       type: "RFQ", // Added: Crucial for Decision Engine
       orderId: orderId || `RFQ-${supplierName}`, // Added: Req ID for quote sheet ref and order history update
       // Consolidated RFQ: all source requirement IDs (single-req RFQs have one)
       orderIds: (order && order.orderIds) || splitRfqRefIds_(orderId) || [orderId],
-      replyTo: window.currentUser ? window.currentUser.email : "", // Added: For Graph Headers
-      currentUserEmail: window.currentUser ? window.currentUser.email : "",
+      replyTo: (userObj ? userObj.email : "") || "",
+      currentUserEmail: (userObj ? userObj.email : "") || "",
       // Supplier email is passed separately so it can be used for sending but
       // excluded from the "Emails" column in the Quotes sheet (only CC + routing emails are saved).
       supplierEmail: supplierName ? ((window.CachedDataVal?.suppliers || []).find((s) => s.name === supplierName)?.email || "") : "",
@@ -2112,7 +2123,7 @@ window.sendIndividualRFQ('${escapeJsArg_(supplierName)}', '${order.id}')">
       items: supplierItems,
       site: order.site || "",
       subArea: (document.getElementById("rfqSubAreaFilter") || {}).value || "",
-      userName: window.currentUser ? window.currentUser.name : "",
+      userName: (userObj ? userObj.name : "") || "",
       currency: "CLP",
       comments: bodyText,
       condicionPago: "",

@@ -48,8 +48,8 @@ router.get('/', authenticateToken, async (req, res) => {
                  'discount_pct', qi.discount_pct,
                  'freight', qi.freight,
                  'supplier', qi.supplier,
-                 'supplier_quote_no', q.ref_cotiz,
-                 'quoted_doc_url', q.quoted_doc_url,
+                 'supplier_quote_no', COALESCE(NULLIF(qi.supplier_quote_no, ''), q.ref_cotiz),
+                 'quoted_doc_url', COALESCE(NULLIF(qi.quoted_doc_url, ''), q.quoted_doc_url),
                  'currency', q.currency,
                  'exchange_rate', q.exchange_rate,
                  'status', COALESCE(NULLIF(qi.status, ''), q.status),
@@ -70,7 +70,7 @@ router.get('/', authenticateToken, async (req, res) => {
       LEFT JOIN suppliers s ON q.supplier_id = s.id
       LEFT JOIN users u ON q.created_by = u.user_id
       ${whereSql}
-      ORDER BY q.created_at DESC
+      ORDER BY q.updated_at DESC, q.id DESC
       LIMIT ? OFFSET ?
     `);
 

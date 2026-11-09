@@ -355,6 +355,22 @@ router.post('/fetch-remote-sheet', authenticateToken, async (req, res) => {
     }
 
     const { headers, rows } = parseCSV(text);
+
+    // Fallback: if fetched headers have empty values, use expected headers from config
+    const key = cfg.gasKeyForSheet(sheetName);
+    if (key) {
+      const meta = cfg.SHEETS[key];
+      if (meta && meta.columns) {
+        const expectedHeaders = meta.columns.map(c => c.header);
+        // Replace empty fetched headers with expected ones (by index)
+        for (let i = 0; i < expectedHeaders.length && i < headers.length; i++) {
+          if (!headers[i] || String(headers[i]).trim() === '') {
+            headers[i] = expectedHeaders[i];
+          }
+        }
+      }
+    }
+
     const sampleRows = rows.slice(0, 5);
 
     res.json({
@@ -445,6 +461,23 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
     const text = await response.text();
     const { headers, rows } = parseCSV(text);
     console.error('[QUOTES SYNC DEBUG] Sheet headers:', JSON.stringify(headers));
+
+    // Fallback: if fetched headers have empty values, use expected headers from config
+    const configKey = cfg.gasKeyForSheet(def.gasSheet);
+    if (configKey) {
+      const meta = cfg.SHEETS[configKey];
+      if (meta && meta.columns) {
+        const expectedHeaders = meta.columns.map(c => c.header);
+        for (let i = 0; i < expectedHeaders.length && i < headers.length; i++) {
+          if (!headers[i] || String(headers[i]).trim() === '') {
+            headers[i] = expectedHeaders[i];
+          }
+        }
+      }
+    }
+
+    console.error('[QUOTES SYNC DEBUG] Headers after fallback:', JSON.stringify(headers));
+
     if (!headers.length || !rows.length) {
       return res.json({ status: 'success', data: { synced: 0, message: 'Tab has no data rows' } });
     }
@@ -798,15 +831,15 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         `);
         const bound = existing
           ? stmt.bind(
-              userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
-              r.site || null, r.role || 'operator', r.sign_link || null,
-              r.is_active == null ? 1 : r.is_active, existing.id
-            )
+            userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
+            r.site || null, r.role || 'operator', r.sign_link || null,
+            r.is_active == null ? 1 : r.is_active, existing.id
+          )
           : stmt.bind(
-              userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
-              r.site || null, r.role || 'operator', r.sign_link || null,
-              r.is_active == null ? 1 : r.is_active
-            );
+            userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
+            r.site || null, r.role || 'operator', r.sign_link || null,
+            r.is_active == null ? 1 : r.is_active
+          );
         await bound.run();
         directStatementsExecuted++;
       }
@@ -939,14 +972,14 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         `);
         const bound = existing
           ? stmt.bind(
-              userId, email, r.name || null, r.phone || null, r.position || null, r.site || null,
-              r.role || 'operator', r.sign_link || null, r.is_active != null ? r.is_active : 1,
-              pinHash, existing.id
-            )
+            userId, email, r.name || null, r.phone || null, r.position || null, r.site || null,
+            r.role || 'operator', r.sign_link || null, r.is_active != null ? r.is_active : 1,
+            pinHash, existing.id
+          )
           : stmt.bind(
-              userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
-              r.site || null, r.role || 'operator', r.sign_link || null, r.is_active != null ? r.is_active : 1
-            );
+            userId, email, pinHash, r.name || null, r.phone || null, r.position || null,
+            r.site || null, r.role || 'operator', r.sign_link || null, r.is_active != null ? r.is_active : 1
+          );
         await bound.run();
         directStatementsExecuted++;
       }
@@ -1000,24 +1033,42 @@ router.post('/sync-remote-tab', authenticateToken, async (req, res) => {
         ));
       }
     } else if (sheetKey === 'controlCombustible') {
+      const normalizeDateStr = (raw) => {
+        if (!raw) return new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const s = String(raw).trim();
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+        if (m) {
+          return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}${m[4] || ''}`.trim();
+        }
+        return s;
+      };
       for (const r of transformed.records || []) {
         const stmt = await db.prepare(`
-          INSERT INTO fuel_entries (entry_date, proyecto, tipo_activo, asset_id, liters, odometer_km, vehicle, user_email)
+          INSERT INTO fuel_entries (entry_date, proyecto, tipo_activo, asset_id, liters, odometer_km, driver, user_email)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmts.push(stmt.bind(
-          r.entry_date || new Date().toISOString(), r.proyecto || null, r.tipo_activo || null,
-          r.asset_id || null, r.liters || 0, r.odometer_km || 0, r.vehicle || null, r.user_email || null
+          normalizeDateStr(r.entry_date), r.proyecto || null, r.tipo_activo || null,
+          r.asset_id || null, r.liters || 0, r.odometer_km || 0, r.driver || null, r.user_email || null
         ));
       }
     } else if (sheetKey === 'compraCombustible') {
+      const normalizeDateStr = (raw) => {
+        if (!raw) return new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const s = String(raw).trim();
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+        if (m) {
+          return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}${m[4] || ''}`.trim();
+        }
+        return s;
+      };
       for (const r of transformed.records || []) {
         const stmt = await db.prepare(`
           INSERT INTO fuel_purchases (purchase_date, proveedor, litros, factura, user_name)
           VALUES (?, ?, ?, ?, ?)
         `);
         stmts.push(stmt.bind(
-          r.purchase_date || new Date().toISOString(), r.proveedor || null, r.litros || 0,
+          normalizeDateStr(r.purchase_date), r.proveedor || null, r.litros || 0,
           r.factura || null, r.user_name || null
         ));
       }

@@ -94,7 +94,14 @@ window.createEmailChipField = function(container, initialValue) {
     container.classList.toggle('has-invalid', emails.some(function(e) { return !window.EMAIL_RE.test(e); }));
   }
 
-  function commitInput() {
+  function commitInput(fromBlur) {
+    // If a suggestion was just picked (dropdown click), the pick() call already
+    // cleared the input and added the email. Skip committing the stale partial text.
+    if (fromBlur && inputEl._suppressNextCommit) {
+      inputEl._suppressNextCommit = false;
+      inputEl.value = '';
+      return;
+    }
     const parts = window.parseEmailsLoose(inputEl.value);
     if (parts.length) {
       parts.forEach(function(p) {
@@ -108,13 +115,16 @@ window.createEmailChipField = function(container, initialValue) {
   inputEl.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',' || e.key === ';' || e.key === ' ') {
       e.preventDefault();
-      commitInput();
+      // If the autocomplete just picked a suggestion (Enter on highlighted item),
+      // the capture-phase handler set _suppressNextCommit and called stopImmediatePropagation,
+      // so we should never reach here for that case. This guard is a safety net.
+      if (!inputEl._suppressNextCommit) commitInput();
     } else if (e.key === 'Backspace' && !inputEl.value && emails.length) {
       emails.pop();
       render();
     }
   });
-  inputEl.addEventListener('blur', commitInput);
+  inputEl.addEventListener('blur', function() { commitInput(true); });
   inputEl.addEventListener('paste', function() { setTimeout(commitInput, 0); });
   container.addEventListener('click', function() { inputEl.focus(); });
 
@@ -353,18 +363,24 @@ window.setupEmailAutocomplete = function(inputEl) {
       item.appendChild(es);
       item.appendChild(ss);
       item.addEventListener('mouseenter', function() { hi = i; hl(); });
-      item.addEventListener('click', function() { pick(s); });
+      // Use mousedown+preventDefault to suppress the input blur that fires before click,
+      // which was causing commitInput() to create a red chip from the partial typed text.
+      item.addEventListener('mousedown', function(e) { e.preventDefault(); });
+      item.addEventListener('click', function(e) { e.preventDefault(); pick(s); });
       dd.appendChild(item);
     });
     pos();
   }
   function pick(s) {
     if (!s || !s.value || !fa) return;
+    // Clear input and set suppress flag FIRST so that any blur/commitInput
+    // triggered by focus-shift finds an empty input and skips committing.
+    inputEl._suppressNextCommit = true;
+    inputEl.value = '';
     const cur = fa.getEmails();
     if (cur.map(function(e) { return e.toLowerCase(); }).indexOf(s.value.toLowerCase()) === -1)
       fa.setValue(cur.concat(s.value).join(', '));
     window.addRecentEmail(s.value, (s.label || '').split('<')[0].trim());
-    inputEl.value = '';
     hide();
     inputEl.focus();
   }
@@ -385,7 +401,7 @@ window.setupEmailAutocomplete = function(inputEl) {
     merged = merged.concat(rec);
     const seen = {};
     merged = merged.filter(function(s) {
-      const k = s.value.toLowerCase();
+      const k = (s.value || s.email || '').toLowerCase();
       if (seen[k]) return false;
       seen[k] = true;
       return true;
@@ -414,6 +430,8 @@ window.setupEmailAutocomplete = function(inputEl) {
     render(merged, 0);
   }, 150);
   inputEl.addEventListener('input', function() { search(); });
+  // Use capture:true so this fires BEFORE the chip field's keydown bubble handler.
+  // This lets us set _suppressNextCommit before commitInput() runs on Enter.
   inputEl.addEventListener('keydown', function(e) {
     const items = dd.querySelectorAll('.email-suggest-item');
     if (e.key === 'ArrowDown') {
@@ -429,12 +447,13 @@ window.setupEmailAutocomplete = function(inputEl) {
     } else if (e.key === 'Enter') {
       if (hi >= 0 && hi < cur.length) {
         e.preventDefault();
+        e.stopImmediatePropagation(); // stop chip field's keydown from also running
         pick(cur[hi]);
       }
     } else if (e.key === 'Escape') {
       hide();
     }
-  });
+  }, true);
   inputEl.addEventListener('blur', function() { setTimeout(hide, 200); });
   inputEl.addEventListener('focus', function() { if (inputEl.value.trim()) search(); });
 };
@@ -455,6 +474,10 @@ window.formatBodyForEmail = function(html) {
   // Sanitize: strip scripts, event handlers, and dangerous tags; keep basic formatting.
   const s = window.sanitizeNotesHtml(html);
   if (!s) return '';
+  // Empty contenteditable typically leaves just <br> (possibly wrapped in div/p).
+  // Strip all tags and check if any real text remains; if not, treat as empty.
+  const textOnly = String(s).replace(/<[^>]*>/g, '').trim();
+  if (!textOnly) return '';
   return '<div style="font-family: Arial, sans-serif; line-height: 1.6;">' + s + '</div>';
 };
 // Same sanitizer, WITHOUT the email wrapper: used when the notes are rendered
@@ -1429,6 +1452,7 @@ window.saveAsDraft = function() {
   const categories = Object.keys(grouped);
 
   const shipments = categories.map(cat => ({
+    draftId: window.currentDraftId || undefined,
     to: "",
     subject: getI18nText('email_preview_requirement_prefix') + cat,
     // Notes typed in the preview "Additional Message (Body)" (kept in
@@ -1450,6 +1474,7 @@ window.saveAsDraft = function() {
         btn.innerHTML = '<i class="bi bi-pencil-square me-1"></i> ' + getI18nText('btn_save_draft');
       }
       if (res.success) {
+        if (res.drafts && res.drafts[0] && res.drafts[0].draftId) { window.currentDraftId = res.drafts[0].draftId; } else if (res.id && !window.currentDraftId) { window.currentDraftId = res.id; }
         Swal.fire(getI18nText('draft_saved'), getI18nText('draft_saved_desc'), 'success');
         window.updateDraftCount();
       } else {
@@ -2024,10 +2049,11 @@ function continueFinalizeReq(currentCart, user, finalSite, finalSubArea, finalSu
     });
 
     window.currentShipments = results;
-    previewContainer.innerHTML = fullHtml;
+    if (previewContainer) {
+      previewContainer.innerHTML = fullHtml;
 
-    // Hydrate Gmail-style chip fields (To + Cc) for each shipment card
-    previewContainer.querySelectorAll('.shipment-group').forEach(function(card) {
+      // Hydrate Gmail-style chip fields (To + Cc) for each shipment card
+      previewContainer.querySelectorAll('.shipment-group').forEach(function(card) {
       const toBox = card.querySelector('.edit-to');
       if (toBox && !toBox._chipApi && typeof window.createEmailChipField === 'function') {
         window.createEmailChipField(toBox, toBox.getAttribute('data-emails') || '');
@@ -2061,6 +2087,7 @@ function continueFinalizeReq(currentCart, user, finalSite, finalSubArea, finalSu
         });
       }
     });
+    }
     
     // Apply translations to dynamically generated content
     if (typeof updateUI === 'function') {
@@ -2264,6 +2291,12 @@ window.confirmAndSend = function() {
       if (res && res.success) {
         const emailWarning = res.emailConfigured === false || (Array.isArray(res.data) &&
           res.data.some(order => order && order.emailSent === false));
+        // Surface the concrete reason (if any) so the message is actionable,
+        // not just a generic "not configured."
+        const firstEmailError = Array.isArray(res.data)
+          ? res.data.find(order => order && order.emailError)?.emailError || ''
+          : '';
+        const emailHint = firstEmailError ? ` — ${firstEmailError}` : '';
         modalBody.innerHTML = `
           <div class="text-center p-3">
             <div class="mb-3">
@@ -2271,7 +2304,7 @@ window.confirmAndSend = function() {
             </div>
             <h4 class="fw-bold">${emailWarning ? 'Requirements Saved' : 'Requirements Generated!'}</h4>
             <p class="text-muted small">${emailWarning
-              ? 'The requisition was saved, but email delivery is not configured in the API.'
+              ? 'The requisition was saved, but email delivery is not configured in the API.' + emailHint
               : 'Documents have been saved and emails sent.'}</p>
             <hr>
             <div id="pdfDownloadList" class="text-start"></div>

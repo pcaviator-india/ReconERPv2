@@ -73,6 +73,8 @@ const COLUMN_MIGRATIONS = [
   ['quote_items', 'discount_pct', 'REAL DEFAULT 0'],
   ['quote_items', 'freight', 'REAL DEFAULT 0'],
   ['quote_items', 'status', "TEXT DEFAULT 'Pending'"],
+  ['quote_items', 'supplier_quote_no', 'TEXT'],
+  ['quote_items', 'quoted_doc_url', 'TEXT'],
   // stock & stock_ledger
   ['stock', 'geo', 'TEXT'],
   ['stock_ledger', 'ledger_id', 'TEXT'],

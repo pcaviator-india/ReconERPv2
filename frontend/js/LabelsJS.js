@@ -1,16 +1,202 @@
 let canvas;
 let currentTemplateId = null;
-let persistentPrintQueue = []; 
+let persistentPrintQueue = [];
 let printQueueItems = [];
 let currentPreviewIndex = 0;
-let isLiveDataView = false; 
+let isLiveDataView = false;
 let currentUnit = 'px';
-let canvasMargin = 0; 
+let canvasMargin = 0;
 let canvasZoom = 1;
 const DPI = 96;
 let isMouseOverCanvas = false; // Track if mouse is over canvas viewport
+let isInventoryLoading = false;
 
-window.initLabelsModule = function() {
+// Canonical database columns from products table & joined references
+const PRODUCT_LABEL_COLUMNS = [
+    { key: 'geo', label: 'GEO Code', legacyKeys: ['geo', 'GEO', 'geocode', 'GeoCode'] },
+    { key: 'pn', label: 'Part Number (P/N)', legacyKeys: ['pn', 'PN', 'part_number', 'partNumber', 'product_number', 'P/N', 'p/n', 'p', 'P'] },
+    { key: 'name', label: 'Product Name', legacyKeys: ['name', 'product_name', 'nombre'] },
+    { key: 'description', label: 'Description (EN)', legacyKeys: ['description', 'en', 'desc_en', 'description_en', 'desc'] },
+    { key: 'description_es', label: 'Description (ES)', legacyKeys: ['description_es', 'es', 'desc_es', 'descripcion', 'descripcion_es'] },
+    { key: 'brand_name', label: 'Brand', legacyKeys: ['brand_name', 'brand', 'marca'] },
+    { key: 'category_name', label: 'Category', legacyKeys: ['category_name', 'category', 'categoria'] },
+    { key: 'sub_category_name', label: 'Subcategory', legacyKeys: ['sub_category_name', 'sub_category', 'subCategory', 'sub_categoria'] },
+    { key: 'supplier_name', label: 'Supplier', legacyKeys: ['supplier_name', 'supplier', 'proveedor'] },
+    { key: 'unit', label: 'Unit', legacyKeys: ['unit', 'un', 'unidad'] },
+    { key: 'cost', label: 'Cost', legacyKeys: ['cost', 'costo_clp', 'costo'] },
+    { key: 'stock', label: 'Stock Level', legacyKeys: ['stock', 'available_stock', 'cantidad'] },
+    { key: 'min_qty', label: 'Min Qty', legacyKeys: ['min_qty', 'min', 'minimo'] },
+    { key: 'max_qty', label: 'Max Qty', legacyKeys: ['max_qty', 'max', 'maximo'] },
+    { key: 'eta', label: 'ETA', legacyKeys: ['eta'] }
+];
+window.PRODUCT_LABEL_COLUMNS = PRODUCT_LABEL_COLUMNS;
+
+function normalizeLabelProduct(p) {
+    if (!p || typeof p !== 'object') return {};
+    const raw = p._raw || {};
+    const pnVal = p.pn || p.PN || p.part_number || p.partNumber || p.product_number || p['P/N'] || p.p || raw.pn || raw.PN || raw.part_number || '';
+    const descVal = p.description || raw.description || p.en || raw.en || '';
+    const descEsVal = p.description_es || raw.description_es || p.es || raw.es || '';
+    const nameVal = p.name || raw.name || descVal || descEsVal || '';
+    const brandVal = p.brand_name || raw.brand_name || p.brand || p.marca || raw.marca || '';
+    const catVal = p.category_name || raw.category_name || p.category || raw.category || '';
+    const subCatVal = p.sub_category_name || raw.sub_category_name || p.subCategory || p.sub_categoria || raw.sub_categoria || '';
+    const supVal = p.supplier_name || raw.supplier_name || p.supplier || p.proveedor || raw.proveedor || '';
+    const unitVal = p.unit || raw.unit || p.un || raw.un || '';
+    const costVal = Number(p.cost !== undefined ? p.cost : (raw.cost !== undefined ? raw.cost : (p.costo_clp !== undefined ? p.costo_clp : 0))) || 0;
+    const stockVal = Number(p.stock !== undefined ? p.stock : (raw.stock !== undefined ? raw.stock : 0)) || 0;
+    const minVal = Number(p.min_qty !== undefined ? p.min_qty : (raw.min_qty !== undefined ? raw.min_qty : (p.min !== undefined ? p.min : 0))) || 0;
+    const maxVal = Number(p.max_qty !== undefined ? p.max_qty : (raw.max_qty !== undefined ? raw.max_qty : (p.max !== undefined ? p.max : 0))) || 0;
+    const etaVal = p.eta || raw.eta || '';
+
+    return {
+        ...p,
+        id: p.id || p.geo || raw.geo || '',
+        geo: p.geo || raw.geo || '',
+        pn: pnVal,
+        PN: pnVal,
+        name: nameVal,
+        description: descVal,
+        description_es: descEsVal,
+        en: descVal,
+        es: descEsVal,
+        brand_name: brandVal,
+        marca: brandVal,
+        brand: brandVal,
+        category_name: catVal,
+        category: catVal,
+        sub_category_name: subCatVal,
+        sub_categoria: subCatVal,
+        supplier_name: supVal,
+        proveedor: supVal,
+        unit: unitVal,
+        un: unitVal,
+        cost: costVal,
+        costo_clp: costVal,
+        stock: stockVal,
+        min_qty: minVal,
+        min: minVal,
+        max_qty: maxVal,
+        max: maxVal,
+        eta: etaVal,
+        is_active: p.is_active !== undefined ? p.is_active : (raw.is_active !== undefined ? raw.is_active : 1)
+    };
+}
+window.normalizeLabelProduct = normalizeLabelProduct;
+
+function getProductFieldValue(item, key) {
+    if (!item || typeof item !== 'object') return '';
+    const trimmed = String(key || '').trim();
+    if (!trimmed) return '';
+    const lowerKey = trimmed.toLowerCase();
+
+    function extract(obj, k) {
+        if (!obj || typeof obj !== 'object') return undefined;
+        if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') {
+            return obj[k];
+        }
+        const lk = k.toLowerCase();
+        for (const prop of Object.keys(obj)) {
+            if (prop.toLowerCase() === lk && obj[prop] !== undefined && obj[prop] !== null && obj[prop] !== '') {
+                return obj[prop];
+            }
+        }
+        return undefined;
+    }
+
+    let val = extract(item, trimmed);
+    if (val !== undefined) return val;
+
+    const colDef = PRODUCT_LABEL_COLUMNS.find(c =>
+        c.key.toLowerCase() === lowerKey ||
+        (c.legacyKeys && c.legacyKeys.some(lk => lk.toLowerCase() === lowerKey))
+    );
+
+    if (colDef) {
+        val = extract(item, colDef.key);
+        if (val !== undefined) return val;
+
+        if (colDef.legacyKeys) {
+            for (const lk of colDef.legacyKeys) {
+                val = extract(item, lk);
+                if (val !== undefined) return val;
+            }
+        }
+    }
+
+    if (item._raw && typeof item._raw === 'object') {
+        val = extract(item._raw, trimmed);
+        if (val !== undefined) return val;
+
+        if (colDef) {
+            val = extract(item._raw, colDef.key);
+            if (val !== undefined) return val;
+
+            if (colDef.legacyKeys) {
+                for (const lk of colDef.legacyKeys) {
+                    val = extract(item._raw, lk);
+                    if (val !== undefined) return val;
+                }
+            }
+        }
+    }
+
+    if (lowerKey === 'name') {
+        val = extract(item, 'description') || extract(item, 'description_es') || extract(item, 'en') || extract(item, 'es');
+        if (val !== undefined) return val;
+    }
+
+    if (lowerKey === 'pn' || lowerKey === 'part_number' || lowerKey === 'partnumber' || lowerKey === 'p/n') {
+        val = extract(item, 'pn') || extract(item, 'part_number') || extract(item, 'partNumber') || extract(item, 'product_number') || extract(item, 'P/N') || extract(item, 'p');
+        if (val !== undefined) return val;
+        if (item._raw) {
+            val = extract(item._raw, 'pn') || extract(item._raw, 'part_number') || extract(item._raw, 'partNumber') || extract(item._raw, 'product_number') || extract(item._raw, 'P/N');
+            if (val !== undefined) return val;
+        }
+    }
+
+    return '';
+}
+window.getProductFieldValue = getProductFieldValue;
+
+async function loadInventoryForLabels() {
+    if (window.fullInventory && Array.isArray(window.fullInventory) && window.fullInventory.length > 0) {
+        window.fullInventory = window.fullInventory.map(normalizeLabelProduct);
+        return window.fullInventory;
+    }
+    if (isInventoryLoading) return window.fullInventory || [];
+    isInventoryLoading = true;
+
+    try {
+        if (typeof RECON_API !== 'undefined' && typeof RECON_API.getProducts === 'function') {
+            const pageSize = 5000;
+            const products = [];
+            let page = 1;
+            let total = null;
+
+            do {
+                const resp = await RECON_API.getProducts({ page, limit: pageSize });
+                const pageProducts = Array.isArray(resp?.data) ? resp.data : [];
+                products.push(...pageProducts);
+                total = Number(resp?.pagination?.total);
+
+                if (pageProducts.length === 0 || pageProducts.length < pageSize) {
+                    break;
+                }
+                page += 1;
+            } while (total === null || products.length < total);
+
+            window.fullInventory = products.map(normalizeLabelProduct);
+        }
+    } catch (err) {
+        console.error("Failed to load inventory for Labels module:", err);
+    } finally {
+        isInventoryLoading = false;
+    }
+    return window.fullInventory || [];
+}
+
+window.initLabelsModule = function () {
     if (typeof fabric === 'undefined') {
         setTimeout(window.initLabelsModule, 100);
         return;
@@ -28,8 +214,8 @@ window.initLabelsModule = function() {
         canvas.on('selection:created', handleObjectSelected);
         canvas.on('selection:updated', handleObjectSelected);
         canvas.on('selection:cleared', handleObjectCleared);
-        canvas.on('object:modified', (e) => { 
-            if (!isLiveDataView) updateLayerTree(); 
+        canvas.on('object:modified', (e) => {
+            if (!isLiveDataView) updateLayerTree();
             clearAlignmentLines();
             // Handle rotation snapping to 5° increments
             handleRotationSnap(e);
@@ -48,19 +234,28 @@ window.initLabelsModule = function() {
         tabInstance.show();
     }
 
+    // Populate columns list immediately with canonical columns
+    populateDbColumnsDropdowns();
+    // Ensure full inventory data is fetched in background
     ensureInventoryColumnsLoaded();
     updateLayerTree();
     syncCanvasSizeInputs();
-    console.log("BarTender-style Unified Labels module initialized with zoom, alignments, and barcode text properties.");
+    console.log("BarTender-style Unified Labels module initialized with updated products schema.");
 };
 
-function ensureInventoryColumnsLoaded(retries = 10) {
+async function ensureInventoryColumnsLoaded(retries = 10) {
     if (window.fullInventory && Array.isArray(window.fullInventory) && window.fullInventory.length > 0) {
+        window.fullInventory = window.fullInventory.map(normalizeLabelProduct);
         populateDbColumnsDropdowns(window.fullInventory[0]);
-    } else if (retries > 0) {
-        setTimeout(() => ensureInventoryColumnsLoaded(retries - 1), 300);
     } else {
-        populateDbColumnsDropdowns({ geo: '', pn: '', en: '', es: '', marca: '', category: '' });
+        const inv = await loadInventoryForLabels();
+        if (inv && inv.length > 0) {
+            populateDbColumnsDropdowns(inv[0]);
+        } else if (retries > 0) {
+            setTimeout(() => ensureInventoryColumnsLoaded(retries - 1), 300);
+        } else {
+            populateDbColumnsDropdowns();
+        }
     }
 }
 
@@ -69,24 +264,57 @@ function populateDbColumnsDropdowns(sampleItem) {
     const propDbColEl = document.getElementById('prop-db-col');
     if (!dbColumnsListEl || !propDbColEl) return;
 
+    const currentSelectedVal = propDbColEl.value;
+
     dbColumnsListEl.innerHTML = '';
-    propDbColEl.innerHTML = '<option value="">-- None (Static) --</option>';
+    propDbColEl.innerHTML = '<option value="" data-i18n="lbl_db_col_none">-- None (Static) --</option>';
 
-    const columns = Object.keys(sampleItem || {});
-    if (columns.length === 0) return;
-
-    columns.forEach(col => {
+    // 1. Render Canonical Product Columns
+    PRODUCT_LABEL_COLUMNS.forEach(col => {
         const item = document.createElement('button');
-        item.className = 'list-group-item list-group-item-action list-group-item-light py-1 px-2 small';
-        item.innerHTML = `<i class="bi bi-database me-1"></i> ${col}`;
-        item.onclick = () => addDynamicField(col);
+        item.type = 'button';
+        item.className = 'list-group-item list-group-item-action list-group-item-light py-1 px-2 small d-flex justify-content-between align-items-center';
+        item.innerHTML = `<span><i class="bi bi-database me-1 text-primary"></i> ${col.label}</span><code class="text-muted" style="font-size: 10px;">{{${col.key}}}</code>`;
+        item.title = `Click to bind {{${col.key}}}`;
+        item.onclick = () => addDynamicField(col.key);
         dbColumnsListEl.appendChild(item);
 
         const opt = document.createElement('option');
-        opt.value = col;
-        opt.textContent = col;
+        opt.value = col.key;
+        opt.textContent = `${col.label} (${col.key})`;
         propDbColEl.appendChild(opt);
     });
+
+    // 2. Discover any additional custom columns from sample item
+    if (sampleItem && typeof sampleItem === 'object') {
+        const standardKeys = new Set([
+            'id', '_raw', 'is_active', 'created_at', 'updated_at',
+            ...PRODUCT_LABEL_COLUMNS.map(c => c.key.toLowerCase()),
+            ...PRODUCT_LABEL_COLUMNS.flatMap(c => (c.legacyKeys || []).map(lk => lk.toLowerCase()))
+        ]);
+
+        const extraKeys = Object.keys(sampleItem).filter(k => !standardKeys.has(k.toLowerCase()));
+        if (extraKeys.length > 0) {
+            extraKeys.forEach(col => {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'list-group-item list-group-item-action list-group-item-light py-1 px-2 small d-flex justify-content-between align-items-center';
+                item.innerHTML = `<span><i class="bi bi-tag me-1 text-secondary"></i> ${col}</span><code class="text-muted" style="font-size: 10px;">{{${col}}}</code>`;
+                item.title = `Click to bind {{${col}}}`;
+                item.onclick = () => addDynamicField(col);
+                dbColumnsListEl.appendChild(item);
+
+                const opt = document.createElement('option');
+                opt.value = col;
+                opt.textContent = `${col}`;
+                propDbColEl.appendChild(opt);
+            });
+        }
+    }
+
+    if (currentSelectedVal) {
+        propDbColEl.value = currentSelectedVal;
+    }
 }
 
 function syncCanvasSizeInputs() {
@@ -189,7 +417,7 @@ function applyCanvasZoom() {
     if (scaler) {
         scaler.style.transform = `scale(${canvasZoom})`;
     }
-    
+
     const indicator = document.getElementById('zoom-indicator');
     if (indicator) {
         indicator.textContent = `${Math.round(canvasZoom * 100)}%`;
@@ -203,10 +431,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // Track mouse position over canvas
         viewport.addEventListener('mouseenter', () => { isMouseOverCanvas = true; });
         viewport.addEventListener('mouseleave', () => { isMouseOverCanvas = false; });
-        
-        viewport.addEventListener('wheel', function(e) {
+
+        viewport.addEventListener('wheel', function (e) {
             // Only block browser zoom when mouse is over canvas viewport
-            if (isMouseOverCanvas && e.ctrlKey) { 
+            if (isMouseOverCanvas && e.ctrlKey) {
                 e.preventDefault(); // Stop browser from zooming the web page
                 e.stopPropagation(); // Prevent event from bubbling up
                 if (e.deltaY < 0) {
@@ -237,7 +465,7 @@ function redrawMarginOverlay() {
         evented: false,
         isMarginOverlay: true
     });
-    
+
     canvas.add(marginRect);
     marginRect.sendToBack();
 }
@@ -271,7 +499,7 @@ function handleObjectMoving(e) {
     const objectHeight = obj.getScaledHeight();
 
     // Increased threshold from 5 to 10 for softer snapping
-    const threshold = 10; 
+    const threshold = 10;
     let snapX = null;
     let snapY = null;
 
@@ -317,7 +545,7 @@ function handleObjectMoving(e) {
 
     if (snapX !== null) obj.set('left', snapX);
     if (snapY !== null) obj.set('top', snapY);
-    
+
     // Update coordinates to fix control positions (markers)
     if (snapX !== null || snapY !== null) {
         obj.setCoords();
@@ -327,10 +555,10 @@ function handleObjectMoving(e) {
 // Snap on mouse up for more precise positioning
 function handleMouseUp(e) {
     clearAlignmentLines();
-    
+
     const obj = e.target;
     if (!obj || !isSnappingEnabled()) return;
-    
+
     const canvasWidth = canvas.width;
     const canvasHeight = canvas.height;
     const objectCenter = obj.getCenterPoint();
@@ -385,7 +613,7 @@ function handleMouseUp(e) {
 
     if (snapX !== null) obj.set('left', snapX);
     if (snapY !== null) obj.set('top', snapY);
-    
+
     if (snapX !== null || snapY !== null) {
         obj.setCoords();
         canvas.renderAll();
@@ -396,18 +624,18 @@ function handleMouseUp(e) {
 function handleRotationSnap(e) {
     const obj = e.target;
     if (!obj) return;
-    
+
     // Check if rotation snapping is enabled via checkbox or Shift key
     const checkbox = document.getElementById('rotation-snap-toggle');
     const rotationSnapEnabled = checkbox ? checkbox.checked : false;
     const useShift = e.shiftKey;
-    
+
     if (!rotationSnapEnabled && !useShift) return;
-    
+
     const increment = 5;
     const currentAngle = obj.angle || 0;
     const snappedAngle = Math.round(currentAngle / increment) * increment;
-    
+
     if (Math.abs(currentAngle - snappedAngle) > 0.1) {
         obj.set('angle', snappedAngle);
         obj.setCoords();
@@ -442,13 +670,16 @@ function drawHorizontalGuide(yCoord) {
 function addDynamicField(columnName) {
     if (isLiveDataView) refreshCanvasPlaceholderData();
 
+    const colDef = PRODUCT_LABEL_COLUMNS.find(c => c.key === columnName);
+    const labelTitle = colDef ? colDef.label : columnName;
+
     const textObj = new fabric.Textbox(`{{${columnName}}}`, {
         left: Math.max(30, canvasMargin + 10), top: Math.max(30, canvasMargin + 10), width: 180, fontSize: 16, fontFamily: 'Arial', fill: '#000000', textAlign: 'left', editable: true
     });
     textObj.db_col = columnName;
     textObj.rawTemplateText = `{{${columnName}}}`;
-    textObj.elementName = columnName + " Field";
-    
+    textObj.elementName = labelTitle + " Field";
+
     canvas.add(textObj);
     canvas.setActiveObject(textObj);
     if (canvasMargin > 0) redrawMarginOverlay();
@@ -466,7 +697,7 @@ function addTextbox() {
     });
     textObj.rawTemplateText = 'Static Text';
     textObj.elementName = "Text Block";
-    
+
     canvas.add(textObj);
     canvas.setActiveObject(textObj);
     if (canvasMargin > 0) redrawMarginOverlay();
@@ -482,9 +713,9 @@ function addBarcode() {
     const barcodeObj = new fabric.Rect({
         left: Math.max(30, canvasMargin + 10), top: Math.max(80, canvasMargin + 10), width: 180, height: 70, fill: '#ffffff', stroke: '#000000', strokeWidth: 1, rx: 2, ry: 2
     });
-    
+
     barcodeObj.isBarcode = true;
-    barcodeObj.db_col = 'geo'; 
+    barcodeObj.db_col = 'geo';
     barcodeObj.elementName = "Barcode (CODE128)";
     barcodeObj.barcodeFormat = "CODE128";
     barcodeObj.showText = true;
@@ -493,7 +724,7 @@ function addBarcode() {
     barcodeObj.textAlign = "center"; // Barcode text alignment option
     barcodeObj.fillColor = "#000000";
     barcodeObj.rawTemplateText = "{{geo}}";
-    
+
     canvas.add(barcodeObj);
     canvas.setActiveObject(barcodeObj);
     if (canvasMargin > 0) redrawMarginOverlay();
@@ -533,10 +764,27 @@ function handleObjectSelected(e) {
 
     document.getElementById('prop-name').value = obj.elementName || '';
     document.getElementById('prop-text').value = obj.rawTemplateText || obj.text || '';
-    document.getElementById('prop-db-col').value = obj.db_col || '';
+
+    const propDbColEl = document.getElementById('prop-db-col');
+    if (propDbColEl) {
+        let valToSet = obj.db_col || '';
+        if (valToSet && !Array.from(propDbColEl.options).some(o => o.value === valToSet)) {
+            const matchedCol = PRODUCT_LABEL_COLUMNS.find(c => c.legacyKeys && c.legacyKeys.includes(valToSet));
+            if (matchedCol) {
+                valToSet = matchedCol.key;
+            } else {
+                const opt = document.createElement('option');
+                opt.value = valToSet;
+                opt.textContent = `${valToSet} (legacy)`;
+                propDbColEl.appendChild(opt);
+            }
+        }
+        propDbColEl.value = valToSet;
+    }
+
     document.getElementById('prop-font').value = obj.fontFamily || 'Arial';
     document.getElementById('prop-fontsize').value = obj.fontSize || 16;
-    
+
     // Toggle barcode vs textbox specific property blocks
     const barcodeFields = document.getElementById('barcode-specific-properties');
     const standardTextAlignContainer = document.getElementById('standard-text-align-container');
@@ -551,7 +799,7 @@ function handleObjectSelected(e) {
     if (obj.isBarcode) {
         const showTextChk = document.getElementById('prop-barcode-showtext');
         if (showTextChk) showTextChk.checked = obj.showText !== false;
-        
+
         const alignSel = document.getElementById('prop-barcode-align');
         if (alignSel) alignSel.value = obj.textAlign || 'center';
     } else {
@@ -568,17 +816,24 @@ function handleObjectCleared() {
 
 // Helper to always fetch the *currently selected* live data row/item
 function getCurrentLiveItem() {
-    // 1. Check if there's an explicit active/current live item variable
+    // 1. Check if there are items in printQueueItems (current preview)
+    if (typeof printQueueItems !== 'undefined' && Array.isArray(printQueueItems) && printQueueItems.length > 0) {
+        let idx = typeof currentPreviewIndex !== 'undefined' ? currentPreviewIndex : 0;
+        return printQueueItems[idx] || printQueueItems[0] || {};
+    }
+    // 2. Check if persistentPrintQueue has items
+    if (typeof persistentPrintQueue !== 'undefined' && Array.isArray(persistentPrintQueue) && persistentPrintQueue.length > 0) {
+        return persistentPrintQueue[0].item || {};
+    }
+    // 3. Fallback to first item of window.fullInventory
+    if (typeof window.fullInventory !== 'undefined' && Array.isArray(window.fullInventory) && window.fullInventory.length > 0) {
+        return window.fullInventory[0] || {};
+    }
+    // 4. Other legacy variables
     if (typeof currentLiveItem !== 'undefined' && currentLiveItem) return currentLiveItem;
     if (typeof currentLiveDataSample !== 'undefined' && currentLiveDataSample) return currentLiveDataSample;
     if (typeof activeLiveDataItem !== 'undefined' && activeLiveDataItem) return activeLiveDataItem;
-    
-    // 2. Check if liveData exists and look up by current index (e.g., pagination/row selector)
-    if (typeof liveData !== 'undefined' && Array.isArray(liveData) && liveData.length > 0) {
-        let idx = (typeof currentLiveIndex !== 'undefined') ? currentLiveIndex : 
-                  (typeof selectedRowIndex !== 'undefined') ? selectedRowIndex : 0;
-        return liveData[idx] || liveData[0] || {};
-    }
+
     return {};
 }
 
@@ -594,6 +849,10 @@ function updateProperty(property, value) {
     } else if (property === 'db_col') {
         activeObj.db_col = value;
         if (value && activeObj.type === 'textbox') {
+            activeObj.rawTemplateText = `{{${value}}}`;
+            const propTextEl = document.getElementById('prop-text');
+            if (propTextEl) propTextEl.value = activeObj.rawTemplateText;
+        } else if (value && activeObj.isBarcode) {
             activeObj.rawTemplateText = `{{${value}}}`;
         }
         if (isLiveDataView) {
@@ -710,7 +969,7 @@ function saveTemplateJSON() {
         elementsJson: JSON.stringify(canvasJson),
 
         // ===== ADD THESE =====
-        canvasWidth:  canvas.width,
+        canvasWidth: canvas.width,
         canvasHeight: canvas.height
         // =====================
     };
@@ -772,7 +1031,7 @@ function loadTemplateIntoCanvas(templateId) {
                 // If you also keep a matching HTML <canvas> element in sync:
                 const el = canvas.getElement();
                 if (el) {
-                    el.width  = template.canvasWidth;
+                    el.width = template.canvasWidth;
                     el.height = template.canvasHeight;
                 }
             }
@@ -812,33 +1071,39 @@ function deleteTemplateFromDb(templateId) {
 }
 
 // Queue & Product Search Logic
-function filterPrintProducts(query) {
+async function filterPrintProducts(query) {
     const container = document.getElementById('print-product-selection-list');
     if (!container) return;
 
     if (!query || query.trim().length < 2) {
-        container.innerHTML = '<div class="text-center text-muted small py-2">Type at least 2 characters to search products...</div>';
+        container.innerHTML = '<div class="text-center text-muted small py-2" data-i18n="lbl_search_hint">Type at least 2 characters to search products...</div>';
         return;
     }
 
-    if (!window.fullInventory || !Array.isArray(window.fullInventory)) {
+    if (!window.fullInventory || !Array.isArray(window.fullInventory) || window.fullInventory.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted small py-2"><span class="spinner-border spinner-border-sm me-1 text-primary"></span> Loading inventory...</div>';
+        await loadInventoryForLabels();
+    }
+
+    if (!window.fullInventory || !Array.isArray(window.fullInventory) || window.fullInventory.length === 0) {
         container.innerHTML = '<div class="text-center text-danger small py-2">Inventory not loaded yet.</div>';
         return;
     }
 
-    // Same multi-term logic that works in ProductsJS
-    var terms = query.toLowerCase().split(/\s+/).filter(function(t) { return t.length > 0; });
+    var terms = query.toLowerCase().split(/\s+/).filter(function (t) { return t.length > 0; });
 
-    var matches = window.fullInventory.filter(function(item) {
+    var matches = window.fullInventory.filter(function (item) {
         var combinedSearch = (
-            String(item.geo || '') +
-            String(item.pn || '') +
-            String(item.en || '') +
-            String(item.es || '') +
-            String(item.marca || '')
+            String(item.geo || '') + ' ' +
+            String(item.pn || '') + ' ' +
+            String(item.name || '') + ' ' +
+            String(item.description || item.en || '') + ' ' +
+            String(item.description_es || item.es || '') + ' ' +
+            String(item.brand_name || item.marca || '') + ' ' +
+            String(item.category_name || item.category || '')
         ).toLowerCase();
 
-        return terms.every(function(term) {
+        return terms.every(function (term) {
             return combinedSearch.includes(term);
         });
     }).slice(0, 25);
@@ -849,22 +1114,26 @@ function filterPrintProducts(query) {
     }
 
     container.innerHTML = '';
-        matches.forEach(function(item) {
+    matches.forEach(function (item) {
         var idx = window.fullInventory.indexOf(item);
 
-        var displayName = item.es || item.en || item.geo || 'Unnamed Item';
+        var displayName = item.name || item.description_es || item.description || item.es || item.en || item.geo || 'Unnamed Item';
         var secondLine = '';
 
-        if (item.es && item.en && item.es !== item.en) {
-            secondLine = '<div class="text-muted" style="font-size: 10px;">EN: <strong>' + item.en + '</strong></div>';
+        var subDesc = item.description || item.en;
+        var subDescEs = item.description_es || item.es;
+        if (subDescEs && subDesc && subDescEs !== subDesc) {
+            secondLine = '<div class="text-muted" style="font-size: 10px;">ES: <strong>' + subDescEs + '</strong> | EN: <strong>' + subDesc + '</strong></div>';
+        } else if (subDesc) {
+            secondLine = '<div class="text-muted" style="font-size: 10px;">' + subDesc + '</div>';
         }
 
         container.innerHTML += `
             <div class="list-group-item d-flex justify-content-between align-items-center py-1 px-2">
-                <div>
-                    <span class="small fw-bold">${displayName}</span>
+                <div class="text-truncate me-2" style="max-width: 280px;">
+                    <div class="small fw-bold text-truncate">${displayName}</div>
                     ${secondLine}
-                    <div class="text-muted" style="font-size: 10px;">GEO: <strong>${item.geo || 'N/A'}</strong></div>
+                    <div class="text-muted" style="font-size: 10px;">GEO: <strong>${item.geo || 'N/A'}</strong> | P/N: <strong>${item.pn || 'N/A'}</strong></div>
                 </div>
                 <button class="btn btn-outline-success btn-sm py-0 px-2" onclick="addProductToPersistentQueue(${idx})">+ Add</button>
             </div>`;
@@ -872,12 +1141,14 @@ function filterPrintProducts(query) {
 }
 
 function addProductToPersistentQueue(inventoryIdx) {
-    const item = window.fullInventory[inventoryIdx];
+    let item = window.fullInventory[inventoryIdx];
     if (!item) return;
+    item = normalizeLabelProduct(item);
 
     const existing = persistentPrintQueue.find(qItem => qItem.inventoryIdx === inventoryIdx);
     if (existing) {
         existing.qty += 1;
+        existing.item = item;
     } else {
         persistentPrintQueue.push({ inventoryIdx: inventoryIdx, item: item, qty: 1 });
     }
@@ -914,7 +1185,7 @@ function renderPersistentQueuePanel() {
 
     panel.innerHTML = '';
     persistentPrintQueue.forEach((qObj, idx) => {
-        const displayName = qObj.item.en || qObj.item.es || qObj.item.geo || 'Unnamed';
+        const displayName = qObj.item.name || qObj.item.description || qObj.item.description_es || qObj.item.en || qObj.item.es || qObj.item.geo || 'Unnamed';
         panel.innerHTML += `
             <div class="list-group-item d-flex justify-content-between align-items-center py-1 px-2 bg-white mb-1 border rounded">
                 <div class="text-truncate me-2" style="max-width: 150px;">
@@ -945,8 +1216,12 @@ function rebuildPrintQueueArray() {
 function toggleLiveDataView() {
     if (!isLiveDataView) {
         if (printQueueItems.length === 0) {
-            alert("Please add items to your print queue first so there is data to preview.");
-            return;
+            if (window.fullInventory && Array.isArray(window.fullInventory) && window.fullInventory.length > 0) {
+                addProductToPersistentQueue(0);
+            } else {
+                alert("Please add items to your print queue first so there is data to preview.");
+                return;
+            }
         }
         isLiveDataView = true;
         currentPreviewIndex = 0;
@@ -980,57 +1255,54 @@ function prevPreviewItem() {
 }
 
 function getLiveText(templateText) {
-    if (!printQueueItems.length) {
-        console.log('[getLiveText] No printQueueItems, returning template as-is:', templateText);
+    let item = null;
+    if (printQueueItems && printQueueItems.length > 0) {
+        item = printQueueItems[currentPreviewIndex];
+    } else if (window.fullInventory && Array.isArray(window.fullInventory) && window.fullInventory.length > 0) {
+        item = window.fullInventory[currentPreviewIndex || 0];
+    }
+    if (!item) {
         return templateText;
     }
-    const item = printQueueItems[currentPreviewIndex];
-    console.log('[getLiveText] template:', templateText, '| item keys:', Object.keys(item || {}), '| currentIndex:', currentPreviewIndex);
-    const result = templateText.replace(/\{\{([^}]+)\}\}/g, function(match, propName) {
+
+    return templateText.replace(/\{\{([^}]+)\}\}/g, function (match, propName) {
         const trimmedProp = propName.trim();
-        const value = item[trimmedProp];
-        console.log(`[getLiveText] Checking {{${trimmedProp}}} -> value:`, value, '| item has key:', item.hasOwnProperty(trimmedProp));
-        return value !== undefined && value !== null ? value : match;
+        const value = getProductFieldValue(item, trimmedProp);
+        if (value !== undefined && value !== null && value !== '') {
+            return String(value);
+        }
+        // If particular column is empty, return empty string so placeholders are NOT displayed in live view or printed
+        return '';
     });
-    console.log('[getLiveText] result:', result);
-    return result;
 }
 
 function refreshCanvasLiveData() {
     if (!isLiveDataView || printQueueItems.length === 0) {
-        console.log('[refreshCanvasLiveData] Early exit: isLiveDataView=' + isLiveDataView + ', queue length=' + (printQueueItems ? printQueueItems.length : 0));
         return;
     }
 
-    console.log('[refreshCanvasLiveData] Updating canvas for record', currentPreviewIndex + 1, 'of', printQueueItems.length);
     document.getElementById('preview-pagination-indicator').textContent = `Record ${currentPreviewIndex + 1} of ${printQueueItems.length}`;
     const item = printQueueItems[currentPreviewIndex];
 
-    // Detect if user is currently editing a textbox
+    // Detect if user is actively typing inside a textbox (blinking cursor)
     const active = canvas.getActiveObject();
-    const isEditingTextbox = active && active.type === 'textbox' && !active.isBarcode;
-    console.log('[refreshCanvasLiveData] Active object:', active ? active.elementName || active.type : 'none', '| isEditingTextbox:', isEditingTextbox);
+    const isEditingTextbox = active && active.type === 'textbox' && active.isEditing;
 
     canvas.getObjects().forEach(obj => {
         if (obj.isMarginOverlay) return;
 
         if (!obj.rawTemplateText) {
             obj.rawTemplateText = obj.text || `{{${obj.db_col || 'geo'}}}`;
-            console.log('[refreshCanvasLiveData] Set rawTemplateText for', obj.elementName || obj.type, ':', obj.rawTemplateText);
         }
 
         if (obj.type === 'textbox') {
-            // Do NOT overwrite the textbox the user is currently typing into
             if (isEditingTextbox && obj === active) {
-                console.log('[refreshCanvasLiveData] Skipping textbox (user editing):', obj.elementName || obj.type);
                 return;
             }
 
             const newText = getLiveText(obj.rawTemplateText);
-            console.log('[refreshCanvasLiveData] Setting textbox text:', obj.elementName || obj.type, '->', newText);
             obj.set({ text: newText });
         } else if (obj.isBarcode) {
-            console.log('[refreshCanvasLiveData] Updating barcode:', obj.elementName || 'barcode');
             updateBarcodeObjectLive(obj, item);
         }
     });
@@ -1050,23 +1322,27 @@ function refreshCanvasPlaceholderData() {
 }
 
 function updateBarcodeObjectLive(obj, item) {
-    let val = "123456";
-    
+    let val = "";
+
     // 1. Check if db_col is specified and exists in the item data
-    if (obj.db_col && item && item[obj.db_col] !== undefined && item[obj.db_col] !== null) {
-        val = String(item[obj.db_col]);
-    } 
+    if (obj.db_col && item) {
+        const resolved = getProductFieldValue(item, obj.db_col);
+        if (resolved !== undefined && resolved !== null && String(resolved).trim() !== '') {
+            val = String(resolved).trim();
+        }
+    }
     // 2. Check if rawTemplateText exists (e.g. "{{geo}}") and replace tags with actual item values
     else if (obj.rawTemplateText && item) {
-        val = obj.rawTemplateText.replace(/\{\{([^}]+)\}\}/g, function(match, colName) {
+        val = obj.rawTemplateText.replace(/\{\{([^}]+)\}\}/g, function (match, colName) {
             let trimmedKey = colName.trim();
-            return (item[trimmedKey] !== undefined && item[trimmedKey] !== null) ? item[trimmedKey] : match;
-        });
+            const resolved = getProductFieldValue(item, trimmedKey);
+            return (resolved !== undefined && resolved !== null && String(resolved).trim() !== '') ? String(resolved).trim() : '';
+        }).trim();
     }
 
-    // Fallback if it still resolves to an unreplaced template tag or empty string
+    // Fallback if empty so barcode doesn't crash: use item.geo (which every product has) or default
     if (!val || val.startsWith("{{")) {
-        val = obj.lastBarcodeVal || "123456";
+        val = (item && item.geo) ? String(item.geo) : (obj.lastBarcodeVal || "123456");
     }
 
     var svgNode = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1091,10 +1367,10 @@ function updateBarcodeObjectLive(obj, item) {
         // Capture whether this barcode was the active object BEFORE we replace it
         const wasActive = canvas.getActiveObject() === obj;
 
-        fabric.Image.fromURL(blobURL, function(img) {
+        fabric.Image.fromURL(blobURL, function (img) {
             let targetW = (obj.width || 180) * (obj.scaleX || 1);
             let targetH = (obj.height || 70) * (obj.scaleY || 1);
-            
+
             img.set({
                 left: obj.left,
                 top: obj.top,
@@ -1114,7 +1390,7 @@ function updateBarcodeObjectLive(obj, item) {
                 isLiveBarcodeImage: true,
                 lastBarcodeVal: val
             });
-            
+
             canvas.remove(obj);
             canvas.add(img);
 
@@ -1122,7 +1398,7 @@ function updateBarcodeObjectLive(obj, item) {
             if (wasActive) {
                 canvas.setActiveObject(img);
             }
-            
+
             canvas.renderAll();
         });
     } catch (err) {
@@ -1165,7 +1441,7 @@ async function executeBatchPrint() {
         alert("Please add items to print queue first.");
         return;
     }
-    
+
     let wasInLive = typeof isLiveDataView !== 'undefined' && isLiveDataView;
     if (wasInLive && typeof refreshCanvasPlaceholderData === 'function') refreshCanvasPlaceholderData();
 
@@ -1193,14 +1469,14 @@ async function executeBatchPrint() {
 
         const item = printQueueItems[index];
         const tempCanvasEl = document.createElement('canvas');
-        tempCanvasEl.width = canvas.width; 
+        tempCanvasEl.width = canvas.width;
         tempCanvasEl.height = canvas.height;
-        
+
         const batchCanvas = new fabric.StaticCanvas(tempCanvasEl, { backgroundColor: '#ffffff' });
 
-        batchCanvas.loadFromJSON(canvasJson, async function() {
+        batchCanvas.loadFromJSON(canvasJson, async function () {
             const objects = batchCanvas.getObjects();
-            let barcodesToProcess = objects.filter(function(obj) { return obj.isBarcode; });
+            let barcodesToProcess = objects.filter(function (obj) { return obj.isBarcode; });
 
             if (barcodesToProcess.length === 0) {
                 await processBatchTextAndFinalize(batchCanvas, item, tempCanvasEl);
@@ -1208,16 +1484,23 @@ async function executeBatchPrint() {
             }
 
             let completedBarcodes = 0;
-            objects.forEach(function(obj) {
+            objects.forEach(function (obj) {
                 if (obj.isBarcode) {
-                    let val = "123456";
-                    if (obj.db_col && item[obj.db_col] !== undefined) {
-                        val = String(item[obj.db_col]);
+                    let val = "";
+                    if (obj.db_col) {
+                        const resolved = getProductFieldValue(item, obj.db_col);
+                        if (resolved !== undefined && resolved !== null && String(resolved).trim() !== '') {
+                            val = String(resolved).trim();
+                        }
                     } else if (obj.rawTemplateText) {
-                        val = obj.rawTemplateText.replace(/\{\{([^}]+)\}\}/g, function(match, propName) {
+                        val = obj.rawTemplateText.replace(/\{\{([^}]+)\}\}/g, function (match, propName) {
                             const trimmedProp = propName.trim();
-                            return item[trimmedProp] !== undefined && item[trimmedProp] !== null ? item[trimmedProp] : match;
-                        });
+                            const resolved = getProductFieldValue(item, trimmedProp);
+                            return (resolved !== undefined && resolved !== null && String(resolved).trim() !== '') ? String(resolved).trim() : '';
+                        }).trim();
+                    }
+                    if (!val || val.startsWith("{{")) {
+                        val = (item && item.geo) ? String(item.geo) : (obj.lastBarcodeVal || "123456");
                     }
 
                     var svgNode = document.createElementNS('http://www.w3.org/2000/svg', "svg");
@@ -1231,7 +1514,7 @@ async function executeBatchPrint() {
                             textAlign: obj.textAlign || "center",
                             height: Math.max(20, (obj.height || 70) - 25),
                             width: 2,
-                            lineColor: "#000000", 
+                            lineColor: "#000000",
                             background: "#ffffff"
                         });
 
@@ -1239,15 +1522,15 @@ async function executeBatchPrint() {
                         const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
                         const blobURL = (window.URL || window.webkitURL || window).createObjectURL(svgBlob);
 
-                        fabric.Image.fromURL(blobURL, async function(img) {
+                        fabric.Image.fromURL(blobURL, async function (img) {
                             let targetW = obj.width || 180;
                             let targetH = obj.height || 70;
 
                             img.set({
-                                left: obj.left, 
-                                top: obj.top, 
-                                scaleX: targetW / img.width, 
-                                scaleY: targetH / img.height, 
+                                left: obj.left,
+                                top: obj.top,
+                                scaleX: targetW / img.width,
+                                scaleY: targetH / img.height,
                                 angle: obj.angle || 0
                             });
                             batchCanvas.remove(obj);
@@ -1269,71 +1552,75 @@ async function executeBatchPrint() {
         });
     }
 
-async function processBatchTextAndFinalize(batchCanvas, item, tempCanvasEl) {
-    batchCanvas.getObjects().forEach(function(obj) {
-        // 1. Handle regular text boxes
-        if (obj.type === 'textbox' || obj.type === 'text') {
-            let baseText = obj.rawTemplateText || obj.text || '';
-            let currentText = baseText.replace(/\{\{([^}]+)\}\}/g, function(match, propName) {
-                const trimmedProp = propName.trim();
-                return item[trimmedProp] !== undefined && item[trimmedProp] !== null ? item[trimmedProp] : match;
-            });
-            obj.set({ text: currentText });
-        }
-        
-        // 2. Handle Barcode objects
-        if (obj.isBarcode || obj.type === 'barcode' || (obj.name && obj.name.includes('barcode'))) {
-            let barcodeValue = item.geo || item.pn || '123456';
-            obj.set({ text: barcodeValue });
-        }
-    });
-    
-    batchCanvas.renderAll();
+    async function processBatchTextAndFinalize(batchCanvas, item, tempCanvasEl) {
+        batchCanvas.getObjects().forEach(function (obj) {
+            // 1. Handle regular text boxes
+            if (obj.type === 'textbox' || obj.type === 'text') {
+                let baseText = obj.rawTemplateText || obj.text || '';
+                let currentText = baseText.replace(/\{\{([^}]+)\}\}/g, function (match, propName) {
+                    const trimmedProp = propName.trim();
+                    const resolved = getProductFieldValue(item, trimmedProp);
+                    if (resolved !== undefined && resolved !== null && resolved !== '') {
+                        return String(resolved);
+                    }
+                    return '';
+                });
+                obj.set({ text: currentText });
+            }
 
-    // =====================================================
-    // Calculate physical size in inches
-    // =====================================================
-    // Change this DPI value to match how you designed the canvas.
-    // Common values for label design: 300 or 203
-    //const DPI = 300;
-
-    const widthInches  = canvas.width  / DPI;
-    const heightInches = canvas.height / DPI;
-
-    console.log(`Canvas: ${canvas.width} × ${canvas.height} px → ${widthInches.toFixed(2)}" × ${heightInches.toFixed(2)}"`);
-
-    // 1. Export high-res PNG
-    const dataUrl = batchCanvas.toDataURL({
-        format: 'png',
-        multiplier: 3
-    });
-
-    try {
-        // 2. Send image + physical size to C# tray app
-        const response = await fetch('http://127.0.0.1:8888/print-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                image: dataUrl,
-                labelName: item.en || item.es || item.geo || 'Label',
-                widthInches: widthInches,
-                heightInches: heightInches
-            })
+            // 2. Handle Barcode objects
+            if (obj.isBarcode || obj.type === 'barcode' || (obj.name && obj.name.includes('barcode'))) {
+                let barcodeValue = getProductFieldValue(item, obj.db_col || 'geo') || item.geo || item.pn || '123456';
+                obj.set({ text: String(barcodeValue) });
+            }
         });
 
-        const result = await response.json();
-        if (result.status !== 'success') {
-            console.error("Print server warning:", result.message);
-        }
-    } catch (err) {
-        console.error("Failed to communicate with local C# print service:", err);
-    }
+        batchCanvas.renderAll();
 
-    batchCanvas.dispose();
-    
-    index++;
-    setTimeout(processNextBatchItem, 200);
-}
+        // =====================================================
+        // Calculate physical size in inches
+        // =====================================================
+        // Change this DPI value to match how you designed the canvas.
+        // Common values for label design: 300 or 203
+        //const DPI = 300;
+
+        const widthInches = canvas.width / DPI;
+        const heightInches = canvas.height / DPI;
+
+        console.log(`Canvas: ${canvas.width} × ${canvas.height} px → ${widthInches.toFixed(2)}" × ${heightInches.toFixed(2)}"`);
+
+        // 1. Export high-res PNG
+        const dataUrl = batchCanvas.toDataURL({
+            format: 'png',
+            multiplier: 3
+        });
+
+        try {
+            // 2. Send image + physical size to C# tray app
+            const response = await fetch('http://127.0.0.1:8888/print-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image: dataUrl,
+                    labelName: item.name || item.description || item.description_es || item.en || item.es || item.geo || 'Label',
+                    widthInches: widthInches,
+                    heightInches: heightInches
+                })
+            });
+
+            const result = await response.json();
+            if (result.status !== 'success') {
+                console.error("Print server warning:", result.message);
+            }
+        } catch (err) {
+            console.error("Failed to communicate with local C# print service:", err);
+        }
+
+        batchCanvas.dispose();
+
+        index++;
+        setTimeout(processNextBatchItem, 200);
+    }
 
     processNextBatchItem();
 }

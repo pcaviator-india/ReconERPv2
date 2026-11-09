@@ -141,6 +141,41 @@ const RECON_API = {
   },
 
   // ============================================
+  // Movement Validation (for Control Combustible asset dropdowns)
+  // ============================================
+  async getMovementValidation() {
+    return this._request('/legacy/getMovementValidation', 'POST', {});
+  },
+
+  async getPeople() {
+    return this._request('/legacy/getPeople', 'POST', {});
+  },
+
+  async getLastFuelEntry(assetId) {
+    return this._request('/legacy/getLastFuelEntry', 'POST', { args: [assetId] });
+  },
+
+  async saveFuelEntry(data) {
+    return this._request('/legacy/saveFuelEntry', 'POST', { args: [data] });
+  },
+
+  async getFuelHistory() {
+    return this._request('/legacy/getFuelHistory', 'POST', {});
+  },
+
+  async getFuelBalance() {
+    return this._request('/legacy/getFuelBalance', 'POST', {});
+  },
+
+  async getFuelPurchaseHistory() {
+    return this._request('/legacy/getFuelPurchaseHistory', 'POST', {});
+  },
+
+  async saveFuelPurchase(data) {
+    return this._request('/legacy/saveFuelPurchase', 'POST', { args: [data] });
+  },
+
+  // ============================================
   // Products
   // ============================================
   async getProducts(params = {}) {

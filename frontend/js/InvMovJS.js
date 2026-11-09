@@ -292,6 +292,7 @@ function normalizeMovementProduct(product) {
     es: product.es || product.description_es || product.descriptionEs || product.desc_es || product.descripcion || product.descripcion_es || "",
     marca: product.marca || product.brand_name || product.brand || product.brand_id || "",
     category: product.category || product.category_name || product.category_id || "",
+    sub_categoria: product.sub_categoria || product.sub_category_name || product.subCategory || product.sub_category || "",
     proveedor: product.proveedor || product.supplier_name || product.supplier || product.supplier_id || "",
     stock: Number(product.stock || product.available_stock || 0)
   };
