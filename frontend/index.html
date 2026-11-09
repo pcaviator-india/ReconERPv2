@@ -963,6 +963,17 @@
           }
 
           // ===============================
+          // PERMISSIONS MODULE (Admin only)
+          // ===============================
+          if (name === "Permissions") {
+            setTimeout(() => {
+              if (typeof window.initPermissionsModule === "function") {
+                window.initPermissionsModule();
+              }
+            }, 150);
+          }
+
+          // ===============================
           // MAC macro file creation MODULE
           // ===============================
           if (name === "CreateBulkPOMAC") {
@@ -1398,57 +1409,163 @@
 
       const user = JSON.parse(data);
       const role = (user && user.role) ? String(user.role).toLowerCase() : "";
-      console.log("👤 User:", user && user.name, "| Role:", user && user.role);
+      const perms = user.permissions || {};
+      const isAdmin = role === "admin";
+      const isManager = role === "manager";
+      const isOffice = role === "office";
+      const isSiteUser = role === "user";
+
+      console.log("👤 User:", user && user.name, "| Role:", user && user.role, "| Perms:", Object.keys(perms).length);
+
+      // Helper: show/hide nav element
+      function setNavVisible(id, visible) {
+        const el = document.getElementById(id) || document.querySelector('[data-perm="' + id + '"]');
+        if (!el) return;
+        el.style.display = visible ? "" : "none";
+      }
+
+      // Helper: show/hide a nav item (div or a)
+      function showEl(el, visible) {
+        if (!el) return;
+        el.style.setProperty("display", visible ? (el.tagName === "A" ? "flex" : "block") : "none", "important");
+      }
+
+      function canView(moduleKey) {
+        if (isAdmin) return true;
+        return perms[moduleKey] && perms[moduleKey].can_view;
+      }
+
+      // ====================================
+      // USERS MENU (Admin only)
+      // ====================================
       const usersMenu = document.getElementById("menuItemUsers");
+      if (usersMenu) usersMenu.style.display = isAdmin ? "block" : "none";
 
-      if (usersMenu) {
-        // Show users menu for any admin variant (case-insensitive)
-        if (role === "admin") {
-          usersMenu.style.display = "block";
+      // ====================================
+      // Admin-only elements (old admin-only class)
+      // Keep for backward compat — drive by the actual admin-only scope
+      // ====================================
+      document.querySelectorAll(".admin-only").forEach((el) => {
+        const isVisible = canView("admin_val") || canView("system_integrations") || isAdmin || isManager || isOffice;
+        let displayValue = isVisible ? "block" : "none";
+        if (el.tagName === "A" && isVisible) displayValue = "flex";
+        if (el.tagName === "BUTTON" && isVisible) displayValue = "inline-block";
+        try { el.style.setProperty("display", displayValue, "important"); } catch(e) { el.style.display = displayValue; }
+      });
+
+      // ====================================
+      // SITE SELECTOR LOCK
+      // ====================================
+      const siteSelect = document.getElementById("filterFaena");
+      if (siteSelect) {
+        if (isSiteUser) {
+          siteSelect.value = user.site || "";
+          siteSelect.disabled = true;
+          siteSelect.classList.add("bg-light");
         } else {
-          usersMenu.style.display = "none";
-        }
-      }
-      // Reveal elements for Admin or Office roles (case-insensitive)
-      if (role === "admin" || role === "office" || role === "manager") {
-        document.querySelectorAll(".admin-only").forEach((el) => {
-          let displayValue = "block"; // Default for divs
-
-          // Check the tag type to keep the layout pretty
-          if (el.tagName === "LI") {
-            displayValue = "list-item";
-          } else if (el.tagName === "BUTTON" || el.tagName === "SPAN") {
-            displayValue = "inline-block";
-          }
-
-          // Force the reveal using the correct type
-          try {
-            el.style.setProperty("display", displayValue, "important");
-          } catch (e) {
-            // Fallback to direct assignment
-            el.style.display = displayValue;
-          }
-        });
-        console.log("🔓 Admin: Diverse elements revealed correctly.");
-
-        // --- NEW: SITE SELECTOR LOCK ---
-        const siteSelect = document.getElementById("filterFaena");
-        if (siteSelect) {
-          if (role === "admin" || role === "office" || role === "manager") {
-            // Admins and Office can change the site freely
-            siteSelect.disabled = false;
-          } else {
-            // Site users are locked to their assigned site
-            siteSelect.value = user.site;
-            siteSelect.disabled = true;
-
-            // Optional: Add a CSS class to show it's locked/read-only
-            siteSelect.classList.add("bg-light");
-          }
+          siteSelect.disabled = false;
+          siteSelect.classList.remove("bg-light");
         }
       }
 
-      // Display the Site name for everyone
+      // ====================================
+      // DYNAMIC NAV VISIBILITY
+      // ====================================
+
+      // --- Products ---
+      const navProducts = document.getElementById("nav-Products");
+      showEl(navProducts, canView("products"));
+
+      // --- Requirements submenu items ---
+      // The parent "Requirements" header stays visible if any child visible
+      const reqParent = document.querySelector('[data-bs-target="#reqSubmenu"]');
+      const navCreateReq = document.querySelector('[onclick*="CreateReq"]');
+      const navViewReq = document.querySelector('[onclick*="ViewReq"]');
+      showEl(navCreateReq, canView("req_create"));
+      showEl(navViewReq, canView("req_view"));
+      if (reqParent) {
+        const anyReqVisible = canView("req_create") || canView("req_view");
+        reqParent.style.display = anyReqVisible ? "" : "none";
+      }
+
+      // --- Procurement submenu ---
+      const navRFQ = document.querySelector('[onclick*="\'RFQ\'"]') || document.querySelector('[onclick*="\"RFQ\""]');
+      const navQuoteMgmt = document.querySelector('[onclick*="QuoteMgmt"]');
+      const navQuoteReport = document.getElementById("nav-QuoteReport");
+      showEl(navRFQ, isAdmin || isManager || isOffice); // Quote creation not for site users
+      showEl(navQuoteMgmt, canView("quote_mgmt") || canView("quote_receive"));
+      showEl(navQuoteReport, isAdmin || isManager || isOffice);
+
+      // Show/hide Procurement parent based on children
+      const procParent = document.querySelector('[data-bs-target="#procSubmenu"]');
+      if (procParent) {
+        const anyProcVisible = canView("quote_mgmt") || canView("quote_receive") || isAdmin || isManager || isOffice;
+        procParent.closest(".nav-item").style.display = anyProcVisible ? "" : "none";
+      }
+
+      // --- Reports (admin-only section) ---
+      const reportsSection = document.querySelector('[data-bs-target="#informeSubmenu"]');
+      if (reportsSection) {
+        reportsSection.closest(".nav-item").style.display = isAdmin ? "" : "none";
+      }
+
+      // --- Administration section ---
+      const adminSection = document.querySelector('[data-bs-target="#adminSubmenu"]');
+      if (adminSection) {
+        adminSection.closest(".nav-item").style.display = isAdmin ? "" : "none";
+      }
+
+      // --- Permissions Management nav item (admin only) ---
+      const navPermissions = document.getElementById("nav-Permissions");
+      if (navPermissions) {
+        navPermissions.style.display = isAdmin ? "" : "none";
+      }
+
+      // --- Inventory submenu items ---
+      const navScanner = document.getElementById("nav-Scanner");
+      const navInvMov = document.getElementById("nav-InvMov");
+      const navLocMap = document.getElementById("nav-LocMap");
+      const navStock = document.getElementById("nav-Stock");
+      const navMinMax = document.getElementById("nav-MinMax");
+      showEl(navScanner, canView("stock_count"));
+      showEl(navInvMov, canView("movements"));
+      showEl(navLocMap, canView("stock") || canView("stock_count"));
+      showEl(navStock, canView("stock"));
+      // MinMax: office/admin/manager only
+      if (navMinMax) navMinMax.style.display = (isAdmin || isManager || isOffice) ? "" : "none";
+
+      // Show/hide Inventory parent if any child visible
+      const invParent = document.querySelector('[data-bs-target="#invSubmenu"]');
+      if (invParent) {
+        const anyInvVisible = canView("stock") || canView("stock_count") || canView("movements");
+        invParent.closest(".nav-item").style.display = anyInvVisible ? "" : "none";
+      }
+
+      // --- Bundles (admin only) ---
+      const bundleParent = document.querySelector('[data-bs-target="#bundleSubmenu"]');
+      if (bundleParent) bundleParent.closest(".nav-item").style.display = isAdmin ? "" : "none";
+
+      // --- Azure integration (admin only) ---
+      const azureParent = document.querySelector('[data-bs-target="#azureSubmenu"]');
+      if (azureParent) azureParent.closest(".nav-item").style.display = isAdmin ? "" : "none";
+
+      // --- Fuel Control ---
+      const navFuel = document.getElementById("nav-ControlCombustible");
+      if (navFuel) {
+        navFuel.closest(".nav-item").style.display = canView("fuel") ? "" : "none";
+      }
+
+      // --- OpSphere (admin only) ---
+      const navOpSphere = document.getElementById("nav-OpSphere");
+      if (navOpSphere) navOpSphere.closest(".nav-item").style.display = isAdmin ? "" : "none";
+
+      // --- Asset Management ---
+      const navAssets = document.getElementById("nav-GestionActivos");
+      if (navAssets) navAssets.closest(".nav-item").style.display = canView("assets") ? "" : "none";
+
+      // ====================================
+      // SITE BADGE
+      // ====================================
       if (user.site) {
         const siteBadge = document.getElementById("user-site-display");
         if (siteBadge) {
@@ -1456,6 +1573,15 @@
           siteBadge.classList.remove("d-none");
         }
       }
+
+      // ====================================
+      // STORE window.userPerms for modules to consume
+      // ====================================
+      window.userPerms = perms;
+      window.userRole = role;
+      window.userSite = user.site || null;
+
+      console.log("✅ Permissions applied for role:", role);
     };
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -2423,6 +2549,8 @@
                 <a class="nav-link py-1 text-white-50 small admin-only" onclick="loadModule('SheetsSync', this)"
                   title="Google Sheets Sync"><i class="bi bi-cloud-download"></i><span class="sidebar-label">Sheets
                     Sync</span></a>
+                <a id="nav-Permissions" class="nav-link py-1 text-white-50 small" onclick="loadModule('Permissions', this)"
+                  title="Role Permissions"><i class="bi bi-shield-lock"></i><span class="sidebar-label">Role Permissions</span></a>
               </div>
             </div>
 

@@ -6,15 +6,42 @@ const { authenticateToken } = require('../middleware/auth');
 /**
  * GET /api/v1/quotes
  * Query params: status, requisition_id, page, limit
+ * Note: Site users (role=user with assigned scope) only see quotes for their site.
  */
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
+    const userRole = req.user && req.user.role ? String(req.user.role).toLowerCase() : '';
+    const userSite = req.user && req.user.site ? req.user.site : null;
+
     const { status, requisition_id, page = 1, limit = 50 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     let whereClauses = [];
     let params = [];
+
+    if (status) {
+      whereClauses.push('q.status = ?');
+      params.push(status);
+    }
+    if (requisition_id) {
+      whereClauses.push('q.requisition_id = ?');
+      params.push(requisition_id);
+    }
+
+    // Site User role: enforce site isolation via permissions table
+    if (userRole !== 'admin' && userRole !== 'manager' && userRole !== 'office') {
+      try {
+        const permStmt = await db.prepare('SELECT site_scope FROM role_permissions WHERE role_id = ? AND module_key = ?');
+        const perm = await permStmt.bind(userRole, 'quote_mgmt').first();
+        if (perm && perm.site_scope === 'assigned' && userSite) {
+          whereClauses.push('q.site = ?');
+          params.push(userSite);
+        }
+      } catch (pe) {
+        if (userSite) { whereClauses.push('q.site = ?'); params.push(userSite); }
+      }
+    }
 
     if (status) {
       whereClauses.push('q.status = ?');
@@ -202,11 +229,36 @@ router.post('/', authenticateToken, async (req, res) => {
 /**
  * PUT /api/v1/quotes/:id/status
  * Update quote status
+ * Site Users: Can only set status to 'Received'/'Partial Received' and only when current status is 'Despatched'
  */
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
     const db = req.app.locals.db;
+    const userRole = req.user && req.user.role ? String(req.user.role).toLowerCase() : '';
+    const userSite = req.user && req.user.site ? req.user.site : null;
+
+    // Check the current quote status first
+    const quoteStmt = await db.prepare('SELECT id, status, site FROM quotes WHERE id = ?');
+    const currentQuote = await quoteStmt.bind(req.params.id).first();
+
+    if (!currentQuote) {
+      return res.status(404).json({ status: 'error', message: 'Quote not found' });
+    }
+
+    // Site User gate: can only receive a Despatched quote for their own site
+    if (userRole !== 'admin' && userRole !== 'manager' && userRole !== 'office') {
+      const allowedReceiveStatuses = ['Received', 'Partial Received', 'Final Received'];
+      if (!allowedReceiveStatuses.includes(status)) {
+        return res.status(403).json({ status: 'error', message: 'Site users can only mark quotes as Received' });
+      }
+      if (currentQuote.status !== 'Despatched') {
+        return res.status(403).json({ status: 'error', message: 'Quote must be Despatched before it can be received' });
+      }
+      if (userSite && currentQuote.site && currentQuote.site !== userSite) {
+        return res.status(403).json({ status: 'error', message: 'You can only receive quotes for your assigned site' });
+      }
+    }
 
     const stmt = await db.prepare(`
       UPDATE quotes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
@@ -220,6 +272,66 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Update quote status error:', err);
+    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /api/v1/quotes/:id/receive
+ * Dedicated receive endpoint: Site users mark a Despatched quote as Received (full or partial)
+ * Body: { items: [{ quote_item_id, received_qty, notes }], receive_type: 'full'|'partial' }
+ */
+router.put('/:id/receive', authenticateToken, async (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const userRole = req.user && req.user.role ? String(req.user.role).toLowerCase() : '';
+    const userSite = req.user && req.user.site ? req.user.site : null;
+    const { items, receive_type } = req.body;
+
+    // Load quote
+    const quoteStmt = await db.prepare('SELECT id, status, site FROM quotes WHERE id = ?');
+    const quote = await quoteStmt.bind(req.params.id).first();
+
+    if (!quote) {
+      return res.status(404).json({ status: 'error', message: 'Quote not found' });
+    }
+
+    // Enforce Despatched gate for site users
+    if (userRole !== 'admin' && userRole !== 'manager' && userRole !== 'office') {
+      if (quote.status !== 'Despatched') {
+        return res.status(403).json({ status: 'error', message: 'Quote must be Despatched before receiving' });
+      }
+      if (userSite && quote.site && quote.site !== userSite) {
+        return res.status(403).json({ status: 'error', message: 'Access denied: This quote belongs to a different site' });
+      }
+    }
+
+    // Update individual item received quantities
+    if (Array.isArray(items) && items.length > 0) {
+      const updateItem = await db.prepare(`
+        UPDATE quote_items SET received_qty = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND quote_id = ?
+      `);
+      for (const item of items) {
+        if (item.quote_item_id && item.received_qty !== undefined) {
+          await updateItem.bind(item.received_qty, item.quote_item_id, req.params.id).run();
+        }
+      }
+    }
+
+    // Set quote status
+    const newStatus = receive_type === 'partial' ? 'Partial Received' : 'Final Received';
+    const updateQuote = await db.prepare(`
+      UPDATE quotes SET status = ?, last_modified_by = ?, last_modified_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `);
+    await updateQuote.bind(newStatus, req.user.email || req.user.userId, req.params.id).run();
+
+    res.json({
+      status: 'success',
+      message: `Quote marked as ${newStatus}`,
+      data: { quote_id: req.params.id, new_status: newStatus }
+    });
+  } catch (err) {
+    console.error('Quote receive error:', err);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
 });

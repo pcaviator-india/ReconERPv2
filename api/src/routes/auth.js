@@ -47,6 +47,23 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ status: 'error', message: 'Invalid user ID or PIN' });
     }
 
+    const roleKey = String(user.role || 'user').toLowerCase();
+    let permissions = {};
+    try {
+      const permStmt = await db.prepare('SELECT module_key, can_view, can_edit, can_approve, site_scope FROM role_permissions WHERE role_id = ?');
+      const permsRes = await permStmt.bind(roleKey).all();
+      for (const p of (permsRes.results || [])) {
+        permissions[p.module_key] = {
+          can_view: Boolean(p.can_view),
+          can_edit: Boolean(p.can_edit),
+          can_approve: Boolean(p.can_approve),
+          site_scope: p.site_scope || 'all'
+        };
+      }
+    } catch (pe) {
+      console.warn('Failed to load role permissions on login:', pe.message);
+    }
+
     const token = jwt.sign(
       {
         userId: user.user_id,
@@ -68,13 +85,60 @@ router.post('/login', async (req, res) => {
           email: user.email,
           name: user.name,
           site: user.site,
-          role: user.role
+          role: user.role,
+          permissions
         }
       }
     });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ status: 'error', message: err.message || 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/v1/auth/me
+ * Returns current authenticated user and their permissions
+ */
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const stmt = await db.prepare('SELECT id, user_id, email, name, site, role, is_active FROM users WHERE user_id = ?');
+    const user = await stmt.bind(req.user.userId).first();
+
+    if (!user || !user.is_active) {
+      return res.status(401).json({ status: 'error', message: 'User not found or deactivated' });
+    }
+
+    const roleKey = String(user.role || 'user').toLowerCase();
+    const permStmt = await db.prepare('SELECT module_key, can_view, can_edit, can_approve, site_scope FROM role_permissions WHERE role_id = ?');
+    const permsRes = await permStmt.bind(roleKey).all();
+    const permissions = {};
+    for (const p of (permsRes.results || [])) {
+      permissions[p.module_key] = {
+        can_view: Boolean(p.can_view),
+        can_edit: Boolean(p.can_edit),
+        can_approve: Boolean(p.can_approve),
+        site_scope: p.site_scope || 'all'
+      };
+    }
+
+    res.json({
+      status: 'success',
+      data: {
+        user: {
+          userId: user.user_id,
+          email: user.email,
+          name: user.name,
+          site: user.site,
+          role: user.role,
+          permissions
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Auth /me error:', err);
+    res.status(500).json({ status: 'error', message: err.message });
   }
 });
 

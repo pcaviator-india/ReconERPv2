@@ -18,6 +18,7 @@ const jobRoutes = require('./routes/jobs');
 const sheetsRoutes = require('./routes/sheets');
 const fileRoutes = require('./routes/files');
 const systemRoutes = require('./routes/system');
+const permissionsRoutes = require('./routes/permissions');
 const legacyRoutes = require('./routes/legacy');
 const { Database } = require('./db');
 
@@ -84,6 +85,7 @@ app.use('/api/v1/jobs', jobRoutes);
 app.use('/api/v1/sheets', sheetsRoutes);
 app.use('/api/v1/files', fileRoutes);
 app.use('/api/v1/system', systemRoutes);
+app.use('/api/v1/permissions', permissionsRoutes);
 app.use('/api/v1/legacy', legacyRoutes);
 
 // Serve the frontend statically for local dev

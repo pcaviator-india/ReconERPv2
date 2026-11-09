@@ -6,10 +6,14 @@ const { authenticateToken } = require('../middleware/auth');
 /**
  * GET /api/v1/requisitions
  * Query params: status, site, requested_by, page, limit
+ * Note: If the user role has site_scope = 'assigned', results are auto-filtered to their site.
  */
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
+    const userRole = req.user && req.user.role ? String(req.user.role).toLowerCase() : '';
+    const userSite = req.user && req.user.site ? req.user.site : null;
+
     const { status, site, requested_by, page = 1, limit = 50 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -27,6 +31,21 @@ router.get('/', authenticateToken, async (req, res) => {
     if (requested_by) {
       whereClauses.push('r.requested_by = ?');
       params.push(requested_by);
+    }
+
+    // Site User role: enforce site isolation via permissions table
+    if (userRole !== 'admin' && userRole !== 'manager' && userRole !== 'office') {
+      try {
+        const permStmt = await db.prepare('SELECT site_scope FROM role_permissions WHERE role_id = ? AND module_key = ?');
+        const perm = await permStmt.bind(userRole, 'req_view').first();
+        if (perm && perm.site_scope === 'assigned' && userSite) {
+          whereClauses.push('r.site = ?');
+          params.push(userSite);
+        }
+      } catch (pe) {
+        // Fallback: if role not found in permissions, restrict to site
+        if (userSite) { whereClauses.push('r.site = ?'); params.push(userSite); }
+      }
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';

@@ -38,4 +38,76 @@ function optionalAuth(req, res, next) {
   next();
 }
 
-module.exports = { authenticateToken, optionalAuth };
+/**
+ * Role Check Middleware
+ * e.g. requireRole('admin') or requireRole('admin', 'manager')
+ */
+function requireRole(...allowedRoles) {
+  const normalized = allowedRoles.map(r => String(r).toLowerCase());
+  return (req, res, next) => {
+    if (!req.user || !req.user.role) {
+      return res.status(401).json({ status: 'error', message: 'Authentication required' });
+    }
+    const userRole = String(req.user.role).toLowerCase();
+    if (!normalized.includes(userRole)) {
+      return res.status(403).json({ status: 'error', message: 'Permission denied: Insufficient role' });
+    }
+    next();
+  };
+}
+
+/**
+ * Dynamic Permission Check Middleware
+ * e.g. requirePermission('stock', 'edit')
+ */
+function requirePermission(moduleKey, action = 'view') {
+  return async (req, res, next) => {
+    if (!req.user || !req.user.role) {
+      return res.status(401).json({ status: 'error', message: 'Authentication required' });
+    }
+
+    const userRole = String(req.user.role).toLowerCase();
+    // Admin always bypasses
+    if (userRole === 'admin') {
+      req.siteFilter = null;
+      return next();
+    }
+
+    try {
+      const db = req.app.locals.db;
+      const stmt = await db.prepare(`
+        SELECT can_view, can_edit, can_approve, site_scope 
+        FROM role_permissions 
+        WHERE role_id = ? AND module_key = ?
+      `);
+      const perm = await stmt.bind(userRole, moduleKey).first();
+
+      if (!perm) {
+        return res.status(403).json({ status: 'error', message: `Access denied to module ${moduleKey}` });
+      }
+
+      if (action === 'view' && !perm.can_view) {
+        return res.status(403).json({ status: 'error', message: `View access denied for ${moduleKey}` });
+      }
+      if (action === 'edit' && !perm.can_edit) {
+        return res.status(403).json({ status: 'error', message: `Edit access denied for ${moduleKey}` });
+      }
+      if (action === 'approve' && !perm.can_approve) {
+        return res.status(403).json({ status: 'error', message: `Approval access denied for ${moduleKey}` });
+      }
+
+      if (perm.site_scope === 'assigned') {
+        req.siteFilter = req.user.site || null;
+      } else {
+        req.siteFilter = null;
+      }
+
+      next();
+    } catch (err) {
+      console.error('requirePermission error:', err);
+      res.status(500).json({ status: 'error', message: 'Failed to verify permission' });
+    }
+  };
+}
+
+module.exports = { authenticateToken, optionalAuth, requireRole, requirePermission };

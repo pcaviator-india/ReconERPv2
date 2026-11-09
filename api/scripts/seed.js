@@ -9,6 +9,7 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const { seedPermissions } = require('../src/utils/permissions-seed');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'recon-erp.sqlite');
 const SCHEMA_PATH = path.join(__dirname, '..', 'schema.sql');
@@ -44,6 +45,10 @@ for (const stmt of statements) {
 }
 
 console.log('Schema created successfully');
+
+// Seed roles & permissions
+seedPermissions(db);
+console.log('Roles and permissions seeded successfully');
 
 // Seed default config
 const insertConfig = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');

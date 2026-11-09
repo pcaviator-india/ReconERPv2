@@ -259,6 +259,16 @@ const RECON_API = {
     return this._request(`/quotes/${id}/status`, 'PUT', { status });
   },
 
+  /**
+   * receiveQuote — Site users mark a Despatched quote as Received (full or partial)
+   * @param {string} id  Quote ID
+   * @param {Array}  items  [{ quote_item_id, received_qty }]
+   * @param {string} receive_type 'full' | 'partial'
+   */
+  async receiveQuote(id, items, receive_type = 'full') {
+    return this._request(`/quotes/${id}/receive`, 'PUT', { items, receive_type });
+  },
+
   // ============================================
   // Background Jobs
   // ============================================
@@ -380,7 +390,7 @@ const RECON_API = {
 
 
   // ============================================
-  // System
+  // System & Permissions
   // ============================================
   async getConfig() {
     return this._request('/system/config', 'GET');
@@ -388,6 +398,26 @@ const RECON_API = {
 
   async healthCheck() {
     return this._request('/health', 'GET');
+  },
+
+  async getPermissionsMatrix() {
+    return this._request('/permissions/matrix', 'GET');
+  },
+
+  async getMyPermissions() {
+    return this._request('/permissions/my', 'GET');
+  },
+
+  async updateRolePermissions(roleId, permissions, name, description) {
+    return this._request('/permissions/roles/' + encodeURIComponent(roleId), 'PUT', { permissions, name, description });
+  },
+
+  async createRole(id, name, description, cloneFrom) {
+    return this._request('/permissions/roles', 'POST', { id, name, description, cloneFrom });
+  },
+
+  async resetPermissions() {
+    return this._request('/permissions/reset', 'POST');
   }
 };
 

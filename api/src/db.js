@@ -5,6 +5,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { seedPermissions } = require('./utils/permissions-seed');
 
 let Sqlite3 = null;
 if (typeof process !== 'undefined' && process.versions && process.versions.node && !process.env.CF_WORKER) {
@@ -145,6 +146,9 @@ function applyMigrations(sqlite) {
       console.error(`[db] migration ${table}.${column} failed:`, err.message);
     }
   }
+
+  // Ensure default roles and permissions are seeded
+  seedPermissions(sqlite);
 }
 
 class Database {
@@ -154,7 +158,7 @@ class Database {
 
     // If no D1 binding (env.DB is null/undefined), use better-sqlite3
     if ((!this.env || !this.env.DB) && Sqlite3) {
-      const dbPath = process.env.DB_PATH || './recon-erp.sqlite';
+      const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'recon-erp.sqlite');
       this._sqlite = new Sqlite3(dbPath);
       this._sqlite.pragma('journal_mode = WAL');
       // Ensure the schema exists and any pending column migrations are applied.

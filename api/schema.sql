@@ -18,6 +18,32 @@ CREATE TABLE IF NOT EXISTS requisition_sequences (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Roles
+CREATE TABLE IF NOT EXISTS roles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  is_system INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Role Permissions
+CREATE TABLE IF NOT EXISTS role_permissions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role_id TEXT NOT NULL,
+  module_key TEXT NOT NULL,
+  can_view INTEGER DEFAULT 1,
+  can_edit INTEGER DEFAULT 0,
+  can_approve INTEGER DEFAULT 0,
+  site_scope TEXT DEFAULT 'all',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(role_id, module_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role_id);
+
 -- Users (4-digit user_id + bcrypt-hashed 4-digit PIN)
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
