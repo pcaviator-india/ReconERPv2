@@ -679,6 +679,18 @@
           const mainContent = document.getElementById("mainContent");
           mainContent.innerHTML = html;
 
+          // Execute any embedded scripts in the loaded HTML module
+          try {
+            mainContent.querySelectorAll("script").forEach(function (oldScript) {
+              const newScript = document.createElement("script");
+              Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+              newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+              oldScript.parentNode.replaceChild(newScript, oldScript);
+            });
+          } catch (e) {
+            console.warn("Module script execution error:", e);
+          }
+
           window.applyCurrentUserSiteDefaults();
           setTimeout(window.applyCurrentUserSiteDefaults, 150);
 
@@ -3824,6 +3836,7 @@
   <script src="js/OpSphereReactJS.js?v=22"></script>
   <script src="js/EditPinJS.js?v=22"></script>
   <script src="js/GestionActivosJS.js?v=22"></script>
+  <script src="js/PermissionsJS.js?v=1"></script>
   <script src="js/LabelsJS.js?v=24"></script>
   <script src="js/BackgroundJobsJS.js?v=22"></script>
 
