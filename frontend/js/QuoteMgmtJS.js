@@ -4541,20 +4541,23 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
     if (cellStatus) cellStatus.innerHTML = `<span class="small text-primary"><span class="spinner-border spinner-border-sm me-1"></span></span>`;
 
     const finish = (pages) => {
-      google.script.run
-        .withSuccessHandler(function (res) {
-          if (res && res.success) {
+      RECON_API.uploadFile(file)
+        .then(function (res) {
+          if (res && res.status === 'success' && res.data) {
+            const fileId = res.data.id;
+            const fileName = res.data.original_name;
+            const downloadUrl = `/api/v1/files/${fileId}/download`;
             if (targetTr) {
               // Per-line: stash on the row so only this line receives the file.
-              targetTr.dataset.pendingDoc = res.url;
-              targetTr.dataset.pendingDocName = res.fileName;
+              targetTr.dataset.pendingDoc = downloadUrl;
+              targetTr.dataset.pendingDocName = fileName;
               targetTr.dataset.clearDoc = "0";
             } else {
-              meta.quotedDoc = { url: res.url, fileName: res.fileName };
+              meta.quotedDoc = { url: downloadUrl, fileName: fileName };
             }
             if (statusEl) {
               statusEl.innerHTML =
-                `<span class="text-success"><i class="bi bi-check2"></i> ${i18n('msg_doc_uploaded').replace('{file}', res.fileName)}</span> ` +
+                `<span class="text-success"><i class="bi bi-check2"></i> ${i18n('msg_doc_uploaded').replace('{file}', fileName)}</span> ` +
                 `<a href="javascript:void(0)" onclick="window.removeQuoteDoc()" class="ms-1 small text-danger">${i18n('btn_remove_doc')}</a>`;
             }
             if (typeof window.updateQuoteDocPreviews === "function") window.updateQuoteDocPreviews();
@@ -4562,25 +4565,15 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
             if (statusEl) statusEl.innerHTML = "";
             if (targetTr && typeof window.updateQuoteDocPreviews === "function") window.updateQuoteDocPreviews();
             Swal.fire(i18n("btn_error"),
-              i18n("msg_doc_upload_failed") + (res && res.error ? " (" + res.error + ")" : ""),
+              i18n("msg_doc_upload_failed") + (res && res.message ? " (" + res.message + ")" : ""),
               "error");
           }
         })
-        .withFailureHandler(function (err) {
+        .catch(function (err) {
           if (statusEl) statusEl.innerHTML = "";
           console.error("Upload failed:", err);
           if (targetTr && typeof window.updateQuoteDocPreviews === "function") window.updateQuoteDocPreviews();
           Swal.fire(i18n("btn_error"), String(err), "error");
-        })
-        .uploadQuoteAttachment({
-          orderId: meta.orderId || "",
-          // Per-line uploads use the row's own Quote ID so the Drive folder matches
-          // the round this line came from, not just the card's newest one.
-          quoteId: (targetTr && String(targetTr.dataset.quoteId || "").trim()) || meta.quoteId || "",
-          supplier: meta.supplier || "",
-          site: meta.site || "",
-          fileName: file.name,
-          files: pages,
         });
     };
 

@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
@@ -106,7 +106,7 @@ function buildReqItemsTable(items) {
       <td style="border:1px solid #ddd;padding:4px;">${desc}</td>
       <td style="border:1px solid #ddd;padding:4px;text-align:center;">${qty}</td>
       <td style="border:1px solid #ddd;padding:4px;">${notes}</td>
-      <td style="border:1px solid #ddd;padding:4px;text-align:center;">${imagesHtml || '—'}</td>
+      <td style="border:1px solid #ddd;padding:4px;text-align:center;">${imagesHtml || 'â€”'}</td>
     </tr>`;
   }).join('');
   return `
@@ -198,7 +198,7 @@ async function sendRequirementEmail(shipment, orderId, authenticatedUser) {
 // better-sqlite3 -> { results: [...] }, D1/Cloudflare -> [...] directly.
 const allRows = (result) => result && result.results !== undefined ? result.results : result;
 
-// Movement_Val asset types → their column in the `movement_val` table.
+// Movement_Val asset types â†’ their column in the `movement_val` table.
 // Mirrors GestionActivosGS.getSheetColForType().
 const ASSET_TYPE_COLUMN = {
   maquinaria: 'maquinaria',
@@ -206,14 +206,14 @@ const ASSET_TYPE_COLUMN = {
   vehiculos: 'vehiculos'
 };
 
-// GestionActivosGS.isAuthorizedRole — only admin/manager may edit assets.
+// GestionActivosGS.isAuthorizedRole â€” only admin/manager may edit assets.
 const isAuthorizedRole = (role) => {
   const r = String(role || '').trim().toLowerCase();
   return r === 'admin' || r === 'manager';
 };
 
 // Maps a raw lifecycle status string to the canonical stage name.
-// Ported from Código.js normalizeStage() inside getLifecycleReportData.
+// Ported from CÃ³digo.js normalizeStage() inside getLifecycleReportData.
 const normalizeLifecycleStage = (s) => {
   if (!s) return '';
   const x = String(s).toLowerCase();
@@ -237,7 +237,7 @@ const LIFECYCLE_PRECEDENCE = [
 ];
 
 // Builds the lifecycle entries from the requirement map built by
-// getLifecycleReportData(). Ported from Código.js.
+// getLifecycleReportData(). Ported from CÃ³digo.js.
 const buildLifecycleEntries = (reqMap) => {
   return Object.keys(reqMap).map((orderId) => {
     const req = reqMap[orderId];
@@ -322,7 +322,7 @@ const exec = async (db, sql, params = []) => {
  * back here for any google.script.run.<fn>() call it cannot map.
  *
  * Responses use raw GAS-style return values (arrays/objects/null),
- * NOT the { status, data } envelope — the frontend expects the raw
+ * NOT the { status, data } envelope â€” the frontend expects the raw
  * value, exactly as google.script.run delivered it.
  *
  * Every function carries the GAS argument signature and the GAS return
@@ -333,7 +333,7 @@ const exec = async (db, sql, params = []) => {
  */
 
 const IMPLEMENTED = {
-  // InvMovGS.getPeople — active people list from the People sheet.
+  // InvMovGS.getPeople â€” active people list from the People sheet.
   // GAS shape: {id, name, department, active, sector, rut, email}
   getPeople: async (db) => {
     const rows = await queryAll(db, `
@@ -400,7 +400,7 @@ const IMPLEMENTED = {
     return Object.values(map).filter((x) => x.active > 0);
   },
 
-  // Recreates Código.js getRequirementsHistory(): one row per requisition
+  // Recreates CÃ³digo.js getRequirementsHistory(): one row per requisition
   // ITEM (the Ordenes sheet had one row per item), newest first, with the
   // exact GAS field names. Excludes Draft rows (GAS: estado !== "Draft"
   // and order not starting with "DRAFT-"). Row numbers emulate the sheet
@@ -502,7 +502,7 @@ const IMPLEMENTED = {
   // Raw GAS-style return values so gas-shim.js clients work via
   // POST /api/v1/legacy/:fn.
 
-  // ControlCombustibleGS.getFuelBalance — balance = purchased - consumed.
+  // ControlCombustibleGS.getFuelBalance â€” balance = purchased - consumed.
   // The GAS original summed column C of "CompraCombustible" (purchases) and
   // column E of "ControlCombustible" (consumption).
   getFuelBalance: async (db) => {
@@ -517,7 +517,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // ControlCombustibleGS.getFuelHistory — last 50 consumption rows, newest
+  // ControlCombustibleGS.getFuelHistory â€” last 50 consumption rows, newest
   // first. GAS returned positional arrays:
   //   [Date, Proyecto, TipoActivo, ID/Patente, Litros, KM, Nombre, User]
   getFuelHistory: async (db) => {
@@ -546,7 +546,7 @@ const IMPLEMENTED = {
     });
   },
 
-  // ControlCombustibleGS.getFuelPurchaseHistory — purchase history.
+  // ControlCombustibleGS.getFuelPurchaseHistory â€” purchase history.
   getFuelPurchaseHistory: async (db) => {
     const rows = await queryAll(db, `
       SELECT purchase_date, proveedor, litros, factura, user_name
@@ -568,7 +568,7 @@ const IMPLEMENTED = {
     });
   },
 
-  // MinMaxGS.getMinMaxData — per-site min/max + global fallback + sites.
+  // MinMaxGS.getMinMaxData â€” per-site min/max + global fallback + sites.
   getMinMaxData: async (db) => {
     const [minRows, prodRows, siteRows] = await Promise.all([
       queryAll(db, `SELECT site, geo_code AS geo, min_qty AS min, max_qty AS max, last_updated, updated_by FROM min_max`),
@@ -588,7 +588,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // MinMaxGS.getSiteMinMaxMap — site -> geo -> {min, max}.
+  // MinMaxGS.getSiteMinMaxMap â€” site -> geo -> {min, max}.
   getSiteMinMaxMap: async (db) => {
     const rows = await queryAll(db, `SELECT site, geo_code AS geo, min_qty AS min, max_qty AS max FROM min_max`);
     const map = {};
@@ -599,7 +599,7 @@ const IMPLEMENTED = {
     return map;
   },
 
-  // InvMovGS.getPersonById — person by id or name.
+  // InvMovGS.getPersonById â€” person by id or name.
   getPersonById: async (db, args) => {
     const id = args[0];
     const r = await queryOne(db, `
@@ -621,7 +621,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // ScannerGS.getScannerData(startDateStr, endDateStr) — count history.
+  // ScannerGS.getScannerData(startDateStr, endDateStr) â€” count history.
   // GAS shape: {history: [[countId, dateIso, userName, status, location]]}
   getScannerData: async (db, args) => {
     const [startDateStr, endDateStr] = args;
@@ -658,7 +658,7 @@ const IMPLEMENTED = {
     return { history: history.slice(0, 50) };
   },
 
-  // ScannerGS.getItemsByCountId(countId) — the items of a stock count.
+  // ScannerGS.getItemsByCountId(countId) â€” the items of a stock count.
   // GAS shape: [{barcode, geo, pn, en, es, qty}]
   getItemsByCountId: async (db, args) => {
     const countId = args[0];
@@ -678,7 +678,7 @@ const IMPLEMENTED = {
     }));
   },
 
-  // BundlesGS.getBundles — list of bundles.
+  // BundlesGS.getBundles â€” list of bundles.
   // GAS shape: [{bundleId, name, isActive, itemCount}]
   getBundles: async (db) => {
     const rows = await queryAll(db, `
@@ -695,7 +695,7 @@ const IMPLEMENTED = {
     }));
   },
 
-  // BundlesGS.getBundleItems — items in a bundle.
+  // BundlesGS.getBundleItems â€” items in a bundle.
   // GAS shape: {bundle: {bundleId, name, isActive}, items: [{geo, qty}]}
   getBundleItems: async (db, args) => {
     const bundleId = args[0];
@@ -708,7 +708,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // BundlesGS.getBundleDetails — bundle header + items.
+  // BundlesGS.getBundleDetails â€” bundle header + items.
   // The frontend reads `data.bundle.bundleId` directly, so a missing bundle
   // returns an empty structure instead of throwing (GAS threw "Bundle not
   // found", which the UI surfaced as an unhandled error).
@@ -725,7 +725,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // Código.js.getBundlesForSearch — bundles matching a search term.
+  // CÃ³digo.js.getBundlesForSearch â€” bundles matching a search term.
   getBundlesForSearch: async (db, args) => {
     const term = String(args[0] || '').trim();
     const params = [];
@@ -750,7 +750,7 @@ const IMPLEMENTED = {
     }));
   },
 
-  // LocationMapGS.getSectors — distinct LocationIDs (Sectors).
+  // LocationMapGS.getSectors â€” distinct LocationIDs (Sectors).
   // GAS shape: array of unique non-empty strings.
   getSectors: async (db) => {
     const rows = await queryAll(db, `
@@ -761,7 +761,7 @@ const IMPLEMENTED = {
     return rows.map((r) => String(r.location_id).trim());
   },
 
-  // LocationMapGS.getRackConfig — rack definitions.
+  // LocationMapGS.getRackConfig â€” rack definitions.
   // GAS shape: [{locationId, rackId, hasSides, noOfShelves}]
   getRackConfig: async (db) => {
     const rows = await queryAll(db, `
@@ -814,7 +814,7 @@ const IMPLEMENTED = {
       });
   },
 
-  // CreateReqGS.getLiveStockMap — available stock grouped by geo.
+  // CreateReqGS.getLiveStockMap â€” available stock grouped by geo.
   getLiveStockMap: async (db) => {
     const rows = await queryAll(db, `SELECT p.geo, SUM(COALESCE(s.available_qty, s.quantity, 0)) AS qty FROM stock s JOIN products p ON p.id = s.item_id WHERE s.is_active = 1 AND p.is_active = 1 GROUP BY p.geo`);
     const map = {};
@@ -831,7 +831,7 @@ const IMPLEMENTED = {
 
 
 
-  // InvMovGS.getMovementValidation — the distinct validation lists used to
+  // InvMovGS.getMovementValidation â€” the distinct validation lists used to
   // populate the movement dropdowns.
   // GAS shape: {Sector: [], Maquina: [], Generador: [], Vehiculo: []}
   getMovementValidation: async (db) => {
@@ -872,7 +872,7 @@ const IMPLEMENTED = {
     return { status: 'success', success: true, data: { lastKm: km }, lastKm: km };
   },
 
-  // RFQGS.getRFQStockMap — available stock per geo for RFQ.
+  // RFQGS.getRFQStockMap â€” available stock per geo for RFQ.
   getRFQStockMap: async (db, args) => {
     const site = String((args && args[0]) || '').trim().toUpperCase();
     const rows = await queryAll(db, `
@@ -899,14 +899,14 @@ const IMPLEMENTED = {
     return { siteStock, bodegaStock };
   },
 
-  // QuoteMgmtGS.getRequirementQuoteRows — quotes for a requisition/order.
+  // QuoteMgmtGS.getRequirementQuoteRows â€” quotes for a requisition/order.
   getRequirementQuoteRows: async (db, args) => {
     const orderId = String(args[0] || '').trim();
     if (!orderId) return [];
     return queryAll(db, `SELECT q.id, q.quote_no, q.supplier_id, q.status, q.total, q.created_at FROM quotes q WHERE q.requisition_id = ? ORDER BY q.created_at DESC`, [orderId]);
   },
 
-  // Código.js.getPendingRequirementsForRFQ — requirements grouped by order for RFQ page.
+  // CÃ³digo.js.getPendingRequirementsForRFQ â€” requirements grouped by order for RFQ page.
   getPendingRequirementsForRFQ: async (db, args = []) => {
     const site = args && args[0] ? String(args[0]).trim() : '';
     const statusFilter = args && args[1] ? String(args[1]).trim().toLowerCase() : 'approved';
@@ -1022,7 +1022,7 @@ const IMPLEMENTED = {
     return Object.values(groupedReqs);
   },
 
-  // Código.js.getInventoryChunk — paginated product inventory.
+  // CÃ³digo.js.getInventoryChunk â€” paginated product inventory.
   getInventoryChunk: async (db, args) => {
     const page = Math.max(parseInt(args[0]) || 1, 1);
     const limit = Math.max(parseInt(args[1]) || 50, 1);
@@ -1030,12 +1030,12 @@ const IMPLEMENTED = {
     return queryAll(db, `SELECT id, geo, pn, name, description, unit, cost, min_qty, max_qty FROM products WHERE is_active = 1 ORDER BY geo LIMIT ? OFFSET ?`, [limit, offset]);
   },
 
-  // GestionActivosGS.getAssetsData(assetType) — the asset list for a tab.
+  // GestionActivosGS.getAssetsData(assetType) â€” the asset list for a tab.
   // GAS shape: [{_rowIndex, name}]
   getAssetsData: async (db, args) => {
     const assetType = String(args[0] || '');
     const column = ASSET_TYPE_COLUMN[assetType];
-    if (!column) throw new Error('Tipo de activo no válido.');
+    if (!column) throw new Error('Tipo de activo no vÃ¡lido.');
     const rows = await queryAll(db, `SELECT id, ${column} AS name FROM movement_val ORDER BY id`);
     return rows
       .filter((r) => r.name && String(r.name).trim() !== '')
@@ -1046,12 +1046,12 @@ const IMPLEMENTED = {
   saveAsset: async (db, args) => {
     const [assetType, assetData, isEdit, userRole] = args;
     const column = ASSET_TYPE_COLUMN[String(assetType || '')];
-    if (!column) throw new Error('Tipo de activo no válido.');
+    if (!column) throw new Error('Tipo de activo no vÃ¡lido.');
     if (isEdit && !isAuthorizedRole(userRole)) {
       throw new Error('Acceso denegado: Solo usuarios con rol Admin o Manager pueden editar registros.');
     }
     const name = String((assetData && assetData.name) || '').trim();
-    if (!name) throw new Error('El nombre o identificador no puede estar vacío.');
+    if (!name) throw new Error('El nombre o identificador no puede estar vacÃ­o.');
 
     if (isEdit && assetData && assetData._rowIndex) {
       await exec(db, `UPDATE movement_val SET ${column} = ? WHERE id = ?`, [name, assetData._rowIndex]);
@@ -1065,7 +1065,7 @@ const IMPLEMENTED = {
   deleteAsset: async (db, args) => {
     const [assetType, rowIndex, userRole] = args;
     const column = ASSET_TYPE_COLUMN[String(assetType || '')];
-    if (!column) throw new Error('Tipo de activo no válido.');
+    if (!column) throw new Error('Tipo de activo no vÃ¡lido.');
     if (!isAuthorizedRole(userRole)) {
       throw new Error('Acceso denegado: Solo usuarios con rol Admin o Manager pueden eliminar registros.');
     }
@@ -1074,7 +1074,7 @@ const IMPLEMENTED = {
     return true;
   },
 
-  // CreateBulkPOMACGS.getMacroHistoryLogs — the bulk-PO audit trail.
+  // CreateBulkPOMACGS.getMacroHistoryLogs â€” the bulk-PO audit trail.
   getMacroHistoryLogs: async (db) => {
     const rows = await queryAll(db, `
       SELECT timestamp, user_email, po_count, export_type, file_id
@@ -1096,7 +1096,7 @@ const IMPLEMENTED = {
     });
   },
 
-  // Código.js.getRequirementRouting(siteName, categoryName, subAreaName)
+  // CÃ³digo.js.getRequirementRouting(siteName, categoryName, subAreaName)
   // Recipients come from the users table (Position = category and Role in
   // office/admin/manager); the suffix comes from the site code.
   getRequirementRouting: async (db, args) => {
@@ -1139,7 +1139,7 @@ const IMPLEMENTED = {
     (users || []).forEach((u) => {
       const uCat = String(u.position || '').trim().toLowerCase();
       const uRole = String(u.role || '').trim().toLowerCase();
-      if (!uCat) return;                       // no Position → never a recipient
+      if (!uCat) return;                       // no Position â†’ never a recipient
       if (!acceptedCats.includes(uCat)) return;
       if (!['office', 'admin', 'manager'].includes(uRole)) return;
       if (Number(u.is_active) !== 1) return;
@@ -1169,7 +1169,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // QuoteMgmtGS.getReqQuoteTimeline(orderId) — the requirement/quote timeline.
+  // QuoteMgmtGS.getReqQuoteTimeline(orderId) â€” the requirement/quote timeline.
   getReqQuoteTimeline: async (db, args) => {
     const oid = String(args[0] || '').trim();
     const empty = {
@@ -1236,7 +1236,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // Código.js.getLifecycleReportData(params) — the requirement lifecycle view.
+  // CÃ³digo.js.getLifecycleReportData(params) â€” the requirement lifecycle view.
   getLifecycleReportData: async (db, args) => {
     const params = args[0] || {};
     const reqRows = await IMPLEMENTED.getRequirementsHistory(db, []);
@@ -1316,14 +1316,14 @@ const IMPLEMENTED = {
     return { entries: filtered, total: filtered.length };
   },
 
-  // QuoteMgmtGS.getPoReminderDraft — latest quote for a requisition (reminder draft).
+  // QuoteMgmtGS.getPoReminderDraft â€” latest quote for a requisition (reminder draft).
   getPoReminderDraft: async (db, args) => {
     const orderId = String(args[0] || '').trim();
     if (!orderId) return null;
     return queryOne(db, `SELECT q.id, q.quote_no, q.requisition_id, q.supplier_id, q.status, q.total, q.pdf_url, q.created_at FROM quotes q WHERE q.requisition_id = ? ORDER BY q.created_at DESC LIMIT 1`, [orderId]) || null;
   },
 
-  // Código.js.getUserSignature — HTML signature block for a user email.
+  // CÃ³digo.js.getUserSignature â€” HTML signature block for a user email.
   getUserSignature: async (db, args) => {
     const email = String(args[0] || '').trim();
     const r = await queryOne(db, `SELECT name, position, site, email, sign_link FROM users WHERE email = ? LIMIT 1`, [email]);
@@ -1332,26 +1332,26 @@ const IMPLEMENTED = {
     return `<div style="font-family:Arial,sans-serif;margin-top:15px;line-height:1.2;"><img src="${imageSrc}" style="width:120px;height:auto;display:block;margin-bottom:8px;" alt="RECON Logo"><div style="border-left:2px solid #198754;padding-left:10px;margin-top:5px;"><strong style="font-size:14px;color:#333;">${r.name || ''}</strong><br><span style="font-size:12px;color:#666;">${r.position || ''} | ${r.site || 'Chile'}</span><br><span style="font-size:11px;color:#198754;">${r.email || ''}</span></div></div>`;
   },
 
-  // Código.js.getCesiumToken — Cesium access token from config.
+  // CÃ³digo.js.getCesiumToken â€” Cesium access token from config.
   getCesiumToken: async (db) => {
     const r = await queryOne(db, `SELECT value FROM config WHERE key = 'cesium_token' LIMIT 1`);
     return r ? r.value : '';
   },
 
-  // Código.js.getCompanyLogo — company logo URL from config.
+  // CÃ³digo.js.getCompanyLogo â€” company logo URL from config.
   getCompanyLogo: async (db) => {
     const r = await queryOne(db, `SELECT value FROM config WHERE key = 'company_logo' LIMIT 1`);
     return r ? r.value : '';
   },
 
-  // CreateBulkPOMACGS.getDownloadUrlById — download URL (R2 key) for a file id.
+  // CreateBulkPOMACGS.getDownloadUrlById â€” download URL (R2 key) for a file id.
   getDownloadUrlById: async (db, args) => {
     const fileId = String(args[0] || '').trim();
     const r = await queryOne(db, `SELECT r2_key FROM files WHERE id = ? LIMIT 1`, [fileId]);
     return r ? r.r2_key : null;
   },
 
-  // Código.js.getEmailSuggestions — people + supplier email suggestions.
+  // CÃ³digo.js.getEmailSuggestions â€” people + supplier email suggestions.
   getEmailSuggestions: async (db, args) => {
     const term = String(args[0] || '').trim().toLowerCase();
     if (!term) return [];
@@ -1386,7 +1386,7 @@ const IMPLEMENTED = {
     return results.slice(0, 10);
   },
 
-  // Código.js.getAdminData — aggregate admin counts.
+  // CÃ³digo.js.getAdminData â€” aggregate admin counts.
   getAdminData: async (db) => {
     const counts = {};
     const tables = ['users', 'sites', 'products', 'requisitions', 'quotes', 'inventory_movements', 'fuel_entries'];
@@ -1397,13 +1397,13 @@ const IMPLEMENTED = {
     return counts;
   },
 
-  // Código.js.getAutoSelectedSite — default active site.
+  // CÃ³digo.js.getAutoSelectedSite â€” default active site.
   getAutoSelectedSite: async (db) => {
     const r = await queryOne(db, `SELECT name, code FROM sites WHERE active = 1 ORDER BY name LIMIT 1`);
     return r ? { name: r.name, code: r.code } : null;
   },
 
-  // ControlCombustibleGS.saveFuelEntry — record a fuel consumption entry.
+  // ControlCombustibleGS.saveFuelEntry â€” record a fuel consumption entry.
   // GAS appended: [Date, Proyecto, TipoActivo, ID/Patente, Litros, KM,
   //                Nombre, User]
   saveFuelEntry: async (db, args) => {
@@ -1421,7 +1421,7 @@ const IMPLEMENTED = {
     return { status: 'success', success: true, id, message: 'Registro guardado exitosamente' };
   },
 
-  // ControlCombustibleGS.saveFuelPurchase — record a fuel purchase.
+  // ControlCombustibleGS.saveFuelPurchase â€” record a fuel purchase.
   // GAS appended: [Date, Proveedor, Litros, Factura, Nombre Usuario]
   saveFuelPurchase: async (db, args) => {
     const d = args[0] || {};
@@ -1433,7 +1433,7 @@ const IMPLEMENTED = {
     return { status: 'success', success: true, id, message: 'Compra registrada exitosamente' };
   },
 
-  // InvMovGS.savePerson — create or update a person (People sheet record).
+  // InvMovGS.savePerson â€” create or update a person (People sheet record).
   // GAS payload: {id, name, department, active, sector, notes, rut,
   //                biometricTemplate, email}
   savePerson: async (db, args) => {
@@ -1463,7 +1463,7 @@ const IMPLEMENTED = {
     return { success: true, message: 'Person added successfully' };
   },
 
-  // InvMovGS.togglePersonStatus — activate/deactivate a person.
+  // InvMovGS.togglePersonStatus â€” activate/deactivate a person.
   // GAS payload: (id, newStatus)
   togglePersonStatus: async (db, args) => {
     const [id, newStatus] = args;
@@ -1474,7 +1474,7 @@ const IMPLEMENTED = {
     return { success: true, message: active ? 'Person activated' : 'Person deactivated' };
   },
 
-  // MinMaxGS.saveMinMaxItems — save min/max levels (one row per item).
+  // MinMaxGS.saveMinMaxItems â€” save min/max levels (one row per item).
   saveMinMaxItems: async (db, args) => {
     const items = args[0] || [];
     for (const it of items) {
@@ -1483,7 +1483,7 @@ const IMPLEMENTED = {
     return { success: true, count: items.length };
   },
 
-  // MinMaxGS.deleteMinMaxItems — delete min/max rows.
+  // MinMaxGS.deleteMinMaxItems â€” delete min/max rows.
   deleteMinMaxItems: async (db, args) => {
     const items = args[0] || [];
     for (const it of items) {
@@ -1492,7 +1492,7 @@ const IMPLEMENTED = {
     return { success: true };
   },
 
-  // LabelsGS.saveLabelTemplate — save or update a label template.
+  // LabelsGS.saveLabelTemplate â€” save or update a label template.
   // GAS payload: {templateId, templateName, elementsJson, canvasWidth, canvasHeight}
   saveLabelTemplate: async (db, args) => {
     const t = args[0] || {};
@@ -1515,7 +1515,7 @@ const IMPLEMENTED = {
     return { success: true, message: 'Template saved successfully!', templateId: id };
   },
 
-  // LabelsGS.getLabelTemplates — all templates, or one by id.
+  // LabelsGS.getLabelTemplates â€” all templates, or one by id.
   getLabelTemplates: async (db, args) => {
     const templateId = args[0];
     const rows = await queryAll(db, `
@@ -1534,14 +1534,14 @@ const IMPLEMENTED = {
     return templates;
   },
 
-  // LabelsGS.deleteLabelTemplate — delete a label template.
+  // LabelsGS.deleteLabelTemplate â€” delete a label template.
   deleteLabelTemplate: async (db, args) => {
     const id = args[0];
     await exec(db, `DELETE FROM labels WHERE id = ?`, [id]);
     return { success: true };
   },
 
-  // BundlesGS.saveBundle — create or update a bundle with its items.
+  // BundlesGS.saveBundle â€” create or update a bundle with its items.
   // GAS payload: {bundleId, name, isActive, items:[{geoCode, qty}]}
   saveBundle: async (db, args) => {
     const b = args[0] || {};
@@ -1568,14 +1568,14 @@ const IMPLEMENTED = {
     return { success: true, bundleId };
   },
 
-  // LocationMapGS.saveNewRack — create a rack location mapping.
+  // LocationMapGS.saveNewRack â€” create a rack location mapping.
   saveNewRack: async (db, args) => {
     const r = args[0] || {};
     await exec(db, `INSERT INTO item_location_map (location_id, rack_id, has_sides, no_of_shelves, item_id, side_code, shelf_level) VALUES (?, ?, ?, ?, ?, ?, ?)`, [r.locationId, r.rackId, r.hasSides ? 1 : 0, r.noOfShelves, r.itemId, r.sideCode, r.shelfLevel]);
     return { success: true };
   },
 
-  // ScannerGS.saveStockCount(sessionData) — save a stock count and apply it
+  // ScannerGS.saveStockCount(sessionData) â€” save a stock count and apply it
   // to the stock table.
   // GAS payload: {userName, location, stockMode, items:[{barcode, geo, pn, en, es, qty}]}
   saveStockCount: async (db, args) => {
@@ -1610,7 +1610,7 @@ const IMPLEMENTED = {
         LIMIT 1
       `, [barcode, barcode, barcode, location]);
 
-      if (!stockRow) continue;   // not stocked at this location — nothing to adjust
+      if (!stockRow) continue;   // not stocked at this location â€” nothing to adjust
       if (stockMode === 'replace') {
         const delta = counted - (Number(stockRow.quantity) || 0);
         if (delta === 0) { processed++; continue; }
@@ -1629,7 +1629,7 @@ const IMPLEMENTED = {
     return { success: true, countId, stockUpdated: true, stockMode, processed };
   },
 
-  // Código.js.updateInventoryItem — update a product's inventory fields.
+  // CÃ³digo.js.updateInventoryItem â€” update a product's inventory fields.
   updateInventoryItem: async (db, args) => {
     const it = args[0] || {};
     await exec(db, `UPDATE products SET pn = ?, name = ?, description = ?, unit = ?, cost = ?, min_qty = ?, max_qty = ? WHERE geo = ?`, [it.pn, it.name, it.description, it.unit, it.cost, it.minQty, it.maxQty, it.geo]);
@@ -1749,7 +1749,7 @@ const IMPLEMENTED = {
     }
   },
 
-  // Código.js.updateRequirementOnSheetWithRecipient — set requisition recipient + send update email.
+  // CÃ³digo.js.updateRequirementOnSheetWithRecipient â€” set requisition recipient + send update email.
   updateRequirementOnSheetWithRecipient: async (db, args, authenticatedUser) => {
     const orderId = args[0] || '';
     const header = args[1] || {};
@@ -1842,7 +1842,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // Código.js.sendFinalRFQ — send final RFQ/quote email with item table via Microsoft Graph,
+  // CÃ³digo.js.sendFinalRFQ â€” send final RFQ/quote email with item table via Microsoft Graph,
   // save quote + quote_items into the database, and update requisition status.
   sendFinalRFQ: async (db, args, authenticatedUser) => {
     const details = args[0] || {};
@@ -2033,7 +2033,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // EditPinGS.updateUserPin — hash and store a user PIN.
+  // EditPinGS.updateUserPin â€” hash and store a user PIN.
   updateUserPin: async (db, args) => {
     const [email, pin] = args;
     const pinHash = bcrypt.hashSync(pin, 10);
@@ -2041,8 +2041,8 @@ const IMPLEMENTED = {
     return { success: true };
   },
 
-  // QuoteMgmtGS.markQuoteDeleted — mark a quote deleted.
-  // QuoteMgmtGS.markQuoteDeleted — mark a quote deleted (all items and quote row).
+  // QuoteMgmtGS.markQuoteDeleted â€” mark a quote deleted.
+  // QuoteMgmtGS.markQuoteDeleted â€” mark a quote deleted (all items and quote row).
   markQuoteDeleted: async (db, args) => {
     // Supports both signatures:
     // 1) (orderId, supplier, category, quoteId)
@@ -2098,7 +2098,7 @@ const IMPLEMENTED = {
     return { success: true, count: targetQuoteIds.length };
   },
 
-  // CreateReqGS.processMassOrders — create ISSUE movements for pending requisition items.
+  // CreateReqGS.processMassOrders â€” create ISSUE movements for pending requisition items.
   processMassOrders: async (db, args, authenticatedUser) => {
     if (Array.isArray(args[0])) {
       const shipments = args[0];
@@ -2238,7 +2238,7 @@ const IMPLEMENTED = {
     return { jobId, status, progress, step };
   },
 
-  // BackgroundJobsGS.bgGetJobs(jobIds) — poll endpoint for the bubble.
+  // BackgroundJobsGS.bgGetJobs(jobIds) â€” poll endpoint for the bubble.
   bgGetJobs: async (db, args) => {
     const jobIds = Array.isArray(args[0]) ? args[0] : [];
     if (!jobIds.length) return [];
@@ -2274,7 +2274,7 @@ const IMPLEMENTED = {
     });
   },
 
-  // InvMovGS.bulkIssueItems(payload) — issue items to a person.
+  // InvMovGS.bulkIssueItems(payload) â€” issue items to a person.
   // GAS payload: {items:[{geo, qty}], person, sector, maquina, generador,
   //               vehiculo, comments, condition, userSite, isHSE, hseItems}
   // Negative qty lines are returns (credited back to stock).
@@ -2304,7 +2304,7 @@ const IMPLEMENTED = {
           payload.maquina || '', payload.generador || '', payload.vehiculo || '',
           condition, payload.comments || '', site, payload.person || 'System']);
 
-        // Item status → IN_USE
+        // Item status â†’ IN_USE
         await exec(db, `UPDATE item_status SET status = 'IN_USE', person = ?, sector = ?, condition = ? WHERE geo = ?`,
           [payload.person || '', payload.sector || '', condition, it.geo]);
       } else {
@@ -2352,7 +2352,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // InvMovGS.bulkReturnItems(payload) — return items to stock.
+  // InvMovGS.bulkReturnItems(payload) â€” return items to stock.
   bulkReturnItems: async (db, args) => {
     const payload = args[0] || {};
     const items = payload.items || [];
@@ -2379,7 +2379,7 @@ const IMPLEMENTED = {
     return { success: true, message: 'Bulk return completed', movementId };
   },
 
-  // InvMovGS.bulkSavePeople(payloadArray, mode) — bulk import of people.
+  // InvMovGS.bulkSavePeople(payloadArray, mode) â€” bulk import of people.
   // mode: 'append' (default) or 'upsert' (match on RUT).
   bulkSavePeople: async (db, args) => {
     const people = args[0] || [];
@@ -2415,7 +2415,7 @@ const IMPLEMENTED = {
         p.biometricTemplate || '', p.email || '', targetId]);
         if ((r && r.meta && r.meta.changes) > 0) {
           updated++;
-          summary.push(`✓ ${p.name || rut} updated`);
+          summary.push(`âœ“ ${p.name || rut} updated`);
         }
       } else {
         const id = 'RD-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
@@ -2425,7 +2425,7 @@ const IMPLEMENTED = {
         `, [id, p.name || '', p.department || '', active, p.sector || '', p.notes || '',
           rut, p.biometricTemplate || '', p.email || '']);
         created++;
-        summary.push(`✓ ${p.name || rut} created`);
+        summary.push(`âœ“ ${p.name || rut} created`);
       }
     }
 
@@ -2543,20 +2543,13 @@ const IMPLEMENTED = {
   },
 
   // CreateReqGS.uploadRequirementItemImages - saves uploaded photos to local uploads/images directory
-  uploadRequirementItemImages: async (db, args) => {
+  uploadRequirementItemImages: async (db, args, user, r2) => {
     const payload = args[0] || {};
     if (!payload || !Array.isArray(payload.files) || payload.files.length === 0) {
       return { success: false, error: 'No file content provided.' };
     }
 
-    const uploadsBase = path.join(__dirname, '..', '..', 'uploads', 'images');
     const siteSanitized = String(payload.site || 'General').replace(/[^a-zA-Z0-9_\-]/g, '_');
-    const targetDir = path.join(uploadsBase, siteSanitized);
-
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
-    }
-
     const stamp = Date.now();
     const urls = [];
 
@@ -2575,13 +2568,33 @@ const IMPLEMENTED = {
       const ext = mime.indexOf('png') !== -1 ? '.png' : (mime.indexOf('webp') !== -1 ? '.webp' : '.jpg');
       const baseName = String(f.name || 'image').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_') || 'image';
       const fileName = `${baseName}_${stamp}_${i + 1}${ext}`;
-      const filePath = path.join(targetDir, fileName);
+      const fileId = uuidv4();
+      const r2Key = `requirement-images/${siteSanitized}/${fileId}/${fileName}`;
+      const buf = Buffer.from(raw, 'base64');
 
-      fs.writeFileSync(filePath, Buffer.from(raw, 'base64'));
+      // Upload to R2
+      if (r2) {
+        await r2.put(r2Key, buf, {
+          httpMetadata: {
+            contentType: mime,
+            contentDisposition: `inline; filename="${fileName}"`,
+          },
+        });
+      }
 
-      // Serve path matching /uploads/images/<site>/<filename>
-      const publicUrl = `/uploads/images/${siteSanitized}/${fileName}`;
-      urls.push(publicUrl);
+      // Store metadata in D1
+      try {
+        const stmt = await db.prepare(`
+          INSERT INTO files (id, original_name, r2_key, content_type, size, category, uploaded_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        await stmt.bind(fileId, fileName, r2Key, mime, buf.length, 'requirement-images', user ? user.userId : null).run();
+      } catch (e) {
+        console.warn('[uploadRequirementItemImages] Failed to store file metadata in D1:', e.message);
+      }
+
+      // Return download URL via API
+      urls.push(`/api/v1/files/${fileId}/download`);
     }
 
     if (!urls.length) {
@@ -2591,11 +2604,11 @@ const IMPLEMENTED = {
     return { success: true, urls };
   },
 
-  // CreateReqGS.saveDraft(shipments) — save a draft requisition.
+  // CreateReqGS.saveDraft(shipments) â€” save a draft requisition.
   // Re-saving the same requisition_no updates the existing draft.
 
 
-  // CreateReqGS.saveDraft(shipments) — save draft requisition(s).
+  // CreateReqGS.saveDraft(shipments) â€” save draft requisition(s).
   saveDraft: async (db, args) => {
     const raw = args[0];
     const shipments = Array.isArray(raw) ? raw : (raw ? [raw] : []);
@@ -3103,7 +3116,7 @@ const IMPLEMENTED = {
     });
   },
 
-  // Recreates Código.js.getSiteData(): [{name, email, suffix}].
+  // Recreates CÃ³digo.js.getSiteData(): [{name, email, suffix}].
   getSiteData: async (db) => {
     const rows = await queryAll(db, `
       SELECT name, code AS suffix FROM sites
@@ -3117,7 +3130,7 @@ const IMPLEMENTED = {
     }));
   },
 
-  // Recreates Código.js.getValidationData(): the reference "mega" object.
+  // Recreates CÃ³digo.js.getValidationData(): the reference "mega" object.
   getValidationData: async (db) => {
     const [categories, subCategories, brands, suppliers, sites, currencies, subAreas] = await Promise.all([
       queryAll(db, `SELECT name FROM categories WHERE active = 1 ORDER BY name`),
@@ -3144,7 +3157,7 @@ const IMPLEMENTED = {
 
   // Recreates OpSphereReactGS.opSphere_getRigDetails(country, site, rigId).
   // The Op_* sheets are not migrated, so the shape is preserved with empty
-  // payloads — the OpSphere module degrades gracefully.
+  // payloads â€” the OpSphere module degrades gracefully.
   opSphere_getRigDetails: async (db, args) => {
     const country = args[0] || '';
     const site = args[1] || '';
@@ -3166,7 +3179,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // Recreates Código.js.verifyUserLogin(userId, pin). The GAS version used
+  // Recreates CÃ³digo.js.verifyUserLogin(userId, pin). The GAS version used
   // Session.getActiveUser() for a Google-email cross-check; in the JWT
   // world the caller is already authenticated and the PIN is compared
   // against the bcrypt hash stored in `users`.
@@ -3196,7 +3209,7 @@ const IMPLEMENTED = {
     };
   },
 
-  // Recreates Código.js.getModuleHtml(moduleName): served the GAS HTML
+  // Recreates CÃ³digo.js.getModuleHtml(moduleName): served the GAS HTML
   // template. The ported frontend keeps the templates in frontend/modules/,
   // so the file is read from disk and returned as HTML text.
   getModuleHtml: async (db, args) => {
@@ -3212,7 +3225,7 @@ const IMPLEMENTED = {
 
     if (!fs.existsSync(resolved)) {
       return `<div style='color:red; padding:20px; background:#fff1f1; border:1px solid red;'>` +
-        `<h4>⚠️ Error in ${moduleName} or its Included Files</h4>` +
+        `<h4>âš ï¸ Error in ${moduleName} or its Included Files</h4>` +
         `<p><b>Message:</b> Module not found</p></div>`;
     }
 
@@ -3228,17 +3241,12 @@ const IMPLEMENTED = {
 // Returns: { success: true, url: '/uploads/<filename>', fileName: '<filename>' }
 //          | { success: false, error: '<message>' }
 // ---------------------------------------------------------------------------
-IMPLEMENTED.uploadQuoteAttachment = async function (db, args) {
+IMPLEMENTED.uploadQuoteAttachment = async function (db, args, user, r2) {
   try {
     const payload = (Array.isArray(args) ? args[0] : args) || {};
 
     if (!Array.isArray(payload.files) || payload.files.length === 0) {
       return { success: false, error: 'No file content provided.' };
-    }
-
-    const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
     }
 
     // Build a safe, unique base name from supplier + orderId + uuid
@@ -3255,17 +3263,36 @@ IMPLEMENTED.uploadQuoteAttachment = async function (db, args) {
       : mime.includes('image/') ? '.jpg'
         : (String(payload.fileName || '').match(/(\.[^.]+)$/) || ['', '.bin'])[1];
 
-    const diskName = baseName + ext;
-    const diskPath = path.join(uploadsDir, diskName);
-
+    const fileId = uuidv4();
+    const r2Key = `quotes/${baseName}_${fileId}${ext}`;
     const buf = Buffer.from(String(f.base64 || ''), 'base64');
     if (buf.length === 0) {
       return { success: false, error: 'File data is empty after base64 decode.' };
     }
-    fs.writeFileSync(diskPath, buf);
+
+    // Upload to R2
+    if (r2) {
+      await r2.put(r2Key, buf, {
+        httpMetadata: {
+          contentType: mime,
+          contentDisposition: `attachment; filename="${payload.fileName || r2Key}"`,
+        },
+      });
+    }
+
+    // Store metadata in D1
+    try {
+      const stmt = await db.prepare(`
+        INSERT INTO files (id, original_name, r2_key, content_type, size, category, uploaded_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      await stmt.bind(fileId, payload.fileName || r2Key, r2Key, mime, buf.length, 'quotes', user ? user.userId : null).run();
+    } catch (e) {
+      console.warn('[uploadQuoteAttachment] Failed to store file metadata in D1:', e.message);
+    }
 
     // Persist URL to the quotes table if quoteId is provided
-    const fileUrl = '/uploads/' + diskName;
+    const fileUrl = `/api/v1/files/${fileId}/download`;
     if (payload.quoteId) {
       try {
         await queryOne(db,
@@ -3275,8 +3302,8 @@ IMPLEMENTED.uploadQuoteAttachment = async function (db, args) {
       } catch (_) { /* non-fatal — URL returned to client regardless */ }
     }
 
-    console.log(`[uploadQuoteAttachment] saved ${diskName} (${buf.length} bytes)`);
-    return { success: true, url: fileUrl, fileName: diskName };
+    console.log(`[uploadQuoteAttachment] saved ${r2Key} (${buf.length} bytes)`);
+    return { success: true, url: fileUrl, fileName: payload.fileName || r2Key };
   } catch (e) {
     console.error('[uploadQuoteAttachment] error:', e);
     return { success: false, error: String(e) };
@@ -3467,7 +3494,7 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
   return { status: 'success', success: true, id, message: 'Compra registrada exitosamente' };
 };
 
-  IMPLEMENTED.processPendingHSEPDFs = async (db) => {
+  IMPLEMENTED.processPendingHSEPDFs = async (db, args, user, r2) => {
     const pendingRows = await queryAll(db, `
       SELECT id, movement_id, worker_id, worker_name, fingerprint_base64,
              match_score, match_timestamp, items_count, items_json
@@ -3478,12 +3505,6 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
 
     if (!pendingRows || pendingRows.length === 0) {
       return { success: true, processed: 0 };
-    }
-
-    const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
-    const hseDir = path.join(uploadsDir, 'hse');
-    if (!fs.existsSync(hseDir)) {
-      fs.mkdirSync(hseDir, { recursive: true });
     }
 
     let processed = 0;
@@ -3508,8 +3529,9 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
 
       try {
         const fileName = `HSE_Receipt_${movementId.replace(/[^a-zA-Z0-9_\-]/g, '_')}_${Date.now()}.pdf`;
-        const filePath = path.join(hseDir, fileName);
-        const pdfUrl = `/uploads/hse/${fileName}`;
+        const fileId = uuidv4();
+        const r2Key = `hse-receipts/${fileId}/${fileName}`;
+        const pdfUrl = `/api/v1/files/${fileId}/download`;
 
         if (!PDFDocument) {
           throw new Error('PDFDocument (pdfkit) library not loaded');
@@ -3517,8 +3539,8 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
 
         await new Promise((resolve, reject) => {
           const doc = new PDFDocument({ margin: 40, size: 'A4' });
-          const stream = fs.createWriteStream(filePath);
-          doc.pipe(stream);
+          const chunks = [];
+          doc.on('data', (chunk) => chunks.push(chunk));
 
           // Header
           doc.rect(40, 40, 515, 45).fill('#0066cc');
@@ -3540,7 +3562,7 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
           doc.font('Helvetica').text(`Empleado:`, 55, startInfoY + 40);
           doc.font('Helvetica-Bold').text(`${workerName} (${workerId})`, 135, startInfoY + 40);
 
-          doc.font('Helvetica').text(`Puntaje Biométrico:`, 320, startInfoY + 10);
+          doc.font('Helvetica').text(`Puntaje BiomÃ©trico:`, 320, startInfoY + 10);
           const scoreColor = matchScore >= 60 ? '#27ae60' : '#c0392b';
           doc.fillColor(scoreColor).font('Helvetica-Bold').text(`${matchScore}/100 (${matchScore >= 60 ? 'VERIFICADO' : 'NO COINCIDE'})`, 425, startInfoY + 10);
 
@@ -3549,8 +3571,8 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
           doc.rect(40, tableY, 515, 22).fill('#0066cc');
           doc.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold');
           doc.text('No.', 45, tableY + 6, { width: 30, align: 'center' });
-          doc.text('Código Producto (GEO)', 80, tableY + 6, { width: 130 });
-          doc.text('Descripción', 215, tableY + 6, { width: 250 });
+          doc.text('CÃ³digo Producto (GEO)', 80, tableY + 6, { width: 130 });
+          doc.text('DescripciÃ³n', 215, tableY + 6, { width: 250 });
           doc.text('Cantidad', 470, tableY + 6, { width: 75, align: 'center' });
 
           // Table Rows
@@ -3569,7 +3591,7 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
             });
           } else {
             doc.rect(40, tableY, 515, 20).fillAndStroke('#ffffff', '#dee2e6');
-            doc.text('Sin ítems especificados', 45, tableY + 5, { align: 'center', width: 505 });
+            doc.text('Sin Ã­tems especificados', 45, tableY + 5, { align: 'center', width: 505 });
             tableY += 20;
           }
 
@@ -3578,7 +3600,7 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
           doc.rect(40, sigY, 515, 170).fillAndStroke('#ffffff', '#cccccc');
 
           doc.fillColor('#0066cc').fontSize(11).font('Helvetica-Bold')
-            .text('FIRMA BIOMÉTRICA DE RECEPCIÓN', 40, sigY + 12, { align: 'center', width: 515 });
+            .text('FIRMA BIOMÃ‰TRICA DE RECEPCIÃ“N', 40, sigY + 12, { align: 'center', width: 515 });
 
           // If fingerprint image base64 is present, draw image
           let imgDrawn = false;
@@ -3602,12 +3624,36 @@ IMPLEMENTED.saveFuelPurchase = async (db, args, user) => {
             .text(`Receptor: ${workerName}  |  RUT/ID: ${workerId}`, 40, workerTextY, { align: 'center', width: 515 });
 
           doc.fillColor('#666666').fontSize(8).font('Helvetica')
-            .text('Por medio de mi huella digital, confirmo la recepción conforme de elementos de protección personal (EPP).', 40, workerTextY + 16, { align: 'center', width: 515 })
-            .text('CONFORME LA LEY VIGENTE - Artículo 184 del Código del Trabajo, Ley N°16.744 y D.S. N°594.', 40, workerTextY + 28, { align: 'center', width: 515 });
+            .text('Por medio de mi huella digital, confirmo la recepciÃ³n conforme de elementos de protecciÃ³n personal (EPP).', 40, workerTextY + 16, { align: 'center', width: 515 })
+            .text('CONFORME LA LEY VIGENTE - ArtÃ­culo 184 del CÃ³digo del Trabajo, Ley NÂ°16.744 y D.S. NÂ°594.', 40, workerTextY + 28, { align: 'center', width: 515 });
 
           doc.end();
-          stream.on('finish', resolve);
-          stream.on('error', reject);
+          doc.on('end', () => {
+            const pdfBuf = Buffer.concat(chunks);
+            // Upload to R2
+            if (r2) {
+              r2.put(r2Key, pdfBuf, {
+                httpMetadata: {
+                  contentType: 'application/pdf',
+                  contentDisposition: `attachment; filename="${fileName}"`,
+                },
+              }).catch(err => console.error('[processPendingHSEPDFs] R2 upload error:', err.message));
+            }
+            // Store metadata in D1
+            try {
+              const stmt = db.prepare(`
+                INSERT INTO files (id, original_name, r2_key, content_type, size, category, uploaded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `);
+              stmt.bind(fileId, fileName, r2Key, 'application/pdf', pdfBuf.length, 'hse-receipts', user ? user.userId : null).run().catch(e =>
+                console.warn('[processPendingHSEPDFs] D1 store error:', e.message)
+              );
+            } catch (e) {
+              console.warn('[processPendingHSEPDFs] Failed to store file metadata in D1:', e.message);
+            }
+            resolve();
+          });
+          doc.on('error', reject);
         });
 
         // Update database with pdf_url and status = DONE
@@ -3654,7 +3700,7 @@ router.post('/:fn', authenticateToken, async (req, res) => {
   try {
     if (Object.prototype.hasOwnProperty.call(IMPLEMENTED, fn)) {
       const db = req.app.locals.db;
-      const value = await IMPLEMENTED[fn](db, (req.body && req.body.args) || [], req.user);
+      const value = await IMPLEMENTED[fn](db, (req.body && req.body.args) || [], req.user, req.app.locals.r2);
       return res.json(value);
     }
     if (KNOWN_UNIMPLEMENTED.has(fn)) {
@@ -3671,3 +3717,4 @@ router.post('/:fn', authenticateToken, async (req, res) => {
 
 module.exports = router;
 module.exports.IMPLEMENTED = IMPLEMENTED;
+

@@ -2,16 +2,16 @@
     <!-- Top Navigation Tabs -->
     <ul class="nav nav-tabs mb-3" id="labelTabs" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="designer-tab" data-bs-toggle="tab" data-bs-target="#designer-pane" type="button" role="tab" data-i18n="lbl_tab_designer">Label Designer & Print Workspace</button>
+            <button class="nav-link" id="designer-tab" data-bs-target="#designer-pane" type="button" role="tab" onclick="switchLabelsTab('designer')" data-i18n="lbl_tab_designer">Label Designer & Print Workspace</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="templates-tab" data-bs-toggle="tab" data-bs-target="#templates-pane" type="button" role="tab" onclick="loadTemplatesList()" data-i18n="lbl_tab_templates">Saved Templates</button>
+            <button class="nav-link active" id="templates-tab" data-bs-target="#templates-pane" type="button" role="tab" onclick="switchLabelsTab('templates')" data-i18n="lbl_tab_templates">Saved Templates</button>
         </li>
     </ul>
 
     <div class="tab-content" id="labelTabContent">
         <!-- UNIFIED DESIGNER & PREVIEW PANE -->
-        <div class="tab-pane fade show active" id="designer-pane" role="tabpanel">
+        <div class="tab-pane fade" id="designer-pane" role="tabpanel">
             <div class="row g-3">
                 <!-- LEFT PANEL: Toolbox & DB Columns -->
                 <div class="col-md-3 card p-3 shadow-sm" style="max-height: 75vh; overflow-y: auto;">
@@ -23,7 +23,7 @@
                     </div>
 
                     <h6 class="text-muted small uppercase mt-2" data-i18n="lbl_db_columns">Database Columns (Click to Bind)</h6>
-                    <div id="db-columns-list" class="list-group mb-3 border rounded p-1" style="max-height: 220px; overflow-y: auto;">
+                    <div id="db-columns-list" class="list-group mb-3 border rounded p-1" style="max-height: 180px; overflow-y: auto;">
                         <!-- Populated dynamically -->
                     </div>
 
@@ -200,7 +200,52 @@
                                     <div class="text-center text-muted small py-1 fst-italic" data-i18n="lbl_queue_empty">No products added yet. Click [+] from search results.</div>
                                 </div>
                             </div>
-                            <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" onclick="executeBatchPrint()" data-i18n="lbl_batch_print">🖨️ Print Batch Labels</button>
+                            <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm mb-2" onclick="executeBatchPrint()" data-i18n="lbl_batch_print">🖨️ Print Batch Labels</button>
+
+                            <!-- Static Label Form -->
+                            <div class="mt-3 p-2 border rounded bg-light" style="font-size: 13px;">
+                                <h6 class="fw-bold text-secondary mb-2" data-i18n="lbl_static_label_title">➕ Add Static Label (No DB)</h6>
+                                <div class="row g-1 mb-2">
+                                    <div class="col-6">
+                                        <label class="form-label small fw-bold" data-i18n="lbl_static_label_name">Label Name</label>
+                                        <input type="text" id="static-label-name" class="form-control form-control-sm" placeholder="e.g. Shelf Tag" data-i18n-placeholder="lbl_static_label_name_ph">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-bold" data-i18n="lbl_static_qty">Qty</label>
+                                        <input type="number" id="static-label-qty" class="form-control form-control-sm" value="1" min="1">
+                                    </div>
+                                </div>
+                                <div class="row g-1 mb-2">
+                                    <div class="col-6">
+                                        <label class="form-label small fw-bold" data-i18n="lbl_static_geo">GEO</label>
+                                        <input type="text" id="static-label-geo" class="form-control form-control-sm" placeholder="GEO..." data-i18n-placeholder="lbl_static_geo_ph">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-bold" data-i18n="lbl_static_pn">Part Number</label>
+                                        <input type="text" id="static-label-pn" class="form-control form-control-sm" placeholder="PN..." data-i18n-placeholder="lbl_static_pn_ph">
+                                    </div>
+                                </div>
+                                <div class="row g-1 mb-2">
+                                    <div class="col-6">
+                                        <label class="form-label small fw-bold" data-i18n="lbl_static_en">Description (EN)</label>
+                                        <input type="text" id="static-label-en" class="form-control form-control-sm" placeholder="Description..." data-i18n-placeholder="lbl_static_en_ph">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-bold" data-i18n="lbl_static_es">Description (ES)</label>
+                                        <input type="text" id="static-label-es" class="form-control form-control-sm" placeholder="Descripción..." data-i18n-placeholder="lbl_static_es_ph">
+                                    </div>
+                                </div>
+                                <button class="btn btn-outline-primary btn-sm w-100" onclick="addStaticLabelFromForm()" data-i18n="lbl_add_static_label">➕ Add Static Label to Queue</button>
+                            </div>
+
+                            <!-- Print Cache Controls -->
+                            <div class="mt-2 p-2 border rounded bg-warning bg-opacity-10" style="font-size: 12px;">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="badge bg-warning text-dark" id="print-cache-count" data-i18n="lbl_print_cache_count">Print Cache: 0 entries</span>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="clearLabelsPrintCache()" data-i18n="lbl_clear_print_cache" title="Clear all cached label entries">🗑️ Clear Cache</button>
+                                </div>
+                                <div class="text-muted small fst-italic" data-i18n="lbl_print_cache_desc">Edits are saved per-item in browser localStorage. Database is never modified.</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -208,7 +253,7 @@
         </div>
 
         <!-- TEMPLATES TAB -->
-        <div class="tab-pane fade" id="templates-pane" role="tabpanel">
+        <div class="tab-pane fade show active" id="templates-pane" role="tabpanel">
             <div class="card p-3 shadow-sm">
                 <h4 data-i18n="lbl_templates_title">Saved Label Templates</h4>
                 <p class="text-muted small" data-i18n="lbl_templates_desc">Manage, preview, open, or delete your predefined label templates.</p>

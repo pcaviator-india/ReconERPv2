@@ -14,6 +14,8 @@ router.get('/', authenticateToken, async (req, res) => {
     const userRole = req.user && req.user.role ? String(req.user.role).toLowerCase() : '';
     const userSite = req.user && req.user.site ? req.user.site : null;
 
+    console.log('[quotes GET] db:', !!db, 'user:', req.user?.userId, 'role:', userRole, 'site:', userSite);
+
     const { status, requisition_id, page = 1, limit = 50 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -122,7 +124,7 @@ router.get('/', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Get quotes error:', err);
-    res.status(500).json({ status: 'error', message: 'Internal server error' });
+    res.status(500).json({ status: 'error', message: 'Internal server error', detail: err.message });
   }
 });
 

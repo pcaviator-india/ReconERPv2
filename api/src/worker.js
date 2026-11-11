@@ -19,6 +19,11 @@ export default {
       app.locals.db = new Database(env);
     }
 
+    // Inject R2 bucket binding into Express app.locals so routes can access it
+    if (env && env.RECON_STORAGE) {
+      app.locals.r2 = env.RECON_STORAGE;
+    }
+
     // Inject Cloudflare env vars into process.env for JWT and other middleware
     if (env && env.JWT_SECRET) {
       process.env.JWT_SECRET = env.JWT_SECRET;

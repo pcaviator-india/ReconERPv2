@@ -33,6 +33,9 @@ api/.env
 *.db
 *.db-shm
 *.db-wal
+api/*-dump.sql
+api/d1-import.sql
+api/backup-remote.sql
 
 # Logs & temporary run dumps
 *.log

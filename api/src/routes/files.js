@@ -24,6 +24,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
     }
 
     const db = req.app.locals.db;
+    const r2 = req.app.locals.r2;
     const fileId = uuidv4();
     const category = req.body.category || 'general';
     const originalName = req.file.originalname;
@@ -33,6 +34,16 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
     // Build R2 key: category/fileId/filename
     const r2Key = `${category}/${fileId}/${originalName}`;
 
+    // Upload file buffer to R2
+    if (r2) {
+      await r2.put(r2Key, req.file.buffer, {
+        httpMetadata: {
+          contentType: contentType,
+          contentDisposition: `attachment; filename="${originalName}"`,
+        },
+      });
+    }
+
     // Store file metadata in D1
     const stmt = await db.prepare(`
       INSERT INTO files (id, original_name, r2_key, content_type, size, category, uploaded_by)
@@ -41,9 +52,6 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
 
     await stmt.bind(fileId, originalName, r2Key, contentType, size, category, req.user.userId).run();
 
-    // In production with Cloudflare Workers, the file buffer would be stored to R2
-    // via the R2 binding. For now, return the file metadata.
-    // The actual R2 upload will happen via Cloudflare Worker's R2 binding.
     res.status(201).json({
       status: 'success',
       data: {
@@ -64,7 +72,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
 
 /**
  * GET /api/v1/files/:fileId
- * Download file from R2 storage
+ * Get file metadata from D1
  */
 router.get('/:fileId', authenticateToken, async (req, res) => {
   try {
@@ -76,8 +84,6 @@ router.get('/:fileId', authenticateToken, async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'File not found' });
     }
 
-    // In production with Cloudflare Workers, retrieve from R2 via binding
-    // and stream to response
     res.json({
       status: 'success',
       data: {
@@ -101,6 +107,7 @@ router.get('/:fileId', authenticateToken, async (req, res) => {
 router.get('/:fileId/download', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
+    const r2 = req.app.locals.r2;
     const stmt = await db.prepare('SELECT * FROM files WHERE id = ?');
     const file = await stmt.bind(req.params.fileId).first();
 
@@ -108,11 +115,40 @@ router.get('/:fileId/download', authenticateToken, async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'File not found' });
     }
 
-    // In Cloudflare Workers, use R2 binding to get the object
-    // const object = await env.MY_BUCKET.get(file.r2_key);
-    // res.setHeader('Content-Type', file.content_type);
-    // res.setHeader('Content-Disposition', `attachment; filename="${file.original_name}"`);
-    // return new Response(object.body);
+    // In Cloudflare Workers, use R2 binding to get the object and stream it
+    if (r2) {
+      const object = await r2.get(file.r2_key);
+
+      if (!object) {
+        return res.status(404).json({ status: 'error', message: 'File not found in storage' });
+      }
+
+      res.setHeader('Content-Type', file.content_type || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${file.original_name}"`);
+      res.setHeader('Content-Length', object.size);
+
+      // Stream the R2 object body to the response
+      const reader = object.body.getReader();
+      const stream = new ReadableStream({
+        start(controller) {
+          function pump() {
+            reader.read().then(({ done, value }) => {
+              if (done) {
+                controller.close();
+                return;
+              }
+              controller.enqueue(value);
+              pump();
+            }).catch(err => {
+              controller.error(err);
+            });
+          }
+          pump();
+        }
+      });
+
+      return res.send(stream);
+    }
 
     res.status(501).json({
       status: 'error',

@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#212529" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="RECON ERP" />
   <title>RECON ERP — Inventory & Operations</title>
@@ -1080,7 +1081,7 @@
           if (typeof updateUI === "function") updateUI();
 
           document
-            .querySelectorAll(".nav-link")
+            .querySelectorAll("#sidebar .nav-link")
             .forEach((link) => link.classList.remove("active"));
           const activeLink = document.getElementById("nav-" + name);
           if (activeLink) activeLink.classList.add("active");
@@ -2323,7 +2324,13 @@
     const userSiteDefaultObserver = new MutationObserver(() => {
       window.applyUserSiteDefaults();
     });
-    userSiteDefaultObserver.observe(document.body, { childList: true, subtree: true });
+    if (document.body) {
+      userSiteDefaultObserver.observe(document.body, { childList: true, subtree: true });
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        userSiteDefaultObserver.observe(document.body, { childList: true, subtree: true });
+      });
+    }
 
     // 4. THE DEDICATED CATEGORY LOCK FUNCTION
     // Locks a category dropdown to a specific category for non-admin/manager users
@@ -2615,8 +2622,9 @@
                 <a class="nav-link py-1 text-white-50 small admin-only" onclick="loadModule('SheetsSync', this)"
                   title="Google Sheets Sync"><i class="bi bi-cloud-download"></i><span class="sidebar-label">Sheets
                     Sync</span></a>
-                <a id="nav-Permissions" class="nav-link py-1 text-white-50 small" onclick="loadModule('Permissions', this)"
-                  title="Role Permissions"><i class="bi bi-shield-lock"></i><span class="sidebar-label">Role Permissions</span></a>
+                <a id="nav-Permissions" class="nav-link py-1 text-white-50 small"
+                  onclick="loadModule('Permissions', this)" title="Role Permissions"><i
+                    class="bi bi-shield-lock"></i><span class="sidebar-label">Role Permissions</span></a>
               </div>
             </div>
 
@@ -3515,6 +3523,7 @@
         </div>
         <div class="modal-body">
           <div class="mb-3">
+            <label>Proveedor</label>
             <label class="form-label fw-semibold">Mochila Destino</label>
             <select id="rec_mochila_select" class="form-select">
               <option value="">Cargando mochilas...</option>
@@ -3526,10 +3535,13 @@
             <input type="text" id="rec_proveedor" class="form-control">
           </div>
           <div class="mb-3">
+            <label>Litros</label>
+            <input type="number" id="rec_litros" class="form-control">
             <label class="form-label">Litros</label>
             <input type="number" id="rec_litros" class="form-control" min="0.01" step="0.01">
           </div>
           <div class="mb-3">
+            <label>Factura/Ref</label>
             <label class="form-label">Factura/Ref</label>
             <input type="text" id="rec_factura" class="form-control">
           </div>

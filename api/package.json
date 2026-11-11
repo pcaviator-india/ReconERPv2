@@ -15,7 +15,10 @@
     "test:shapes": "node scripts/legacy-shape-test.js",
     "d1:create": "wrangler d1 create recon-erp",
     "d1:execute": "wrangler d1 execute recon-erp --file=./schema.sql",
-    "d1:local": "wrangler d1 create recon-erp --local"
+    "d1:local": "wrangler d1 create recon-erp --local",
+    "d1:export": "node scripts/export-sqlite-to-d1.js",
+    "d1:sync:local": "node scripts/export-sqlite-to-d1.js && wrangler d1 execute recon-erp --config=./wrangler.toml --local --file=./d1-import.sql -y",
+    "d1:sync:remote": "node scripts/export-sqlite-to-d1.js && wrangler d1 execute recon-erp --config=./wrangler.toml --remote --file=./d1-import.sql -y"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

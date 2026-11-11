@@ -13,5 +13,9 @@ API_BASE_URL = "https://recon-erp-api.reconerp.workers.dev"
 JWT_EXPIRES_IN = "7d"
 JWT_SECRET = "recon-drilling-jwt-secret-token1"
 
+[[r2_buckets]]
+binding = "RECON_STORAGE"
+bucket_name = "reconstorage"
+
 [observability]
 enabled = true
