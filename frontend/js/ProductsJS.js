@@ -232,20 +232,20 @@
     } else {
       tbody.innerHTML = paginated.map(item => `
         <tr>
-          <td class="fw-bold text-primary small">${esc(item.geo)}</td>
-          <td><small>${esc(item.pn)}</small></td>
-          <td><small>${esc(item.category)}</small></td>
-          <td><small>${esc(item.sub_categoria)}</small></td>
-          <td><small>${esc(item.marca)}</small></td>
-          <td>
+          <td data-label="Geo Code" class="fw-bold text-primary small">${esc(item.geo)}</td>
+          <td data-label="Part Number"><small>${esc(item.pn)}</small></td>
+          <td data-label="Category"><small>${esc(item.category)}</small></td>
+          <td data-label="Subcategory"><small>${esc(item.sub_categoria)}</small></td>
+          <td data-label="Brand"><small>${esc(item.marca)}</small></td>
+          <td data-label="Description">
             <div class="small fw-semibold text-dark">${esc(item.en || item.name)}</div>
             <div class="small text-muted fst-italic">${esc(item.es)}</div>
           </td>
-          <td class="text-center"><small>${esc(item.un)}</small></td>
-          <td class="text-center fw-bold ${item.stock <= 0 ? 'text-danger' : 'text-success'}">${item.stock}</td>
-          <td class="text-end"><small>${formatCost(item.costo_clp)}</small></td>
-          <td><small>${esc(item.proveedor)}</small></td>
-          <td class="text-end admin-only">
+          <td data-label="Unit" class="text-center"><small>${esc(item.un)}</small></td>
+          <td data-label="Stock" class="text-center fw-bold ${item.stock <= 0 ? 'text-danger' : 'text-success'}">${item.stock}</td>
+          <td data-label="Cost" class="text-end"><small>${formatCost(item.costo_clp)}</small></td>
+          <td data-label="Supplier"><small>${esc(item.proveedor)}</small></td>
+          <td data-label="Actions" class="text-end admin-only">
             <button class="btn btn-sm btn-outline-primary" onclick="window.editProduct('${esc(item.geo)}')">
               <i class="bi bi-pencil"></i>
             </button>

@@ -78,19 +78,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Navigation requests: Normalize URL to avoid Cloudflare 307 redirects
+  // 2. Navigation requests: Serve as-is (do not strip .html — login.html etc.)
   if (req.mode === 'navigate') {
     event.respondWith(
       (async () => {
         try {
-          let cleanUrl = req.url;
-          if (url.pathname.endsWith('/index.html') || url.pathname === '/index') {
-            cleanUrl = new URL('/', url.origin).href;
-          } else if (url.pathname.endsWith('.html')) {
-            cleanUrl = new URL(url.pathname.replace(/\.html$/, ''), url.origin).href;
-          }
-
-          const networkResponse = await fetch(cleanUrl);
+          const networkResponse = await fetch(req);
           if (networkResponse && networkResponse.status === 200) {
             const cache = await caches.open(CACHE_NAME);
             cache.put(req, networkResponse.clone()).catch(() => {});

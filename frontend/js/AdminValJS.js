@@ -132,12 +132,14 @@ function renderValRows(data) {
   tbody.innerHTML = rows.map((item, idx) => {
     // Find the real index in currentValData for edit actions
     const realIdx = currentValData.indexOf(item);
+    const config = valConfig[currentValType];
     let row = '<tr>';
-    config.keys.forEach(key => {
+    config.keys.forEach((key, kIdx) => {
       let val = (item && typeof item === 'object') ? (item[key] || "") : item;
+      const colLabel = config.cols[kIdx] || key;
       if (currentValType === 'SystemConfig' && key === 'status') {
         const enabled = String(val).toUpperCase() === 'TRUE' || String(val) === '1';
-        row += `<td>
+        row += `<td data-label="${colLabel}">
           <div class="form-check form-switch d-inline-flex align-items-center gap-2">
             <input class="form-check-input" type="checkbox" role="switch"
               ${enabled ? 'checked' : ''}
@@ -146,7 +148,7 @@ function renderValRows(data) {
           </div>
         </td>`;
       } else {
-        row += `<td>${val}</td>`;
+        row += `<td data-label="${colLabel}">${val}</td>`;
       }
     });
     row += currentValType === 'SystemConfig'

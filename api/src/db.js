@@ -54,6 +54,7 @@ const COLUMN_MIGRATIONS = [
   ['requisition_items', 'item_notes', 'TEXT'],
   ['requisition_items', 'supplier_notes', 'TEXT'],
   ['requisition_items', 'images', 'TEXT'],
+  ['requisition_items', 'original_quantity', 'INTEGER DEFAULT 0'],
   // quotes
   ['quotes', 'ref_id', 'TEXT'],
   ['quotes', 'supplier', 'TEXT'],
@@ -75,11 +76,13 @@ const COLUMN_MIGRATIONS = [
   ['quote_items', 'sub_category', 'TEXT'],
   ['quote_items', 'approved_qty', 'INTEGER DEFAULT 0'],
   ['quote_items', 'received_qty', 'INTEGER DEFAULT 0'],
+  ['quote_items', 'despatched_qty', 'INTEGER DEFAULT 0'],
   ['quote_items', 'discount_pct', 'REAL DEFAULT 0'],
   ['quote_items', 'freight', 'REAL DEFAULT 0'],
   ['quote_items', 'status', "TEXT DEFAULT 'Pending'"],
   ['quote_items', 'supplier_quote_no', 'TEXT'],
   ['quote_items', 'quoted_doc_url', 'TEXT'],
+  ['quote_items', 'updated_at', 'TEXT'],
   // stock & stock_ledger
   ['stock', 'geo', 'TEXT'],
   ['stock_ledger', 'ledger_id', 'TEXT'],
@@ -98,6 +101,9 @@ const COLUMN_MIGRATIONS = [
   ['hse_signatures', 'items_json', 'TEXT'],
   // Reference tables used by the Google Sheets sync routes.
   ['sites', 'email', 'TEXT'],
+  ['sites', 'address', 'TEXT'],
+  ['sites', 'latitude', 'REAL'],
+  ['sites', 'longitude', 'REAL'],
   ['categories', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
   ['brands', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
   ['suppliers', 'updated_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'],
@@ -156,6 +162,64 @@ function applyMigrations(sqlite) {
 
   // Ensure initial mochilas exist and unassigned fuel records are migrated to Store Mochila 1
   seedFuelTanksAndMigrate(sqlite);
+
+  // Ensure vehicles are seeded from movement_val catalog
+  seedVehiclesFromMovementVal(sqlite);
+
+  // Ensure site coordinates and addresses are populated
+  seedSiteCoordinates(sqlite);
+}
+
+const SITE_GEO_DATA = [
+  { name: 'Store', address: 'Bodega Central, Av. Balmaceda 1234, La Serena, Coquimbo', lat: -29.9027, lng: -71.2519 },
+  { name: 'Workshop', address: 'Taller Central, Parque Industrial, La Serena, Coquimbo', lat: -29.9150, lng: -71.2480 },
+  { name: 'Manto Verde', address: 'Faena MantoVerde, Chañaral, Región de Atacama', lat: -26.5458, lng: -70.2858 },
+  { name: 'Coipa', address: 'Faena La Coipa, Franja Maricunga, Región de Atacama', lat: -26.8286, lng: -69.2486 },
+  { name: 'Fenix', address: 'Proyecto Fénix Gold, Maricunga, Región de Atacama', lat: -27.1350, lng: -69.3400 },
+  { name: 'AMSA', address: 'Minera Centinela / Antucoya, Región de Antofagasta', lat: -23.1167, lng: -69.6000 },
+  { name: 'Atex', address: 'Proyecto Valeriano (Atex Resources), Región de Atacama', lat: -28.4500, lng: -69.8800 },
+  { name: 'Dos Amigos', address: 'Planta Dos Amigos, Domeyko / Vallenar, Región de Atacama', lat: -28.5708, lng: -70.7600 },
+  { name: 'Chile Chico', address: 'Minera Cerro Bayo, Chile Chico, Región de Aysén', lat: -46.5400, lng: -71.7200 }
+];
+
+function seedSiteCoordinates(sqlite) {
+  try {
+    const tableExists = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sites'").get();
+    if (!tableExists) return;
+
+    const updateStmt = sqlite.prepare(`
+      UPDATE sites
+      SET address = COALESCE(NULLIF(address, ''), ?),
+          latitude = COALESCE(latitude, ?),
+          longitude = COALESCE(longitude, ?)
+      WHERE name = ? OR name LIKE ?
+    `);
+
+    for (const site of SITE_GEO_DATA) {
+      updateStmt.run(site.address, site.lat, site.lng, site.name, `%${site.name}%`);
+    }
+  } catch (err) {
+    console.error('[seedSiteCoordinates] Warning:', err.message);
+  }
+}
+
+function seedVehiclesFromMovementVal(sqlite) {
+  try {
+    const tableExists = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vehicles'").get();
+    if (!tableExists) return;
+
+    const mvExists = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='movement_val'").get();
+    if (mvExists) {
+      sqlite.exec(`
+        INSERT OR IGNORE INTO vehicles (vehicle_number, vehicle_type, license_plate, is_active)
+        SELECT DISTINCT TRIM(vehiculos), 'Vehicle', TRIM(vehiculos), 1
+        FROM movement_val
+        WHERE vehiculos IS NOT NULL AND TRIM(vehiculos) != ''
+      `);
+    }
+  } catch (err) {
+    console.error('[seedVehiclesFromMovementVal] Warning:', err.message);
+  }
 }
 
 function seedFuelTanksAndMigrate(sqlite) {

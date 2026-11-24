@@ -13,6 +13,7 @@ const productRoutes = require('./routes/products');
 const stockRoutes = require('./routes/stock');
 const requisitionRoutes = require('./routes/requisitions');
 const movementRoutes = require('./routes/movements');
+const siteTransferRoutes = require('./routes/site-transfers');
 const quoteRoutes = require('./routes/quotes');
 const jobRoutes = require('./routes/jobs');
 const sheetsRoutes = require('./routes/sheets');
@@ -20,6 +21,8 @@ const fileRoutes = require('./routes/files');
 const systemRoutes = require('./routes/system');
 const permissionsRoutes = require('./routes/permissions');
 const fuelRoutes = require('./routes/fuel');
+const vehicleRoutes = require('./routes/vehicles');
+const voyageRoutes = require('./routes/voyages');
 const legacyRoutes = require('./routes/legacy');
 const { Database } = require('./db');
 
@@ -81,6 +84,7 @@ app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/stock', stockRoutes);
 app.use('/api/v1/requisitions', requisitionRoutes);
 app.use('/api/v1/movements', movementRoutes);
+app.use('/api/v1/site-transfers', siteTransferRoutes);
 app.use('/api/v1/quotes', quoteRoutes);
 app.use('/api/v1/jobs', jobRoutes);
 app.use('/api/v1/sheets', sheetsRoutes);
@@ -88,6 +92,8 @@ app.use('/api/v1/files', fileRoutes);
 app.use('/api/v1/system', systemRoutes);
 app.use('/api/v1/permissions', permissionsRoutes);
 app.use('/api/v1/fuel', fuelRoutes);
+app.use('/api/v1/vehicles', vehicleRoutes);
+app.use('/api/v1/voyages', voyageRoutes);
 app.use('/api/v1/legacy', legacyRoutes);
 
 // Serve the frontend statically for local dev

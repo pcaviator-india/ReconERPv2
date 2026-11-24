@@ -19,7 +19,7 @@
   <!-- Filters -->
   <div class="card shadow-sm mb-3">
     <div class="card-body">
-      <div class="row g-2">
+      <div class="row g-2 mobile-stack">
         <div class="col-md-3">
           <input type="text" id="stockSearch" class="form-control" placeholder="Search by Item ID, Name..." onkeyup="StockModule.filterStock()">
         </div>
@@ -36,7 +36,7 @@
   <!-- Stock Table -->
   <div class="card shadow-sm">
     <div class="table-responsive" style="max-height: 70vh;">
-      <table class="table table-hover align-middle" id="stockTable">
+      <table class="table table-hover align-middle recon-responsive-table" id="stockTable">
         <thead class="table-dark sticky-top">
           <tr>
             <th>CODIGO GEO</th>

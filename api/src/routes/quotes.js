@@ -72,6 +72,7 @@ router.get('/', authenticateToken, async (req, res) => {
                  'quantity', qi.quantity,
                  'approved_qty', qi.approved_qty,
                  'received_qty', qi.received_qty,
+                 'despatched_qty', COALESCE(qi.despatched_qty, 0),
                  'unit_price', qi.unit_price,
                  'total_price', qi.total_price,
                  'discount_pct', qi.discount_pct,
@@ -334,6 +335,59 @@ router.put('/:id/receive', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Quote receive error:', err);
+    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /api/v1/quotes/:id/short-close
+ * Close shortfall when supplier or dispatch will not fulfill remainder.
+ * Sets approved_qty = received_qty so shortfall drops to 0 and closes the delivery.
+ */
+router.put('/:id/short-close', authenticateToken, async (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const { items, reason } = req.body || {};
+
+    const quoteStmt = await db.prepare('SELECT id, status, notes FROM quotes WHERE id = ?');
+    const quote = await quoteStmt.bind(req.params.id).first();
+    if (!quote) return res.status(404).json({ status: 'error', message: 'Quote not found' });
+
+    if (Array.isArray(items) && items.length > 0) {
+      const closeStmt = await db.prepare(`
+        UPDATE quote_items
+        SET approved_qty = received_qty,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND quote_id = ?
+      `);
+      for (const it of items) {
+        if (it.quote_item_id) {
+          await closeStmt.bind(it.quote_item_id, req.params.id).run();
+        }
+      }
+    } else {
+      await (await db.prepare(`
+        UPDATE quote_items
+        SET approved_qty = received_qty,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE quote_id = ? AND received_qty > 0 AND received_qty < approved_qty
+      `)).bind(req.params.id).run();
+    }
+
+    const note = reason ? ` [Shortfall closed: ${reason}]` : ' [Shortfall closed remainder]';
+    await (await db.prepare(`
+      UPDATE quotes
+      SET status = 'Final Received',
+          notes = COALESCE(notes, '') || ?,
+          last_modified_by = ?,
+          last_modified_date = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `)).bind(note, req.user.email || req.user.userId, req.params.id).run();
+
+    res.json({ status: 'success', message: 'Short delivery closed successfully' });
+  } catch (err) {
+    console.error('Short close error:', err);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
 });

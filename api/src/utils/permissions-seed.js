@@ -26,6 +26,12 @@ const DEFAULT_ROLES = [
     name: 'Site User',
     description: 'Site / field personnel managing local stock and receiving quotes for their assigned site',
     is_system: 1
+  },
+  {
+    id: 'driver',
+    name: 'Driver',
+    description: 'Driver personnel with access to own vehicle tracking voyages',
+    is_system: 1
   }
 ];
 
@@ -41,9 +47,12 @@ const MODULE_DEFINITIONS = [
   { key: 'stock_count', category: 'Inventory', name: 'Stock Count', moduleFile: 'Scanner.html', navId: 'nav-Scanner' },
   { key: 'movements', category: 'Inventory', name: 'Inventory Movements', moduleFile: 'InvMov.html', navId: 'nav-InvMov' },
   { key: 'fuel', category: 'Operations', name: 'Fuel Control', moduleFile: 'ControlCombustible.html', navId: 'nav-ControlCombustible' },
+  { key: 'vehicle_tracking', category: 'Operations', name: 'Vehicle Tracking', moduleFile: 'VehicleTracking.html', navId: 'nav-VehicleTracking' },
+  { key: 'fleet_map', category: 'Operations', name: 'Fleet Tracking Map', moduleFile: 'FleetMap.html', navId: 'nav-FleetMap' },
   { key: 'assets', category: 'Operations', name: 'Asset Management', moduleFile: 'GestionActivos.html', navId: 'nav-GestionActivos' },
   { key: 'system_integrations', category: 'System', name: 'Integrations (Azure, OpSphere, Sheets)', moduleFile: 'AzureTest.html', navId: 'nav-AzureTest' },
-  { key: 'admin_val', category: 'System', name: 'Administration & Role Permissions', moduleFile: 'AdminVal.html', navId: 'nav-AdminVal' }
+  { key: 'admin_val', category: 'System', name: 'Administration & Role Permissions', moduleFile: 'AdminVal.html', navId: 'nav-AdminVal' },
+  { key: 'site_transfer', category: 'Inventory', name: 'Intra Site Transfer', moduleFile: 'SiteTransfer.html', navId: 'nav-SiteTransfer' }
 ];
 
 // Matrix templates for each system role:
@@ -61,9 +70,12 @@ const ROLE_PERMISSIONS_DEFAULTS = {
     ['stock_count', 1, 1, 1, 'all'],
     ['movements', 1, 1, 1, 'all'],
     ['fuel', 1, 1, 1, 'all'],
+    ['vehicle_tracking', 1, 1, 1, 'all'],
+    ['fleet_map', 1, 1, 1, 'all'],
     ['assets', 1, 1, 1, 'all'],
     ['system_integrations', 1, 1, 1, 'all'],
-    ['admin_val', 1, 1, 1, 'all']
+    ['admin_val', 1, 1, 1, 'all'],
+    ['site_transfer', 1, 1, 1, 'all']
   ],
   manager: [
     ['req_create', 1, 1, 1, 'all'],
@@ -77,9 +89,12 @@ const ROLE_PERMISSIONS_DEFAULTS = {
     ['stock_count', 1, 1, 1, 'all'],
     ['movements', 1, 1, 1, 'all'],
     ['fuel', 1, 1, 1, 'all'],
+    ['vehicle_tracking', 1, 1, 1, 'all'],
+    ['fleet_map', 1, 1, 1, 'all'],
     ['assets', 1, 1, 1, 'all'],
     ['system_integrations', 0, 0, 0, 'all'],
-    ['admin_val', 0, 0, 0, 'all']
+    ['admin_val', 0, 0, 0, 'all'],
+    ['site_transfer', 1, 1, 1, 'all']
   ],
   office: [
     ['req_create', 1, 1, 0, 'all'],
@@ -93,9 +108,12 @@ const ROLE_PERMISSIONS_DEFAULTS = {
     ['stock_count', 1, 1, 0, 'all'],
     ['movements', 1, 1, 0, 'all'],
     ['fuel', 1, 1, 0, 'all'],
+    ['vehicle_tracking', 1, 1, 0, 'all'],
+    ['fleet_map', 1, 0, 0, 'all'],
     ['assets', 1, 1, 0, 'all'],
     ['system_integrations', 0, 0, 0, 'all'],
-    ['admin_val', 0, 0, 0, 'all']
+    ['admin_val', 0, 0, 0, 'all'],
+    ['site_transfer', 1, 1, 0, 'assigned']
   ],
   user: [
     ['req_create', 1, 1, 0, 'assigned'],
@@ -109,9 +127,31 @@ const ROLE_PERMISSIONS_DEFAULTS = {
     ['stock_count', 1, 1, 0, 'assigned'],// Own site stock count
     ['movements', 1, 1, 0, 'assigned'],  // Own site movements
     ['fuel', 1, 1, 0, 'assigned'],       // Own site fuel
+    ['vehicle_tracking', 1, 1, 0, 'assigned'],
+    ['fleet_map', 1, 0, 0, 'assigned'],
     ['assets', 1, 0, 0, 'assigned'],     // Own site assets
     ['system_integrations', 0, 0, 0, 'all'],
-    ['admin_val', 0, 0, 0, 'all']
+    ['admin_val', 0, 0, 0, 'all'],
+    ['site_transfer', 1, 1, 0, 'assigned']  // Own site transfers (sent or received)
+  ],
+  driver: [
+    ['req_create', 0, 0, 0, 'assigned'],
+    ['req_view', 0, 0, 0, 'assigned'],
+    ['req_approve', 0, 0, 0, 'assigned'],
+    ['quote_mgmt', 0, 0, 0, 'assigned'],
+    ['quote_approve', 0, 0, 0, 'assigned'],
+    ['quote_receive', 0, 0, 0, 'assigned'],
+    ['products', 1, 0, 0, 'all'],       // View-only catalog
+    ['stock', 0, 0, 0, 'assigned'],
+    ['stock_count', 0, 0, 0, 'assigned'],
+    ['movements', 0, 0, 0, 'assigned'],
+    ['fuel', 1, 1, 0, 'assigned'],       // Fuel entry
+    ['vehicle_tracking', 1, 1, 0, 'assigned'], // Own trips only
+    ['fleet_map', 1, 0, 0, 'assigned'],
+    ['assets', 0, 0, 0, 'assigned'],
+    ['system_integrations', 0, 0, 0, 'all'],
+    ['admin_val', 0, 0, 0, 'all'],
+    ['site_transfer', 0, 0, 0, 'assigned']
   ]
 };
 

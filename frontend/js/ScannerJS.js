@@ -215,11 +215,11 @@ var ScannerModule = (function() {
 
       return `
         <tr>
-          <td>${dateStr}</td>
-          <td>${row[2] || t('scanner_unknown')}</td>
-          <td>${locationText}</td>
-          <td><span class="badge bg-success">${row[3] || t('scanner_completed')}</span></td>
-          <td class="text-end">
+          <td data-label="Date">${dateStr}</td>
+          <td data-label="User">${row[2] || t('scanner_unknown')}</td>
+          <td data-label="Location">${locationText}</td>
+          <td data-label="Status"><span class="badge bg-success">${row[3] || t('scanner_completed')}</span></td>
+          <td data-label="Actions" class="text-end">
             <div class="btn-group btn-group-sm">
               <button class="btn btn-outline-danger" title="${t('scanner_pdf')}" onclick="ScannerModule.exportData('${countId}', 'pdf')"><i class="bi bi-file-pdf"></i></button>
               <button class="btn btn-outline-success" title="${t('scanner_excel')}" onclick="ScannerModule.exportData('${countId}', 'excel')"><i class="bi bi-file-earmark-excel"></i></button>

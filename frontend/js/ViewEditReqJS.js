@@ -582,18 +582,18 @@ window.renderReqList_ = function(data) {
         ` : ''}
 
       </td>
-      <td class="small">${main.fecha || ''}</td>
-      <td class="small">
+      <td class="small" data-label="Date">${main.fecha || ''}</td>
+      <td class="small" data-label="Site">
         ${main.faena || ''}
         ${main.subArea ? `<br><small class="text-muted"><i class="bi bi-geo-alt me-1"></i>${main.subArea}${main.subAreaNo ? ' #' + main.subAreaNo : ''}</small>` : ''}
       </td>
-      <td class="text-primary text-uppercase">${main.user || main.solicitante || 'System'}</td>
+      <td class="text-primary text-uppercase" data-label="Requester">${main.user || main.solicitante || 'System'}</td>
       <td></td>
       <td></td>
       <td></td>
-      <td class="text-center small text-muted">${main.category || ''}</td>
-      <td class="text-center">---</td>
-      <td class="req-status-cell text-start">
+      <td class="text-center small text-muted" data-label="Geo / Category">${main.category || ''}</td>
+      <td class="text-center" data-label="Qty">---</td>
+      <td class="req-status-cell text-start" data-label="Status">
         <small class="text-muted">${statusSummary || 'No items'}</small>${quotesSummary}
       </td>
     `;
@@ -694,18 +694,23 @@ window.renderReqList_ = function(data) {
 
       itemRow.innerHTML = `
         <td class="text-end pe-3" style="font-size: 0.75rem;">↳</td>
-        <td class="small">${item.pn || ''}</td>
-        <td></td> <td>
+        <td class="small" data-label="P/N">${item.pn || ''}</td>
+        <td></td> <td data-label="Description">
           <div class="fw-bold text-dark req-clamp req-clickable" title="${descTooltip}" onclick="window.showReqCellFull(event, ${rowIdx}, 'desc')">${escHtmlFn(descEs)}</div>
           ${descEn ? `<div class="text-muted req-clamp req-desc-en req-clickable" title="${descTooltip}" onclick="window.showReqCellFull(event, ${rowIdx}, 'desc')">${escHtmlFn(descEn)}</div>` : ''}
           ${descMoreLink}
         </td>
-        <td class="small req-notes-cell">${itemNotesCell}</td>
-        <td class="small req-supplier-cell">${supplierNotesCell}</td>
-        <td class="small req-images-cell">${imagesCell}</td>
-        <td class="fw-bold text-dark text-center">${item.geo || '---'}</td>
-        <td class="text-center">${item.cant || 0}</td>
-        <td class="req-status-cell text-start">
+        <td class="small req-notes-cell" data-label="Item Notes">${itemNotesCell}</td>
+        <td class="small req-supplier-cell" data-label="Supplier Notes">${supplierNotesCell}</td>
+        <td class="small req-images-cell" data-label="Images">${imagesCell}</td>
+        <td class="fw-bold text-dark text-center" data-label="Geo">${item.geo || '---'}</td>
+        <td class="text-center" data-label="Qty">
+          <span class="fw-bold">${item.cant || 0}</span>
+          ${(item.originalQty && Number(item.originalQty) > Number(item.cant))
+            ? `<small class="text-danger d-block" style="font-size:10px;" title="Original requested: ${item.originalQty}">Req: ${item.originalQty} (-${item.originalQty - item.cant})</small>`
+            : ''}
+        </td>
+        <td class="req-status-cell text-start" data-label="Status">
           <span class="badge ${statusInfo.badgeClass} req-status-badge" title="${statusTip}">${escHtmlFn(statusInfo.label)}</span>
           ${statusRefsCell}
         </td> `;
@@ -895,7 +900,12 @@ window.reqCardDetails = function(ev, orderId) {
           <div class="fw-semibold text-dark">${escHtml(descEs || '—')}</div>
           ${descEn ? `<div class="text-muted small fst-italic">${escHtml(descEn)}</div>` : ''}
         </td>
-        <td class="text-center fw-bold">${escHtml(item.cant || 0)}</td>
+        <td class="text-center fw-bold">
+          ${escHtml(item.cant || 0)}
+          ${(item.originalQty && Number(item.originalQty) > Number(item.cant))
+            ? `<small class="text-danger d-block fw-normal" style="font-size:10px;" title="Original requested: ${item.originalQty}">Req: ${item.originalQty} (-${item.originalQty - item.cant})</small>`
+            : ''}
+        </td>
         <td class="text-start" style="max-width: 180px;">${notesHtml}</td>
         <td class="text-start" style="max-width: 180px;">${suppHtml}</td>
         <td class="text-center">${imagesCell}</td>
@@ -1612,7 +1622,8 @@ window.openEditModal = function(orderId) {
   
   orderItems.forEach(item => {
     // Pass item-level status + per-item notes to addEditRow
-    addEditRow(item.pn, item.desc, item.cant, item.geo, item.estado || "Pending", item.itemNotes || "", item.rowNum, item.supplierNotes || "", item.images || "");
+    const origQ = item.originalQty || item.original_quantity || item.origCant || item.cant;
+    addEditRow(item.pn, item.desc, item.cant, item.geo, item.estado || "Pending", item.itemNotes || "", item.rowNum, item.supplierNotes || "", item.images || "", origQ);
   });
 
   // Show/hide bulk action buttons based on user role
@@ -1801,7 +1812,7 @@ window.selectItemForEdit = function(pn, desc, geo) {
 
 
 
-window.addEditRow = function(pn = '', desc = '', cant = 1, geo = '', status = 'Pending', itemNotes = '', rowNum = '', supplierNotes = '', images = '') {
+window.addEditRow = function(pn = '', desc = '', cant = 1, geo = '', status = 'Pending', itemNotes = '', rowNum = '', supplierNotes = '', images = '', origQty = null) {
   const tbody = document.getElementById('editItemsTableBody');
   const row = document.createElement('tr');
   // Remember the physical sheet row this row came from so save can pair items
@@ -1841,19 +1852,22 @@ window.addEditRow = function(pn = '', desc = '', cant = 1, geo = '', status = 'P
   `;
   
   row.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm item-geo" value="${geo}"></td>
-    <td><input type="text" class="form-control form-control-sm item-pn" value="${pn}"></td>
-    <td><input type="text" class="form-control form-control-sm item-desc" value="${desc}"></td>
-    <td><input type="number" class="form-control form-control-sm item-qty" value="${cant}"></td>
-    <td>${notesCell}</td>
-    <td>${supplierNotesCell}</td>
-    <td>${imagesCell}</td>
-    <td>
+    <td data-label="Geo"><input type="text" class="form-control form-control-sm item-geo" value="${geo}"></td>
+    <td data-label="P/N"><input type="text" class="form-control form-control-sm item-pn" value="${pn}"></td>
+    <td data-label="Description"><input type="text" class="form-control form-control-sm item-desc" value="${desc}"></td>
+    <td data-label="Qty">
+      <input type="number" class="form-control form-control-sm item-qty" value="${cant}" min="0" data-orig="${origQty !== null && origQty !== undefined ? origQty : cant}" oninput="const o=Number(this.dataset.orig); const c=Number(this.value); const h=this.parentElement.querySelector('.item-reduction-hint'); if(h){ if(o>c){h.textContent='Req: '+o+' (-'+(o-c)+')'; h.classList.remove('d-none');} else {h.classList.add('d-none');} }">
+      <small class="text-danger item-reduction-hint ${(origQty !== null && Number(origQty) > Number(cant)) ? '' : 'd-none'}" style="font-size:10px; font-weight:600; display:block; margin-top:2px;">Req: ${origQty} (-${Number(origQty) - Number(cant)})</small>
+    </td>
+    <td data-label="Item Notes">${notesCell}</td>
+    <td data-label="Supplier Notes">${supplierNotesCell}</td>
+    <td data-label="Images">${imagesCell}</td>
+    <td data-label="Status">
       <select class="form-select form-select-sm item-status" ${!isManager ? 'disabled' : ''}>
         ${statusOptions}
       </select>
     </td>
-    <td><button type="button" class="btn btn-sm text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+    <td data-label="Remove"><button type="button" class="btn btn-sm text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
   `;
   tbody.appendChild(row);
 };

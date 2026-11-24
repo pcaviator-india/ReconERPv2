@@ -1,0 +1,353 @@
+<!-- ================================================================
+     SiteTransfer.html — Intra Site Transfer Module
+     Transfer goods from one site to another.
+     Stock is only updated at destination when received.
+     ================================================================ -->
+<div id="siteTransferModule" class="container-fluid px-3 py-3">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0 fw-bold"><i class="bi bi-truck me-2 text-primary"></i><span class="i18n-label" data-i18n="m_site_transfer">Intra Site Transfer</span></h4>
+      <small class="text-muted" data-i18n="st_sub">Transfer goods between sites. Stock updates at destination only on receive.</small>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button class="btn btn-outline-secondary btn-sm" onclick="SiteTransfer.refresh()" data-i18n="btn_refresh">
+        <i class="bi bi-arrow-clockwise me-1"></i><span class="i18n-label">Refresh</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Alert area -->
+  <div id="stAlert" class="d-none mb-3"></div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3" id="stTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="stTab-create" data-bs-toggle="tab" data-bs-target="#stCreate" type="button" role="tab" data-i18n="st_transfer_create">
+        <i class="bi bi-box-arrow-right me-1"></i><span class="i18n-label">Create Transfer</span>
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="stTab-view" data-bs-toggle="tab" data-bs-target="#stView" type="button" role="tab" data-i18n="st_transfer_view">
+        <i class="bi bi-journal-text me-1"></i><span class="i18n-label">View Transfers</span>
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="stTab-receive" data-bs-toggle="tab" data-bs-target="#stReceive" type="button" role="tab" data-i18n="st_transfer_receive">
+        <i class="bi bi-box-arrow-in-left me-1"></i><span class="i18n-label">Receive Transfer</span>
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content" id="stTabContent">
+
+    <!-- ============ TAB 1: CREATE TRANSFER ============ -->
+    <div class="tab-pane fade show active" id="stCreate" role="tabpanel">
+
+      <div class="card shadow-sm border-0 rounded-4 mb-4">
+        <div class="card-header bg-white border-0 pt-3">
+          <h5 class="fw-bold mb-0"><i class="bi bi-plus-circle me-2"></i><span class="i18n-label" data-i18n="st_transfer_create">New Transfer</span></h5>
+        </div>
+        <div class="card-body">
+
+          <div class="row g-3">
+
+            <!-- From Site -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" data-i18n="st_from_site">From Site <span class="text-danger">*</span></label>
+              <select id="stFromSite" class="form-select" required></select>
+              <div class="form-text" id="stFromSiteHelp"></div>
+            </div>
+
+            <!-- To Site -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" data-i18n="st_to_site">To Site <span class="text-danger">*</span></label>
+              <select id="stToSite" class="form-select" required></select>
+            </div>
+
+            <!-- Driver -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" data-i18n="st_driver">Driver</label>
+              <select id="stDriver" class="form-select">
+                <option value="" data-i18n="st_select_driver">Select driver</option>
+              </select>
+            </div>
+
+            <!-- Vehicle -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" data-i18n="st_vehicle">Vehicle No</label>
+              <select id="stVehicle" class="form-select">
+                <option value="" data-i18n="st_select_vehicle">Select vehicle</option>
+              </select>
+            </div>
+
+            <!-- Despatch No -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" data-i18n="st_despatch_no">Despatch No (Guia) <span class="text-danger">*</span></label>
+              <input type="text" id="stDespatchNo" class="form-control" data-i18n-placeholder="st_despatch_placeholder" placeholder="e.g. GUIA-001234" required>
+              <div class="form-text" data-i18n="st_despatch_help">Unique despatch number from SII tax system.</div>
+            </div>
+
+            <!-- Notes -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" data-i18n="st_notes">Notes</label>
+              <textarea id="stNotes" class="form-control" rows="2" data-i18n-placeholder="st_notes_placeholder" placeholder="Optional notes..."></textarea>
+            </div>
+
+          </div>
+
+          <!-- Item Search (CreateReq pattern) -->
+          <div class="card shadow-sm border-0 rounded-4 mb-3">
+            <div class="card-header bg-white border-0 pt-3 d-flex justify-content-between align-items-center">
+              <h6 class="fw-bold mb-0"><i class="bi bi-search me-1"></i><span class="i18n-label" data-i18n="st_item_search">Search Items</span></h6>
+              <div class="form-check form-check-inline ms-3">
+                <input class="form-check-input" type="checkbox" id="stAllowNoStock">
+                <label class="form-check-label small fw-semibold" for="stAllowNoStock" data-i18n="st_add_without_stock">
+                  Add items without source stock
+                </label>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="row g-2">
+                <div class="col-md-5">
+                  <input type="text" id="stItemSearch" class="form-control" data-i18n-placeholder="st_item_search_placeholder" placeholder="Search by Geo, P/N, Description...">
+                </div>
+                <div class="col-md-3 d-grid">
+                  <button class="btn btn-outline-primary w-100" onclick="window.SiteTransfer.searchItems()" data-i18n="btn_search">
+                    <i class="bi bi-search me-1"></i> Search
+                  </button>
+                </div>
+              </div>
+              <div class="table-responsive mt-2">
+                <table class="table table-sm table-hover align-middle" id="stSearchResultsTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th data-i18n="col_geo">Geo</th>
+                      <th data-i18n="col_pn">P/N</th>
+                      <th data-i18n="col_description">Description</th>
+                      <th class="text-end" data-i18n="st_source_stock">Source Stock</th>
+                      <th class="text-end" data-i18n="col_qty">Qty</th>
+                      <th class="text-end" data-i18n="btn_add">Add</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stSearchResults"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cart -->
+          <div class="card shadow-sm border-0 rounded-4 mb-4">
+            <div class="card-header bg-white border-0 pt-3">
+              <h5 class="fw-bold mb-0"><i class="bi bi-cart me-1"></i><span data-i18n="st_cart">Transfer Cart</span></h5>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table table-hover align-middle" id="stItemsTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width: 30%" data-i18n="col_item">Item / Product</th>
+                      <th class="text-end" style="width: 15%" data-i18n="st_qty_sent">Qty Sent</th>
+                      <th class="text-end" style="width: 15%" data-i18n="st_unit_cost">Unit Cost</th>
+                      <th style="width: 20%" data-i18n="col_notes">Notes</th>
+                      <th class="text-end" style="width: 10%" data-i18n="st_source_stock">Source Stock</th>
+                      <th style="width: 10%" data-i18n="col_action">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stItemsBody"></tbody>
+                </table>
+              </div>
+              <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="window.SiteTransfer.clearCart()" data-i18n="btn_clear_cart">
+                  <i class="bi bi-trash me-1"></i> Clear All
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="mt-4 d-flex gap-2">
+            <button class="btn btn-outline-secondary" onclick="SiteTransfer.saveDraft()" data-i18n="st_save_draft">
+              <i class="bi bi-save me-1"></i> Save Draft
+            </button>
+            <button class="btn btn-primary" onclick="SiteTransfer.despatch()" data-i18n="st_despatch">
+              <i class="bi bi-send me-1"></i> Despatch
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ TAB 2: VIEW TRANSFERS ============ -->
+    <div class="tab-pane fade" id="stView" role="tabpanel">
+
+      <div class="card shadow-sm border-0 rounded-4 mb-4">
+        <div class="card-header bg-white border-0 pt-3">
+          <h5 class="fw-bold mb-0"><i class="bi bi-search me-2"></i><span data-i18n="st_transfers">Transfers</span></h5>
+        </div>
+        <div class="card-body">
+
+          <!-- Filters -->
+          <div class="row g-2 mb-3 mobile-stack">
+            <div class="col-md-3">
+              <input type="text" id="stViewSearch" class="form-control" placeholder="Search transfer no, despatch no..." onkeyup="SiteTransfer.applyViewFilters()">
+            </div>
+            <div class="col-md-2">
+              <select id="stViewStatus" class="form-select" onchange="SiteTransfer.applyViewFilters()">
+              <option value="" data-i18n="all_statuses">All Status</option>
+              <option value="draft" data-i18n="status_draft">Draft</option>
+              <option value="despatched" data-i18n="status_despatched">Despatched</option>
+              <option value="in_transit" data-i18n="status_in_transit">In Transit</option>
+              <option value="received" data-i18n="status_received">Received</option>
+              <option value="cancelled" data-i18n="status_cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <input type="date" id="stViewDateFrom" class="form-control" onchange="SiteTransfer.applyViewFilters()">
+            </div>
+            <div class="col-md-2">
+              <input type="date" id="stViewDateTo" class="form-control" onchange="SiteTransfer.applyViewFilters()">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <button class="btn btn-outline-primary w-100" onclick="SiteTransfer.loadTransfers()">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+              </button>
+            </div>
+          </div>
+
+          <!-- Transfers Table -->
+          <div class="table-responsive">
+            <table class="table table-hover align-middle" id="stViewTable">
+              <thead class="table-light">
+                <tr>
+                  <th data-i18n="st_transfer_no">Transfer No</th>
+                  <th data-i18n="st_despatch_no">Despatch No</th>
+                  <th data-i18n="st_from_site">From Site</th>
+                  <th data-i18n="st_to_site">To Site</th>
+                  <th data-i18n="st_driver">Driver</th>
+                  <th data-i18n="st_vehicle">Vehicle</th>
+                  <th class="text-end" data-i18n="col_items">Items</th>
+                  <th class="text-end" data-i18n="st_qty_sent">Qty Sent</th>
+                  <th class="text-end" data-i18n="st_qty_received">Qty Received</th>
+                  <th data-i18n="st_status">Status</th>
+                  <th data-i18n="st_created">Created</th>
+                  <th class="text-end" data-i18n="col_action">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="stViewBody"></tbody>
+            </table>
+          </div>
+
+          <div id="stViewEmpty" class="text-center py-4 text-muted d-none">
+            <i class="bi bi-inbox fs-1 mb-2"></i><p data-i18n="st_no_transfers">No transfers found.</p>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ TAB 3: RECEIVE TRANSFER ============ -->
+    <div class="tab-pane fade" id="stReceive" role="tabpanel">
+
+      <div class="card shadow-sm border-0 rounded-4 mb-4">
+        <div class="card-header bg-white border-0 pt-3">
+          <h5 class="fw-bold mb-0"><i class="bi bi-box-arrow-in-left me-2"></i><span data-i18n="st_transfer_receive">Receive Transfer</span></h5>
+        </div>
+        <div class="card-body">
+
+          <p class="text-muted small mb-3" data-i18n="st_receive_help">Select a transfer destined to your site and confirm received quantities.</p>
+
+          <!-- Pending transfers list -->
+          <div class="mb-4">
+            <h6 class="fw-bold mb-2" data-i18n="st_pending_receive">Transfers Awaiting Receive</h6>
+            <div class="table-responsive">
+              <table class="table table-hover align-middle" id="stReceiveTable">
+                <thead class="table-light">
+                  <tr>
+                      <th data-i18n="st_transfer_no">Transfer No</th>
+                      <th data-i18n="st_despatch_no">Despatch No</th>
+                      <th data-i18n="st_from_site">From Site</th>
+                      <th data-i18n="st_driver">Driver</th>
+                      <th class="text-end" data-i18n="col_items">Items</th>
+                      <th class="text-end" data-i18n="st_qty_sent">Qty Sent</th>
+                      <th class="text-end" data-i18n="st_qty_received">Qty Received</th>
+                      <th data-i18n="col_despatched">Despatched</th>
+                      <th class="text-end" data-i18n="col_action">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="stReceiveBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Receive form (shown when a transfer is selected) -->
+          <div id="stReceiveForm" class="d-none mt-4 p-4 bg-light rounded-3 border">
+            <h6 class="fw-bold mb-3">Confirm Receipt</h6>
+
+            <div class="row g-3 mb-3">
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Transfer No</label>
+                <input type="text" id="stRecvTransferNo" class="form-control" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Despatch No</label>
+                <input type="text" id="stRecvDespatchNo" class="form-control" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">From Site</label>
+                <input type="text" id="stRecvFromSite" class="form-control" readonly>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Items</label>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle" id="stRecvItemsTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Item</th>
+                      <th class="text-end">Qty Sent</th>
+                      <th class="text-end">Qty Received</th>
+                      <th class="text-end">Discrepancy</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stRecvItemsBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary" onclick="SiteTransfer.cancelReceive()">
+                <i class="bi bi-x me-1"></i> Cancel
+              </button>
+              <button class="btn btn-success" onclick="SiteTransfer.confirmReceive()">
+                <i class="bi bi-check2 me-1"></i> Confirm Receive
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  (function() {
+    var s = document.createElement('script');
+    s.src = 'js/SiteTransferJS.js';
+    s.onload = function() {
+      if (typeof window.initSiteTransferModule === 'function') {
+        window.initSiteTransferModule();
+      }
+    };
+    document.head.appendChild(s);
+  })();
+</script>

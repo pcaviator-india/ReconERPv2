@@ -444,15 +444,15 @@ function renderTable(data) {
     const dateFormatted = formatFuelDate(r[0]);
     const tankCol = r[8] || '';
     return `<tr>
-      <td>${dateFormatted}</td>
-      <td>${r[1] || ''}</td>
-      <td>${r[2] || ''}</td>
-      <td>${r[3] || ''}</td>
-      <td>${r[4] !== undefined && r[4] !== null ? r[4] : ''}</td>
-      <td>${r[5] !== undefined && r[5] !== null ? r[5] : ''}</td>
-      <td>${displayName}</td>
-      <td>${r[7] || ''}</td>
-      <td><span class="badge bg-warning text-dark">${tankCol}</span></td>
+      <td data-label="Fecha">${dateFormatted}</td>
+      <td data-label="Proyecto">${r[1] || ''}</td>
+      <td data-label="Tipo">${r[2] || ''}</td>
+      <td data-label="ID / Patente">${r[3] || ''}</td>
+      <td data-label="Litros">${r[4] !== undefined && r[4] !== null ? r[4] : ''}</td>
+      <td data-label="KM / Hor.">${r[5] !== undefined && r[5] !== null ? r[5] : ''}</td>
+      <td data-label="Nombre">${displayName}</td>
+      <td data-label="Usuario">${r[7] || ''}</td>
+      <td data-label="Mochila"><span class="badge bg-warning text-dark">${tankCol}</span></td>
     </tr>`;
   }).join('');
 }
@@ -550,12 +550,12 @@ function loadFuelPurchaseHistory() {
 
   tbody.innerHTML = data.map(row => `
     <tr>
-      <td>${row.fecha || ''}</td>
-      <td>${row.proveedor || ''}</td>
-      <td>${row.litros || ''}</td>
-      <td>${row.factura || ''}</td>
-      <td>${row.usuario || ''}</td>
-      <td><span class="badge bg-warning text-dark">${row.tank_name || ''}</span></td>
+      <td data-label="Fecha">${row.fecha || ''}</td>
+      <td data-label="Proveedor">${row.proveedor || ''}</td>
+      <td data-label="Litros">${row.litros || ''}</td>
+      <td data-label="Factura">${row.factura || ''}</td>
+      <td data-label="Usuario">${row.usuario || ''}</td>
+      <td data-label="Mochila"><span class="badge bg-warning text-dark">${row.tank_name || ''}</span></td>
     </tr>
   `).join('');
 }
@@ -676,21 +676,21 @@ function renderAdminMochilasList() {
   }
   container.innerHTML = `
     <h6 class="fw-bold mb-2">Mochilas Registradas</h6>
-    <table class="table table-sm table-bordered">
+    <table class="table table-sm table-bordered recon-responsive-table">
       <thead class="table-light">
         <tr><th>ID</th><th>Sitio</th><th>Código</th><th>Nombre</th><th>Capacidad (L)</th><th>Tipo</th><th>Estado</th><th></th></tr>
       </thead>
       <tbody>
         ${window.fuelMochilas.map(t => `
           <tr class="${t.is_active ? '' : 'table-secondary text-muted'}">
-            <td>${t.id}</td>
-            <td>${t.site}</td>
-            <td>${t.tank_code}</td>
-            <td>${t.name}</td>
-            <td>${Number(t.capacity_liters).toLocaleString()}</td>
-            <td>${t.fuel_type || 'Diesel'}</td>
-            <td><span class="badge ${t.is_active ? 'bg-success' : 'bg-secondary'}">${t.is_active ? 'Activa' : 'Inactiva'}</span></td>
-            <td>
+            <td data-label="ID">${t.id}</td>
+            <td data-label="Sitio">${t.site}</td>
+            <td data-label="Código">${t.tank_code}</td>
+            <td data-label="Nombre">${t.name}</td>
+            <td data-label="Capacidad (L)">${Number(t.capacity_liters).toLocaleString()}</td>
+            <td data-label="Tipo">${t.fuel_type || 'Diesel'}</td>
+            <td data-label="Estado"><span class="badge ${t.is_active ? 'bg-success' : 'bg-secondary'}">${t.is_active ? 'Activa' : 'Inactiva'}</span></td>
+            <td data-label="Acciones">
               <button class="btn btn-sm btn-outline-${t.is_active ? 'danger' : 'success'}"
                 onclick="toggleMochilaActive(${t.id}, ${t.is_active ? 0 : 1})">
                 ${t.is_active ? 'Desactivar' : 'Activar'}

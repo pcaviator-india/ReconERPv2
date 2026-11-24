@@ -16,6 +16,7 @@
   <base target="_top" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
 
   <style>
     :root {
@@ -931,6 +932,22 @@
 
 
           // ===============================
+          // SITE TRANSFER MODULE
+          // ===============================
+          if (name === "SiteTransfer") {
+            setTimeout(() => {
+              if (typeof window.initSiteTransferModule === "function") {
+                window.initSiteTransferModule();
+              }
+
+              if (window.applyRolePermissions) {
+                window.applyRolePermissions();
+              }
+            }, 100);
+          }
+
+
+          // ===============================
           // Location Map MODULE
           // ===============================
           if (name === "LocationMap") {
@@ -1015,6 +1032,28 @@
               // Call the refresh directly after init
               if (typeof window.refreshFuelHistory === "function") {
                 window.refreshFuelHistory();
+              }
+            }, 200);
+          }
+
+          // ===============================
+          // Vehicle Tracking MODULE
+          // ===============================
+          if (name === "VehicleTracking") {
+            setTimeout(() => {
+              if (typeof window.initVehicleTrackingModule === "function") {
+                window.initVehicleTrackingModule();
+              }
+            }, 200);
+          }
+
+          // ===============================
+          // Fleet Map MODULE
+          // ===============================
+          if (name === "FleetMap") {
+            setTimeout(() => {
+              if (typeof window.initFleetMapModule === "function") {
+                window.initFleetMapModule();
               }
             }, 200);
           }
@@ -2461,7 +2500,25 @@
 
   </script>
   <script src="api.js?v=25"></script>
-  <script src="js/gas-shim.js?v=25"></script>
+  <script charset="utf-8" src="js/gas-shim.js?v=25"></script>
+  <script>
+    window.reconBottomNavNavigate = function (moduleName, ev) {
+      if (ev) ev.preventDefault();
+      document.querySelectorAll('.recon-nav-item').forEach(function (el) {
+        el.setAttribute('data-active', el.getAttribute('data-module') === moduleName ? 'true' : 'false');
+        el.classList.toggle('active', el.getAttribute('data-module') === moduleName);
+      });
+      if (moduleName === 'More') {
+        window.toggleSidebar();
+        return;
+      }
+      if (typeof window.loadModule === 'function') {
+        window.loadModule(moduleName);
+      }
+      var titleEl = document.getElementById('reconMobileModuleTitle');
+      if (titleEl) titleEl.textContent = moduleName;
+    };
+  </script>
 </head>
 
 <body>
@@ -2473,6 +2530,17 @@
   </div>
 
   <div id="app-wrapper" style="display: none">
+    <!-- Mobile Header (shown on < 768px) -->
+    <header class="recon-mobile-header">
+      <div class="recon-module-title" id="reconMobileModuleTitle">RECON ERP</div>
+      <div class="recon-actions">
+        <button class="recon-btn-icon" onclick="window.toggleSidebar()" aria-label="Menu">
+          <i class="bi bi-list"></i>
+        </button>
+        <span class="recon-site-badge" id="reconMobileSiteBadge">—</span>
+      </div>
+    </header>
+
     <!-- Top Status Bar -->
     <div id="appStatusBar">
       <div class="status-spinner"></div>
@@ -2480,12 +2548,6 @@
     </div>
     <div class="d-flex" style="min-height: 100vh">
       <div id="sidebarOverlay" class="sidebar-overlay" onclick="window.toggleSidebar(true)"></div>
-
-      <button id="sidebarMobileToggleBtn" type="button" class="btn btn-primary sidebar-mobile-toggle-btn"
-        onclick="window.toggleSidebar()" aria-label="Open menu" title="Open menu" data-i18n="sb_open_menu">
-        <i class="bi bi-list"></i>
-      </button>
-
       <div id="sidebar" class="sidebar d-flex flex-column shadow bg-dark">
 
         <div class="sidebar-header p-3 border-bottom border-secondary">
@@ -2656,6 +2718,11 @@
                   <i class="bi bi-box-seam"></i>
                   <span class="sidebar-label" data-i18n="m_stock">Stock</span>
                 </a>
+                <a id="nav-SiteTransfer" class="nav-link py-1 text-white-50 small" onclick="loadModule('SiteTransfer', this)"
+                  title="Intra Site Transfer">
+                  <i class="bi bi-truck"></i>
+                  <span class="sidebar-label" data-i18n="m_site_transfer">Site Transfer</span>
+                </a>
                 <a id="nav-MinMax" class="nav-link py-1 text-white-50 small admin-only"
                   onclick="loadModule('MinMax', this)" title="Min/Max per site">
                   <i class="bi bi-sliders"></i>
@@ -2728,6 +2795,22 @@
                 onclick="loadModule('ControlCombustible', this)" title="Fuel Control" style="cursor: pointer">
                 <i class="bi bi-fuel-pump"></i>
                 <span class="sidebar-label" i18n="m_fuel_control">Control Combustible</span>
+              </a>
+            </div>
+
+            <div class="nav-item">
+              <a id="nav-VehicleTracking" class="nav-link text-white"
+                onclick="loadModule('VehicleTracking', this)" title="Vehicle Tracking" style="cursor: pointer">
+                <i class="bi bi-truck-flatbed"></i>
+                <span class="sidebar-label" data-i18n="m_vehicle_tracking">Vehicle Tracking</span>
+              </a>
+            </div>
+
+            <div class="nav-item">
+              <a id="nav-FleetMap" class="nav-link text-white"
+                onclick="loadModule('FleetMap', this)" title="Fleet Map" style="cursor: pointer">
+                <i class="bi bi-map"></i>
+                <span class="sidebar-label" data-i18n="m_fleet_map">Fleet Map</span>
               </a>
             </div>
 
@@ -3830,35 +3913,37 @@
 
 
 
-  <script src="js/CreateReqJS.js?v=28"></script>
-  <script src="js/ViewEditReqJS.js?v=24"></script>
-  <script src="js/ProductsJS.js?v=24"></script>
-  <script src="js/MinMaxJS.js?v=22"></script>
-  <script src="js/i18n.js?v=22"></script>
-  <script src="js/AdminValJS.js?v=22"></script>
-  <script src="js/RFQJS.js?v=24"></script>
-  <script src="js/QuoteMgmtJS.js?v=25"></script>
-  <script src="js/BundlesJS.js?v=22"></script>
-  <script src="js/InvMovJS.js?v=22"></script>
-  <script src="js/ChoicesJS.js?v=22"></script>
+  <script charset="utf-8" src="js/CreateReqJS.js?v=28"></script>
+  <script charset="utf-8" src="js/ViewEditReqJS.js?v=24"></script>
+  <script charset="utf-8" src="js/ProductsJS.js?v=24"></script>
+  <script charset="utf-8" src="js/MinMaxJS.js?v=22"></script>
+  <script charset="utf-8" src="js/i18n.js?v=22" charset="utf-8"></script>
+  <script charset="utf-8" src="js/AdminValJS.js?v=22"></script>
+  <script charset="utf-8" src="js/RFQJS.js?v=24"></script>
+  <script charset="utf-8" src="js/QuoteMgmtJS.js?v=25"></script>
+  <script charset="utf-8" src="js/BundlesJS.js?v=22"></script>
+  <script charset="utf-8" src="js/InvMovJS.js?v=22"></script>
+  <script charset="utf-8" src="js/ChoicesJS.js?v=22"></script>
   <link rel="stylesheet" href="css/choices.css" />
-  <script src="js/ImportInvJS.js?v=22"></script>
-  <script src="js/ScannerJS.js?v=22"></script>
-  <script src="js/AzureTestJS.js?v=22"></script>
-  <script src="js/SheetsSyncJS.js?v=23"></script>
-  <script src="js/CreateBulkPOMACJS.js?v=22"></script>
-  <script src="js/QuoteReportJS.js?v=22"></script>
-  <script src="js/LifecycleReportJS.js?v=22"></script>
-  <script src="js/DashboardJS.js?v=22"></script>
-  <script src="js/ControlCombustibleJS.js?v=24"></script>
-  <script src="js/StockJS.js?v=22"></script>
-  <script src="js/LocationMapJS.js?v=22"></script>
-  <script src="js/OpSphereReactJS.js?v=22"></script>
-  <script src="js/EditPinJS.js?v=22"></script>
-  <script src="js/GestionActivosJS.js?v=22"></script>
-  <script src="js/PermissionsJS.js?v=1"></script>
-  <script src="js/LabelsJS.js?v=24"></script>
-  <script src="js/BackgroundJobsJS.js?v=22"></script>
+  <script charset="utf-8" src="js/ImportInvJS.js?v=22"></script>
+  <script charset="utf-8" src="js/ScannerJS.js?v=22"></script>
+  <script charset="utf-8" src="js/AzureTestJS.js?v=22"></script>
+  <script charset="utf-8" src="js/SheetsSyncJS.js?v=23"></script>
+  <script charset="utf-8" src="js/CreateBulkPOMACJS.js?v=22"></script>
+  <script charset="utf-8" src="js/QuoteReportJS.js?v=22"></script>
+  <script charset="utf-8" src="js/LifecycleReportJS.js?v=22"></script>
+  <script charset="utf-8" src="js/DashboardJS.js?v=22"></script>
+  <script charset="utf-8" src="js/ControlCombustibleJS.js?v=24"></script>
+  <script charset="utf-8" src="js/StockJS.js?v=22"></script>
+  <script charset="utf-8" src="js/VehicleTrackingJS.js?v=1"></script>
+  <script charset="utf-8" src="js/FleetTrackingJS.js?v=1"></script>
+  <script charset="utf-8" src="js/LocationMapJS.js?v=22"></script>
+  <script charset="utf-8" src="js/OpSphereReactJS.js?v=22"></script>
+  <script charset="utf-8" src="js/EditPinJS.js?v=22"></script>
+  <script charset="utf-8" src="js/GestionActivosJS.js?v=22"></script>
+  <script charset="utf-8" src="js/PermissionsJS.js?v=1"></script>
+  <script charset="utf-8" src="js/LabelsJS.js?v=24"></script>
+  <script charset="utf-8" src="js/BackgroundJobsJS.js?v=22"></script>
 
   <!-- PWA Service Worker Registration & Install Handler -->
   <script>
@@ -3889,11 +3974,54 @@
   </script>
   <!-- Floating PWA Install Button (Bottom Right) -->
   <button id="btnInstallPWA" type="button"
-    class="btn btn-primary rounded-pill shadow-lg px-3 py-2 position-fixed align-items-center"
-    style="display: none; bottom: 24px; right: 24px; z-index: 1050;">
-    <i class="bi bi-download me-2 fs-6"></i>
-    <span class="fw-bold">Install Mobile App</span>
+    class="rounded-circle shadow-lg position-fixed d-flex align-items-center justify-content-center"
+    style="display: none; bottom: 24px; right: 24px; z-index: 1050; width: 48px; height: 48px; padding: 0; background: rgba(13, 110, 253, 0.7); color: #fff; border: none;">
+    <i class="bi bi-download fs-6" style="opacity: 1;"></i>
   </button>
+  <!-- Bottom Navigation Bar (shown on < 768px) -->
+  <nav class="recon-bottom-nav" id="reconBottomNav">
+    <a class="recon-nav-item" href="#" onclick="window.reconBottomNavNavigate('Dashboard', event)"
+      data-module="Dashboard">
+      <i class="bi bi-speedometer2"></i><span>Dashboard</span>
+    </a>
+    <a class="recon-nav-item" href="#" onclick="window.reconBottomNavNavigate('CreateReq', event)"
+      data-module="CreateReq">
+      <i class="bi bi-file-earmark-text"></i><span>Requisitions</span>
+    </a>
+    <a class="recon-nav-item" href="#" onclick="window.reconBottomNavNavigate('QuoteMgmt', event)"
+      data-module="QuoteMgmt">
+      <i class="bi bi-file-earmark-check"></i><span>Quotes</span>
+    </a>
+    <a class="recon-nav-item" href="#" onclick="window.reconBottomNavNavigate('ControlCombustible', event)"
+      data-module="ControlCombustible">
+      <i class="bi bi-fuel-pump"></i><span>Fuel</span>
+    </a>
+    <a class="recon-nav-item" href="#" onclick="window.reconBottomNavNavigate('More', event)" data-module="More">
+      <i class="bi bi-grid-3x3-gap"></i><span>More</span>
+    </a>
+  </nav>
+  <script>
+    // Sync mobile header title + bottom nav active state when loadModule runs
+    (function () {
+      var _origLoadModule = window.loadModule;
+      window.loadModule = function (moduleName, el) {
+        if (typeof _origLoadModule === 'function') _origLoadModule(moduleName, el);
+        var titleEl = document.getElementById('reconMobileModuleTitle');
+        if (titleEl) titleEl.textContent = moduleName || 'RECON ERP';
+        document.querySelectorAll('.recon-nav-item').forEach(function (navEl) {
+          var active = navEl.getAttribute('data-module') === moduleName;
+          navEl.setAttribute('data-active', active ? 'true' : 'false');
+          navEl.classList.toggle('active', active);
+        });
+        var sidebar = document.getElementById('sidebar');
+        var overlay = document.getElementById('sidebarOverlay');
+        if (sidebar) sidebar.classList.remove('sidebar-mobile-open');
+        if (overlay) overlay.classList.remove('show');
+        document.body.classList.remove('recon-sidebar-open');
+      };
+    })();
+  </script>
+
 </body>
 
 </html>

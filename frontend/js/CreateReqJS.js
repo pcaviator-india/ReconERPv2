@@ -605,12 +605,12 @@ window.processSearch = function() {
 
     return `
     <tr>
-      <td class="fw-bold text-primary">${i.geo}</td>
-      <td>${i.pn}</td>
-      <td><small>${i.es || i.en}</small>${mmLine ? mmLine : ''}</td>
-      <td id="stock_${i.geo}" class="${liveStock > 0 ? 'text-success' : 'text-danger'} fw-bold">${liveStock}</td>
-      <td><input type="number" id="q_${i.id}" value="${suggest}" class="form-control form-control-sm" style="width:60px"></td>
-      <td><button class="btn btn-sm btn-primary" onclick="window.addItemToCart('${i.id}')"><i class="bi bi-plus"></i></button></td>
+      <td data-label="Geo" class="fw-bold text-primary">${i.geo}</td>
+      <td data-label="P/N">${i.pn}</td>
+      <td data-label="Description"><small>${i.es || i.en}</small>${mmLine ? mmLine : ''}</td>
+      <td data-label="Stock" id="stock_${i.geo}" class="${liveStock > 0 ? 'text-success' : 'text-danger'} fw-bold">${liveStock}</td>
+      <td data-label="Qty"><input type="number" id="q_${i.id}" value="${suggest}" class="form-control form-control-sm" style="width:60px"></td>
+      <td data-label="Add"><button class="btn btn-sm btn-primary" onclick="window.addItemToCart('${i.id}')"><i class="bi bi-plus"></i></button></td>
     </tr>`;
   }).join('');
 };
@@ -1384,14 +1384,14 @@ window.updateCartUI = function() {
     const supplierNoteVal = String(c.supplierNotes == null ? '' : c.supplierNotes).replace(/"/g, '&quot;');
     return `
     <tr${rowClass ? ' class="' + rowClass + '"' : ''}>
-      <td class="fw-bold">${c.geo}${warningIcon}</td>
-      <td>${c.pn}</td>
-      <td><small>${c.es || c.en}</small></td>
-      <td class="text-center"><strong>${c.qty}</strong>${beyondMax ? ' <span class="badge bg-danger ms-1" style="font-size:9px">OVER MAX</span>' : ''}</td>
-      <td><input type="text" class="form-control form-control-sm cart-item-notes" data-idx="${idx}" maxlength="500" placeholder="${getI18nText('item_notes_placeholder') || 'Notes for this item...'}" value="${noteVal}" oninput="window.setCartItemNotes(${idx}, this.value)"></td>
-      <td><input type="text" class="form-control form-control-sm cart-supplier-notes" data-idx="${idx}" maxlength="500" placeholder="${getI18nText('supplier_notes_placeholder') || 'Notes to send to the supplier...'}" value="${supplierNoteVal}" oninput="window.setCartSupplierNotes(${idx}, this.value)"></td>
-      <td id="cartImgCell_${idx}" class="cart-images-cell"></td>
-      <td class="text-end">
+      <td data-label="Geo" class="fw-bold">${c.geo}${warningIcon}</td>
+      <td data-label="P/N">${c.pn}</td>
+      <td data-label="Description"><small>${c.es || c.en}</small></td>
+      <td data-label="Qty" class="text-center"><strong>${c.qty}</strong>${beyondMax ? ' <span class="badge bg-danger ms-1" style="font-size:9px">OVER MAX</span>' : ''}</td>
+      <td data-label="Item Notes"><input type="text" class="form-control form-control-sm cart-item-notes" data-idx="${idx}" maxlength="500" placeholder="${getI18nText('item_notes_placeholder') || 'Notes for this item...'}" value="${noteVal}" oninput="window.setCartItemNotes(${idx}, this.value)"></td>
+      <td data-label="Supplier Notes"><input type="text" class="form-control form-control-sm cart-supplier-notes" data-idx="${idx}" maxlength="500" placeholder="${getI18nText('supplier_notes_placeholder') || 'Notes to send to the supplier...'}" value="${supplierNoteVal}" oninput="window.setCartSupplierNotes(${idx}, this.value)"></td>
+      <td data-label="Images" id="cartImgCell_${idx}" class="cart-images-cell"></td>
+      <td data-label="Remove" class="text-end">
         <button class="btn btn-sm text-danger" onclick="window.removeItemFromCart(${idx})">
           <i class="bi bi-x-lg"></i>
         </button>

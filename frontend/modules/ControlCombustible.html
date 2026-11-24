@@ -68,7 +68,7 @@
     <!-- Fuel Entry Form -->
     <div class="card p-3 shadow-sm mb-4">
       <h6 class="fw-bold mb-3"><i class="bi bi-droplet-fill text-warning me-1"></i> Registrar Dispensación</h6>
-      <div class="row g-2">
+      <div class="row g-2 mobile-stack">
         <div class="col-md-3">
           <label class="form-label small">Proyecto</label>
           <select id="fuel_proyecto" class="form-select"></select>
@@ -120,9 +120,7 @@
         🔍 Filtros Avanzados
       </button>
       <div class="collapse mt-3" id="filterSection">
-        <div class="row g-2">
-          <div class="col-md-2">
-            <label class="form-label small">Desde</label>
+        <div class="row g-2 mobile-stack">
             <input type="date" id="f_date_from" class="form-control" onchange="applyFilters()">
           </div>
           <div class="col-md-2">
@@ -159,7 +157,7 @@
     </div>
 
     <div class="table-responsive">
-      <table class="table table-hover table-sm" id="fuel_table">
+      <table class="table table-hover table-sm recon-responsive-table" id="fuel_table">
         <thead class="table-light">
           <tr>
             <th>Fecha</th>

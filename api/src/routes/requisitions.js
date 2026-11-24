@@ -102,7 +102,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const itemsStmt = await db.prepare(`
       SELECT ri.*, p.geo, p.description, p.name, p.unit
       FROM requisition_items ri
-      JOIN products p ON ri.product_id = p.id
+      LEFT JOIN products p ON ri.product_id = p.id
       WHERE ri.requisition_id = ?
       ORDER BY ri.id
     `);
@@ -155,12 +155,13 @@ router.post('/', authenticateToken, async (req, res) => {
     await insertReq.bind(requisitionId, requisitionNo, site_id, userId, priority || 'normal', notes || '').run();
 
     const insertItem = await db.prepare(`
-      INSERT INTO requisition_items (requisition_id, product_id, quantity_requested, notes)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO requisition_items (requisition_id, product_id, quantity_requested, original_quantity, notes)
+      VALUES (?, ?, ?, ?, ?)
     `);
 
     for (const item of items) {
-      await insertItem.bind(requisitionId, item.product_id, item.quantity_requested, item.notes || '').run();
+      const q = Number(item.quantity_requested || item.cant || 0);
+      await insertItem.bind(requisitionId, item.product_id, q, q, item.notes || '').run();
     }
 
     res.status(201).json({

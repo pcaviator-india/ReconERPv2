@@ -73,16 +73,16 @@ var StockModule = (function() {
       const invDetails = getInventoryDetails(item.ItemID);
       return `
         <tr>
-          <td><strong>${item.ItemID || ''}</strong></td>
-          <td>${invDetails.pn || ''}</td>
-          <td>${item.ProductName || ''}</td>
-          <td><small class="text-muted">${invDetails.es || ''}</small></td>
-          <td><span class="badge bg-secondary">${item.LocationType || ''}</span></td>
-          <td>${item.LocationID || ''}</td>
-          <td>${formatRackLocation(item.RackId, item.ShelfLevel, item.SideCode)}</td>
-          <td class="text-end fw-bold">${Number(item.Quantity || 0).toLocaleString()}</td>
-          <td class="text-end fw-bold text-success">${Number(item.AvailableQty || 0).toLocaleString()}</td>
-          <td class="small text-muted">
+          <td data-label="Geo Code"><strong>${item.ItemID || ''}</strong></td>
+          <td data-label="Product">${invDetails.pn || ''}</td>
+          <td data-label="Description EN">${item.ProductName || ''}</td>
+          <td data-label="Description ES"><small class="text-muted">${invDetails.es || ''}</small></td>
+          <td data-label="Loc Type"><span class="badge bg-secondary">${item.LocationType || ''}</span></td>
+          <td data-label="Location">${item.LocationID || ''}</td>
+          <td data-label="Rack/Shelf">${formatRackLocation(item.RackId, item.ShelfLevel, item.SideCode)}</td>
+          <td data-label="Qty" class="text-end fw-bold">${Number(item.Quantity || 0).toLocaleString()}</td>
+          <td data-label="Available" class="text-end fw-bold text-success">${Number(item.AvailableQty || 0).toLocaleString()}</td>
+          <td data-label="Last Updated" class="small text-muted">
             ${item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : ''}
           </td>
         </tr>

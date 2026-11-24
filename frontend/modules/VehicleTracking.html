@@ -1,0 +1,280 @@
+<div class="container-fluid py-3" id="vehicleTrackingModule">
+
+  <!-- PAGE HEADER -->
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h3 class="mb-0"><i class="bi bi-truck text-primary me-2"></i><span class="i18n-label" data-i18n="m_vehicle_tracking">Vehicle Tracking</span></h3>
+      <small class="text-muted" data-i18n="vt_subtitle">Track vehicle voyages with live GPS, KM, and expenses</small>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button class="btn btn-outline-secondary shadow-sm" onclick="window.vehicleTrackingRefresh()"
+        title="" data-i18n="btn_refresh"><i class="bi bi-arrow-clockwise"></i></button>
+      <button class="btn btn-primary shadow-sm" onclick="window.vehicleTrackingNewVoyage()"
+        data-i18n="vt_new_voyage"><i class="bi bi-plus me-1"></i><span class="i18n-label">New Voyage</span></button>
+    </div>
+  </div>
+
+  <div id="vtAlert"></div>
+
+  <!-- ===== VOYAGE START FORM (shown when no active voyage) ===== -->
+  <div id="vtStartForm" class="card shadow-sm border-0 mb-4">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-play-circle text-success me-2"></i><span class="i18n-label" data-i18n="vt_start_new_voyage">Start New Voyage</span></h5>
+    </div>
+    <div class="card-body">
+      <form id="vtVoyageForm" onsubmit="window.vehicleTrackingStartVoyage(event)">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small fw-bold text-uppercase" data-i18n="vt_from_site">From Site</label>
+            <select id="vtFromSite" class="form-select" required></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-bold text-uppercase" data-i18n="vt_to_site">To Site</label>
+            <select id="vtToSite" class="form-select" required></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-bold text-uppercase" data-i18n="vt_vehicle">Vehicle</label>
+            <select id="vtVehicle" class="form-select" required></select>
+          </div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small fw-bold text-uppercase" data-i18n="vt_start_km">Start KM</label>
+            <input type="number" id="vtStartKm" class="form-control" placeholder="0" required
+              min="0" step="1" data-i18n-placeholder="vt_start_km">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-bold text-uppercase" data-i18n="vt_driver">Driver</label>
+            <select id="vtDriver" class="form-select" required></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-bold text-uppercase" data-i18n="vt_reason">Reason for Movement</label>
+            <input type="text" id="vtReason" class="form-control"
+              placeholder="" data-i18n-placeholder="vt_reason_placeholder">
+          </div>
+        </div>
+        <div class="d-grid">
+          <button type="submit" class="btn btn-success btn-lg px-4" id="vtBtnStartVoyage"
+            data-i18n="vt_start_voyage"><i class="bi bi-play-fill me-2"></i><span class="i18n-label">Start Voyage &amp; Begin GPS Tracking</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== ACTIVE VOYAGE VIEW (shown when voyage is in progress) ===== -->
+  <div id="vtActiveVoyage" class="d-none card shadow-sm border-0 mb-4">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+      <div>
+        <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-truck-flatbed text-warning me-2"></i><span class="i18n-label" data-i18n="vt_voyage_active">Voyage Active</span>: <span id="vtVoyageNumber" class="text-primary">VOY-----</span>
+        </h5>
+        <small class="text-muted" id="vtVoyageRoute">From → To</small>
+      </div>
+      <div class="text-end">
+        <button class="btn btn-outline-secondary btn-sm" onclick="window.vehicleTrackingRefreshGPS()"
+          title="" data-i18n="vt_refresh_gps"><i class="bi bi-arrow-repeat"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="window.vehicleTrackingEndVoyage()"
+          title="" data-i18n="vt_end_voyage"><i class="bi bi-stop-fill"></i><span class="i18n-label">End Voyage</span></button>
+      </div>
+    </div>
+    <div class="card-body">
+      <!-- KPI Cards -->
+      <div class="row g-3 mb-4">
+        <div class="col-md-3">
+          <div class="card bg-light text-center py-3 border">
+            <div class="text-muted small" data-i18n="vt_start_km_label">Start KM</div>
+            <div class="fw-bold text-primary" id="vtKpiStartKm">0</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-light text-center py-3 border">
+            <div class="text-muted small" data-i18n="vt_current_km_label">Current KM</div>
+            <div class="fw-bold text-success" id="vtKpiCurrentKm">0</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-light text-center py-3 border">
+            <div class="text-muted small" data-i18n="vt_elapsed_time_label">Elapsed Time</div>
+            <div class="fw-bold text-dark" id="vtKpiElapsed">00:00:00</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-light text-center py-3 border">
+            <div class="text-muted small" data-i18n="vt_total_expenses_label">Total Expenses</div>
+            <div class="fw-bold text-dark" id="vtKpiExpenses">$0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map -->
+      <div class="card border shadow-sm mb-4">
+        <div class="card-header bg-white py-2">
+          <h6 class="mb-0 fw-bold"><i class="bi bi-map me-1"></i><span class="i18n-label" data-i18n="vt_live_map">Live Tracking Map</span></h6>
+        </div>
+        <div class="card-body p-0">
+          <div id="vtMap" style="height: 400px; width: 100%;"></div>
+        </div>
+      </div>
+
+      <!-- Expense Quick Add -->
+      <div class="card border-0 bg-light mb-4">
+        <div class="card-body">
+          <h6 class="fw-bold mb-3"><i class="bi bi-cash me-1"></i><span class="i18n-label" data-i18n="vt_add_expense">Add Voyage Expense</span></h6>
+          <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label small fw-bold" data-i18n="vt_expense_type">Expense Type</label>
+              <select id="vtExpenseType" class="form-select">
+                <option value="fuel" data-i18n="vt_fuel">Fuel</option>
+                <option value="food" data-i18n="vt_food">Food</option>
+                <option value="tag" data-i18n="vt_tag">Tag / Toll</option>
+                <option value="other" data-i18n="vt_other">Other</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-bold" data-i18n="vt_amount">Amount</label>
+              <input type="number" id="vtExpenseAmount" class="form-control" placeholder="0.00"
+                step="0.01" min="0" data-i18n-placeholder="vt_amount_placeholder">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-bold" data-i18n="vt_description">Description</label>
+              <input type="text" id="vtExpenseDesc" class="form-control" placeholder=""
+                data-i18n-placeholder="vt_expense_desc_placeholder">
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-outline-primary w-100" onclick="window.vehicleTrackingAddExpense()"
+                data-i18n="vt_add"><i class="bi bi-plus me-1"></i><span class="i18n-label">Add</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Expense List -->
+      <div id="vtExpenseList" class="card border-0 mb-4">
+        <div class="card-header bg-white py-2">
+          <h6 class="mb-0 fw-bold"><i class="bi bi-list me-1"></i><span class="i18n-label" data-i18n="vt_expenses">Expenses</span></h6>
+        </div>
+        <div class="card-body" id="vtExpenseItems">
+          <p class="text-muted small text-center" data-i18n="vt_no_expenses">No expenses added yet.</p>
+        </div>
+      </div>
+
+      <!-- GPS Status -->
+      <div class="card border-0 bg-light">
+        <div class="card-body py-3">
+          <div class="d-flex align-items-center">
+            <div class="bg-success rounded-circle d-inline-block me-2" style="width: 10px; height: 10px;"></div>
+            <span class="small fw-bold text-success" data-i18n="vt_gps_active">GPS Tracking Active</span>
+            <span class="ms-3 small text-muted" id="vtGpsStatus">Waiting for location...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== VOYAGE HISTORY ===== -->
+  <div id="vtHistorySection" class="card shadow-sm border-0">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+      <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-clock-history me-2"></i><span class="i18n-label" data-i18n="vt_voyage_history">Voyage History</span></h5>
+    </div>
+    <div class="card-body">
+      <div id="vtHistoryList" class="row g-3">
+        <!-- Voyage cards injected here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== VOYAGE DETAILS MODAL (READ-ONLY) ===== -->
+  <div class="modal fade" id="vtDetailModal" tabindex="-1" aria-labelledby="vtDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content shadow">
+        <div class="modal-header bg-light py-3">
+          <div class="d-flex align-items-center gap-2">
+            <h5 class="modal-title fw-bold mb-0 text-dark" id="vtDetailModalLabel">
+              <i class="bi bi-truck me-2 text-primary"></i><span id="vtDetailVoyageNumber">VOY-0000</span>
+            </h5>
+            <span id="vtDetailStatusBadge" class="badge bg-warning text-dark">Completed</span>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <!-- Route & Summary -->
+          <div class="alert alert-light border d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div>
+              <div class="fw-bold text-dark fs-5" id="vtDetailRoute">From → To</div>
+              <small class="text-muted" id="vtDetailDates">Date Range</small>
+            </div>
+            <div class="text-end">
+              <span class="text-muted small d-block">Vehicle / Driver</span>
+              <span class="fw-bold text-dark" id="vtDetailVehicleDriver">—</span>
+            </div>
+          </div>
+
+          <!-- KPI Cards -->
+          <div class="row g-2 mb-3 text-center">
+            <div class="col-6 col-md-3">
+              <div class="p-2 border rounded bg-light">
+                <div class="text-muted small">Start KM</div>
+                <div class="fw-bold text-primary fs-6" id="vtDetailStartKm">0</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="p-2 border rounded bg-light">
+                <div class="text-muted small">End KM</div>
+                <div class="fw-bold text-success fs-6" id="vtDetailEndKm">0</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="p-2 border rounded bg-light">
+                <div class="text-muted small">Distance</div>
+                <div class="fw-bold text-dark fs-6" id="vtDetailDistance">0 KM</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="p-2 border rounded bg-light">
+                <div class="text-muted small">Expenses</div>
+                <div class="fw-bold text-danger fs-6" id="vtDetailExpenses">$0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Map View of Voyage -->
+          <div class="card border mb-3">
+            <div class="card-header bg-white py-2 small fw-bold">
+              <i class="bi bi-map me-1 text-primary"></i> Voyage Route & Breadcrumbs
+            </div>
+            <div class="card-body p-0">
+              <div id="vtDetailMap" style="height: 280px; width: 100%;"></div>
+            </div>
+          </div>
+
+          <!-- Reason & Expense Breakdown -->
+          <div class="mb-2">
+            <label class="small fw-bold text-muted text-uppercase">Reason for Movement</label>
+            <p class="mb-3 text-dark small" id="vtDetailReason">—</p>
+          </div>
+
+          <div>
+            <label class="small fw-bold text-muted text-uppercase mb-2">Expense Details</label>
+            <div id="vtDetailExpenseTable" class="table-responsive">
+              <table class="table table-sm table-bordered align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th class="text-end">Amount</th>
+                  </tr>
+                </thead>
+                <tbody id="vtDetailExpenseBody">
+                  <tr><td colspan="3" class="text-center text-muted">No expenses recorded</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light py-2">
+          <button type="button" class="btn btn-secondary btn-sm px-3" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>

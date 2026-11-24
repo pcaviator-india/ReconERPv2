@@ -91,7 +91,7 @@
     });
 
     let html = `
-      <table class="table table-bordered table-hover table-sm mb-0 align-middle">
+      <table class="table table-bordered table-hover table-sm mb-0 align-middle recon-responsive-table">
         <thead class="table-dark">
           <tr>
             <th style="min-width:200px">Module</th>
@@ -120,11 +120,11 @@
 
         html += `
           <tr>
-            <td class="ps-4">
+            <td class="ps-4" data-label="Module">
               <div class="fw-semibold small">${m.name}</div>
               <div class="text-muted" style="font-size:0.72em">${m.moduleFile}</div>
             </td>
-            <td class="text-center">
+            <td class="text-center" data-label="View">
               <div class="form-check d-inline-block">
                 <input class="form-check-input" type="checkbox" title="Can View"
                   id="perm_${roleId}_${m.key}_view"
@@ -132,7 +132,7 @@
                   onchange="window._permChange('${roleId}','${m.key}','can_view', this.checked)">
               </div>
             </td>
-            <td class="text-center">
+            <td class="text-center" data-label="Edit">
               <div class="form-check d-inline-block">
                 <input class="form-check-input" type="checkbox" title="Can Edit/Create"
                   id="perm_${roleId}_${m.key}_edit"
@@ -140,7 +140,7 @@
                   onchange="window._permChange('${roleId}','${m.key}','can_edit', this.checked)">
               </div>
             </td>
-            <td class="text-center">
+            <td class="text-center" data-label="Approve">
               ${hasApprove ? `
                 <div class="form-check d-inline-block">
                   <input class="form-check-input" type="checkbox" title="Can Approve"
@@ -150,7 +150,7 @@
                 </div>
               ` : '<span class="text-muted small">—</span>'}
             </td>
-            <td class="text-center">
+            <td class="text-center" data-label="Scope">
               ${hasSiteScope ? `
                 <select class="form-select form-select-sm"
                   id="perm_${roleId}_${m.key}_scope"

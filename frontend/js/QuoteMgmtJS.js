@@ -2011,7 +2011,13 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
       }
     }
 
-    const metaHtml = `<div>${q.category}${q.subCategory ? " / " + q.subCategory : ""}</div><div>${q.site || i18n('quote_no_site')}</div>${receiptStatusHtml}`;
+    const qtys = quoteLineQtys(rows[0]);
+    let reductionBadgeHtml = '';
+    if (qtys.approved > 0 && qtys.approved < qtys.quoted) {
+      reductionBadgeHtml = `<div class="small mt-1"><span class="badge" style="background:#fd7e14; color:#fff;" title="Approved below quoted quantity"><i class="bi bi-dash-circle me-1"></i>Approved: ${qtys.approved} of ${qtys.quoted} (-${qtys.quoted - qtys.approved})</span></div>`;
+    }
+
+    const metaHtml = `<div>${q.category}${q.subCategory ? " / " + q.subCategory : ""}</div><div>${q.site || i18n('quote_no_site')}</div>${reductionBadgeHtml}${receiptStatusHtml}`;
 
     const domStatus = quoteGroupDominantStatus(rows);
     const domColor = quoteStatusColor(domStatus);
@@ -3764,7 +3770,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         const exchangeVal = (it.exchangeRate !== undefined && it.exchangeRate !== null && String(it.exchangeRate).trim() !== "")
           ? (Number(it.exchangeRate) || 0)
           : "";
-        return `<tr data-row="${i}" data-quote-id="${attr_(it.quoteId || it.quote_id || q.quoteId || q.quoteDbId || '')}" data-orig-recv="${storedRecv}" data-orig-sent="${qty}" data-orig-approved="${qtys.approved}" data-qty-frozen="${qtyFrozen ? "1" : "0"}" data-orig-cat="${attr_(it.category || "")}" data-orig-sub="${attr_(it.subCategory || "")}" data-orig-discount="${discountPct}" data-orig-freight="${freightVal}" data-saved-quote-no="${attr_(it.supplierQuoteNo)}" data-saved-doc-url="${attr_(it.quotedDocUrl)}" data-saved-doc-name="${attr_(quoteDocFileNameFromUrl(it.quotedDocUrl))}" data-pending-doc="" data-clear-doc="0">
+        return `<tr data-row="${i}" data-quote-id="${attr_(it.quoteId || it.quote_id || q.quoteId || q.quoteDbId || '')}" data-orig-recv="${storedRecv}" data-orig-sent="${qty}" data-orig-approved="${qtys.approved}" data-orig-despatched="${it.despatchedQty || it.despatched_qty || 0}" data-qty-frozen="${qtyFrozen ? "1" : "0"}" data-orig-cat="${attr_(it.category || "")}" data-orig-sub="${attr_(it.subCategory || "")}" data-orig-discount="${discountPct}" data-orig-freight="${freightVal}" data-saved-quote-no="${attr_(it.supplierQuoteNo)}" data-saved-doc-url="${attr_(it.quotedDocUrl)}" data-saved-doc-name="${attr_(quoteDocFileNameFromUrl(it.quotedDocUrl))}" data-pending-doc="" data-clear-doc="0">
         <td class="text-center"><input type="checkbox" class="form-check-input edit-item-select" data-i="${i}"></td>
         <td>
           <div class="d-flex align-items-center gap-2">
@@ -3858,7 +3864,10 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
             ? `<span style="${Number(it.receivedQty || 0) < diffBasis ? 'color: #dc3545; font-weight: bold;' : 'color: #6c757d'};">
                 ${Math.max(0, diffBasis - Number(it.receivedQty || 0))}
               </span>
-              <small>${i18n('lbl_missing')}</small>`
+              <small class="d-block">${i18n('lbl_missing')}</small>
+              ${(Number(it.receivedQty || 0) < diffBasis && Number(it.receivedQty || 0) > 0 && !isUserRole)
+                ? `<button type="button" class="btn btn-outline-warning btn-xs py-0 px-1 mt-1 d-block mx-auto text-nowrap" style="font-size:10px;" onclick="window.shortCloseQuoteRow(this, ${i})" title="${attr_(i18n('btn_close_short_title', 'Supplier/delivery will not fulfill remaining units: set approved quantity to received quantity and close shortfall'))}"><i class="bi bi-check2-circle me-1"></i>${i18n('btn_close_short', 'Close Short')}</button>`
+                : ''}`
             : '<span class="text-muted">&mdash;</span>'}
         </td>
 
@@ -4909,6 +4918,7 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
         // Use receivedQty as the primary quantity field for USER editing
         qty: sentQtyValue,
         receivedQty: receivedQtyValue,
+        despatchedQty: (status === "Despatched" || status === "Received" || status === "Final Received") ? (Number(tr.dataset.origDespatched || tr.querySelector(".edit-despatched-qty")?.value) || undefined) : undefined,
         // ðŸ”’ Quoted and approved are separate figures from here on.
         approvedQty: approvedQtyValue,
 
@@ -6342,6 +6352,91 @@ function buildInternalDualTableEmailHtml(quotedItems, bodegaItems, quoteId) {
   };
 
   // Auto-start initialization
+  // Short Close: When supplier/dispatch will not send remainder, adjust approved quantity to received quantity
+  window.shortCloseQuoteRow = async function (btn, idx) {
+    if (!btn) return;
+    const tr = btn.closest("tr");
+    if (!tr) return;
+
+    const recvInput = tr.querySelector(".edit-received-qty");
+    const recvQty = Number(recvInput ? recvInput.value : 0) || 0;
+    if (recvQty <= 0) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({ icon: 'warning', title: 'Invalid Quantity', text: 'Please enter the received quantity before closing short.' });
+      } else {
+        alert('Please enter the received quantity before closing short.');
+      }
+      return;
+    }
+
+    const confirmMsg = `Supplier / Dispatch confirmed no more units will be delivered. Set Approved Quantity to ${recvQty} and close shortfall?`;
+    let confirmed = false;
+
+    let reason = '';
+    if (typeof Swal !== 'undefined') {
+      const res = await Swal.fire({
+        title: 'Close Short Delivery?',
+        text: confirmMsg,
+        input: 'text',
+        inputPlaceholder: 'Reason (e.g. Supplier out of stock, Cancelled remainder)',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#fd7e14',
+        confirmButtonText: 'Yes, Close Short',
+        cancelButtonText: 'Cancel'
+      });
+      confirmed = res.isConfirmed;
+      reason = res.value || '';
+    } else {
+      confirmed = confirm(confirmMsg);
+    }
+
+    if (!confirmed) return;
+
+    // 1. Set approved quantity to received quantity
+    const approvedInput = tr.querySelector(".edit-approved-qty");
+    if (approvedInput) {
+      approvedInput.value = recvQty;
+      approvedInput.dispatchEvent(new Event("input", { bubbles: true }));
+      approvedInput.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    // 2. Set status to Final Received
+    const statusSelect = tr.querySelector(".edit-status");
+    if (statusSelect) {
+      statusSelect.value = "Final Received";
+      statusSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    // 3. Update the diff cell display
+    const diffSpan = tr.querySelector(".edit-diff-cell span");
+    if (diffSpan) {
+      diffSpan.textContent = "0";
+      diffSpan.style.color = "#28a745";
+    }
+    btn.remove();
+
+    // 4. If quoteId is present, persist short-close directly to server
+    const quoteId = tr.dataset.quoteId || (window._editingQuote && (window._editingQuote.quoteId || window._editingQuote.quoteDbId));
+    if (quoteId && window.RECON_API && typeof window.RECON_API._request === 'function') {
+      try {
+        await window.RECON_API._request('/quotes/' + quoteId + '/short-close', 'PUT', { reason: reason });
+      } catch (err) {
+        console.warn('[QuoteMgmt] Background short-close API sync notice:', err);
+      }
+    }
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'success',
+        title: 'Shortfall Closed',
+        text: `Approved quantity adjusted to ${recvQty}. Click 'Save Changes' to persist.`,
+        timer: 2500,
+        showConfirmButton: false
+      });
+    }
+  };
+
   document.addEventListener("DOMContentLoaded", () => {
     if (typeof window.initQuoteMgmtModule === "function") {
       window.initQuoteMgmtModule();

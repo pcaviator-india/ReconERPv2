@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
@@ -413,7 +413,7 @@ const IMPLEMENTED = {
              r.last_modified_by, r.last_modified_date, r.mod_count,
              r.category AS req_category,
              s.name AS site_name,
-             ri.id AS item_id, ri.quantity_requested, ri.status AS item_status,
+             ri.id AS item_id, ri.quantity_requested, ri.original_quantity, ri.status AS item_status,
              ri.notes AS item_notes_legacy, ri.item_notes, ri.supplier_notes, ri.images,
              ri.geo AS ri_geo, ri.pn AS ri_pn, ri.description_es AS ri_desc_es,
              p_id.geo AS product_geo, p_id.pn AS product_pn,
@@ -476,6 +476,7 @@ const IMPLEMENTED = {
         faena: row.site || row.site_name || '',
         desc: row.ri_desc_es || row.description || row.product_name || '',
         cant: row.quantity_requested != null ? row.quantity_requested : 0,
+        originalQty: row.original_quantity != null ? row.original_quantity : (row.quantity_requested != null ? row.quantity_requested : 0),
         estado,
         user: row.requested_by || '',
         category: row.req_category || row.category_name || 'General',
@@ -1711,9 +1712,11 @@ const IMPLEMENTED = {
         }
 
         if (existingItem) {
+          const newQty = it.cant !== undefined && it.cant !== null ? Number(it.cant) : null;
           await exec(db, `
             UPDATE requisition_items
-            SET quantity_requested = COALESCE(?, quantity_requested),
+            SET original_quantity = CASE WHEN (original_quantity IS NULL OR original_quantity = 0) THEN COALESCE(quantity_requested, ?) ELSE original_quantity END,
+                quantity_requested = COALESCE(?, quantity_requested),
                 status = COALESCE(?, status),
                 notes = COALESCE(?, notes),
                 item_notes = COALESCE(?, item_notes),
@@ -1722,7 +1725,8 @@ const IMPLEMENTED = {
                 description_es = COALESCE(?, description_es)
             WHERE id = ?
           `, [
-            it.cant !== undefined && it.cant !== null ? Number(it.cant) : null,
+            newQty,
+            newQty,
             it.estado || it.status || null,
             it.itemNotes !== undefined ? it.itemNotes : null,
             it.itemNotes !== undefined ? it.itemNotes : null,
@@ -2472,7 +2476,7 @@ const IMPLEMENTED = {
     const result = [];
     for (const d of draftRows) {
       const items = await queryAll(db, `
-        SELECT ri.id, ri.quantity_requested AS qty, ri.item_notes, ri.supplier_notes,
+        SELECT ri.id, ri.quantity_requested AS qty, ri.original_quantity, ri.item_notes, ri.supplier_notes,
                ri.images, ri.geo, ri.pn, ri.description_es AS desc, ri.description_es AS es,
                p.name AS product_name, p.description AS product_desc
         FROM requisition_items ri
@@ -2503,6 +2507,7 @@ const IMPLEMENTED = {
             desc: it.desc || it.product_desc || it.product_name || '',
             es: it.es || it.desc || it.product_desc || it.product_name || '',
             qty: Number(it.qty) || 0,
+            originalQty: Number(it.original_quantity || it.qty) || 0,
             itemNotes: it.item_notes || '',
             supplierNotes: it.supplier_notes || '',
             images: imgs || ''
@@ -2837,6 +2842,8 @@ const IMPLEMENTED = {
 
       const itemSupplierQuoteNo = it.supplierQuoteNo !== undefined ? it.supplierQuoteNo : null;
       const itemDocUrl = it.clearQuotedDoc ? '' : (it.quotedDocUrl !== undefined ? it.quotedDocUrl : null);
+      const itemReceivedQty = (it.receivedQty !== undefined && it.receivedQty !== null && String(it.receivedQty).trim() !== '') ? Number(it.receivedQty) : null;
+      const itemDespatchedQty = (it.despatchedQty !== undefined && it.despatchedQty !== null && String(it.despatchedQty).trim() !== '') ? Number(it.despatchedQty) : null;
 
       if (existing) {
         await exec(db, `UPDATE quote_items SET
@@ -2851,6 +2858,8 @@ const IMPLEMENTED = {
           category = COALESCE(?, category),
           status = ?,
           approved_qty = ?,
+          received_qty = COALESCE(?, received_qty),
+          despatched_qty = COALESCE(?, despatched_qty),
           supplier_quote_no = COALESCE(?, supplier_quote_no),
           quoted_doc_url = CASE WHEN ? = 1 THEN '' ELSE COALESCE(?, quoted_doc_url) END
         WHERE id = ?`,
@@ -2866,6 +2875,8 @@ const IMPLEMENTED = {
             it.category || null,
             itemStatus,
             approvedQty,
+            itemReceivedQty,
+            itemDespatchedQty,
             itemSupplierQuoteNo,
             it.clearQuotedDoc ? 1 : 0,
             itemDocUrl,

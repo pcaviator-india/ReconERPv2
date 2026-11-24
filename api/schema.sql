@@ -74,6 +74,53 @@ CREATE TABLE IF NOT EXISTS password_resets (
 CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
 CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
 
+-- ============================================================
+-- INTRA SITE TRANSFER MODULE
+-- ============================================================
+
+-- Site transfer header (one row per guia/despatch)
+CREATE TABLE IF NOT EXISTS site_transfers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transfer_no TEXT UNIQUE NOT NULL,
+  from_site_id INTEGER NOT NULL REFERENCES sites(id),
+  to_site_id INTEGER NOT NULL REFERENCES sites(id),
+  start_date TEXT,              -- set when despatched (goods leave source)
+  finish_date TEXT,             -- set when received at destination (not at start)
+  driver_id TEXT REFERENCES people(id),
+  vehicle_id INTEGER REFERENCES vehicles(id),
+  despatch_no TEXT UNIQUE,      -- No guia, unique, user-provided via SII tax system
+  status TEXT DEFAULT 'draft',  -- draft, despatched, in_transit, received, cancelled
+  created_by TEXT NOT NULL REFERENCES users(user_id),
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  received_at TEXT,             -- timestamp when received at destination
+  received_by TEXT REFERENCES users(user_id),
+  notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_site_transfers_no ON site_transfers(transfer_no);
+CREATE INDEX IF NOT EXISTS idx_site_transfers_from ON site_transfers(from_site_id);
+CREATE INDEX IF NOT EXISTS idx_site_transfers_to ON site_transfers(to_site_id);
+CREATE INDEX IF NOT EXISTS idx_site_transfers_status ON site_transfers(status);
+CREATE INDEX IF NOT EXISTS idx_site_transfers_despatch ON site_transfers(despatch_no);
+
+-- Site transfer line items
+CREATE TABLE IF NOT EXISTS site_transfer_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transfer_id INTEGER NOT NULL REFERENCES site_transfers(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES products(id),
+  stock_id INTEGER REFERENCES stock(id),       -- source stock record at from_site
+  quantity_sent INTEGER NOT NULL DEFAULT 0,    -- qty despatched from source
+  quantity_received INTEGER DEFAULT 0,         -- qty received at destination
+  quantity_discrepancy INTEGER DEFAULT 0,      -- sent - received (recorded at receive)
+  unit_cost REAL DEFAULT 0,
+  notes TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_site_transfer_items_transfer ON site_transfer_items(transfer_id);
+CREATE INDEX IF NOT EXISTS idx_site_transfer_items_item ON site_transfer_items(item_id);
+
 -- Sites
 CREATE TABLE IF NOT EXISTS sites (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,6 +128,9 @@ CREATE TABLE IF NOT EXISTS sites (
   name TEXT NOT NULL,
   code TEXT,
   email TEXT,
+  address TEXT,
+  latitude REAL,
+  longitude REAL,
   active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -348,6 +398,7 @@ CREATE TABLE IF NOT EXISTS requisition_items (
   requisition_id TEXT REFERENCES requisitions(id) ON DELETE CASCADE,
   product_id INTEGER REFERENCES products(id),
   quantity_requested INTEGER DEFAULT 0,
+  original_quantity INTEGER DEFAULT 0,
   quantity_issued INTEGER DEFAULT 0,
   notes TEXT,
   status TEXT DEFAULT 'pending',
@@ -392,6 +443,7 @@ CREATE TABLE IF NOT EXISTS quote_items (
   description_en TEXT,
   supplier TEXT,
   category TEXT,
+  despatched_qty INTEGER DEFAULT 0,
   status TEXT DEFAULT 'Pending',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -671,3 +723,81 @@ CREATE TABLE IF NOT EXISTS op_safety_cameras (
   cam3_status TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- VEHICLE TRACKING MODULE
+-- ============================================================
+
+-- Vehicle master catalog
+CREATE TABLE IF NOT EXISTS vehicles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_number TEXT UNIQUE NOT NULL,
+  vehicle_type TEXT,
+  license_plate TEXT,
+  capacity_kg REAL,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_vehicles_number ON vehicles(vehicle_number);
+CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(is_active);
+
+-- Voyage header (one row per trip)
+CREATE TABLE IF NOT EXISTS voyages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  voyage_number TEXT UNIQUE NOT NULL,
+  from_site TEXT,
+  to_site TEXT,
+  vehicle_id INTEGER REFERENCES vehicles(id),
+  driver_id TEXT,
+  start_km INTEGER,
+  end_km INTEGER,
+  reason TEXT,
+  start_time TEXT,
+  end_time TEXT,
+  total_expenses REAL DEFAULT 0,
+  status TEXT DEFAULT 'IN_PROGRESS',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_voyages_number ON voyages(voyage_number);
+CREATE INDEX IF NOT EXISTS idx_voyages_driver ON voyages(driver_id);
+CREATE INDEX IF NOT EXISTS idx_voyages_status ON voyages(status);
+CREATE INDEX IF NOT EXISTS idx_voyages_created ON voyages(created_at);
+
+-- Voyage expenses (fuel, food, tag/toll, other)
+CREATE TABLE IF NOT EXISTS voyage_expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  voyage_id INTEGER REFERENCES voyages(id) ON DELETE CASCADE,
+  expense_type TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  description TEXT,
+  receipt_url TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_voyage_expenses_voyage ON voyage_expenses(voyage_id);
+
+-- GPS breadcrumb points captured during voyage
+CREATE TABLE IF NOT EXISTS voyage_gps_points (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  voyage_id INTEGER REFERENCES voyages(id) ON DELETE CASCADE,
+  latitude REAL NOT NULL,
+  longitude REAL NOT NULL,
+  accuracy REAL,
+  speed REAL,
+  timestamp TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_voyage_gps_voyage ON voyage_gps_points(voyage_id, timestamp);
+
+-- Wake lock / session log (audit when tracking was active)
+CREATE TABLE IF NOT EXISTS voyage_tracking_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  voyage_id INTEGER REFERENCES voyages(id) ON DELETE CASCADE,
+  wake_lock_active INTEGER DEFAULT 0,
+  pip_requested INTEGER DEFAULT 0,
+  browser_visibility_state TEXT,
+  started_at TEXT,
+  ended_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_voyage_tracking_voyage ON voyage_tracking_sessions(voyage_id);

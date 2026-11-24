@@ -2820,21 +2820,21 @@ function renderDailyTableAndKPIs(records) {
 
     return `
       <tr>
-        <td><small class="fw-bold">${r.timeStr || ""}</small></td>
-        <td><span class="badge ${badgeClass}">${r.type}</span></td>
-        <td class="fw-bold">${r.itemGeo || "-"}</td>
-        <td>
+        <td data-label="Time"><small class="fw-bold">${r.timeStr || ""}</small></td>
+        <td data-label="Type"><span class="badge ${badgeClass}">${r.type}</span></td>
+        <td data-label="Item Code" class="fw-bold">${r.itemGeo || "-"}</td>
+        <td data-label="Description">
           ${r.descEn ? `<div><small class="text-primary">EN:</small> <small>${r.descEn}</small></div>` : ""}
           ${r.descEs ? `<div><small class="text-primary">ES:</small> <small>${r.descEs}</small></div>` : ""}
           ${(!r.descEn && !r.descEs) ? `<small class="text-muted">-</small>` : ""}
         </td>
-        <td><span class="badge bg-secondary">${r.qty}</span></td>
-        <td>${r.person || "-"}</td>
-        <td>${r.sector || "-"}</td>
-        <td><small class="text-muted">${r.condition || "Consumable"}</small></td>
-        <td><small class="text-truncate d-inline-block" style="max-width: 120px;">${r.comments || "-"}</small></td>
-        <td class="text-center">${pdfCell}</td>
-        <td class="text-center">${returnCell}</td>
+        <td data-label="Qty"><span class="badge bg-secondary">${r.qty}</span></td>
+        <td data-label="Person">${r.person || "-"}</td>
+        <td data-label="Sector">${r.sector || "-"}</td>
+        <td data-label="Condition"><small class="text-muted">${r.condition || "Consumable"}</small></td>
+        <td data-label="Comments"><small class="text-truncate d-inline-block" style="max-width: 120px;">${r.comments || "-"}</small></td>
+        <td data-label="PDF" class="text-center">${pdfCell}</td>
+        <td data-label="Return" class="text-center">${returnCell}</td>
       </tr>`;
   }).join("");
 }

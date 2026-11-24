@@ -93,13 +93,13 @@
           : `<span class="badge bg-secondary ms-1">G ${r.globalMin}/${r.globalMax}</span>`;
         return `
         <tr data-mm-key="${mmEsc(r.site)}__${mmEsc(r.geo)}">
-          <td><input type="checkbox" class="mm-row-check" data-ck="${mmEsc(r.site)}__${mmEsc(r.geo)}"></td>
-          <td class="fw-bold">${mmEsc(r.site)}${sourceTag}</td>
-          <td class="fw-bold text-primary">${mmEsc(r.geo)}</td>
-          <td><small>${mmEsc(r.desc)}</small></td>
-          <td class="text-center"><input type="number" min="0" class="form-control form-control-sm mm-min" data-key="${mmEsc(r.site)}__${mmEsc(r.geo)}" value="${r.min}"></td>
-          <td class="text-center"><input type="number" min="0" class="form-control form-control-sm mm-max" data-key="${mmEsc(r.site)}__${mmEsc(r.geo)}" value="${r.max}"></td>
-          <td class="small text-muted">${r.lastUpdated ? mmEsc(r.lastUpdated) : (used ? "" : "using global")}</td>
+          <td data-label="Select"><input type="checkbox" class="mm-row-check" data-ck="${mmEsc(r.site)}__${mmEsc(r.geo)}"></td>
+          <td data-label="Site" class="fw-bold">${mmEsc(r.site)}${sourceTag}</td>
+          <td data-label="Geo Code" class="fw-bold text-primary">${mmEsc(r.geo)}</td>
+          <td data-label="Description"><small>${mmEsc(r.desc)}</small></td>
+          <td data-label="Min" class="text-center"><input type="number" min="0" class="form-control form-control-sm mm-min" data-key="${mmEsc(r.site)}__${mmEsc(r.geo)}" value="${r.min}"></td>
+          <td data-label="Max" class="text-center"><input type="number" min="0" class="form-control form-control-sm mm-max" data-key="${mmEsc(r.site)}__${mmEsc(r.geo)}" value="${r.max}"></td>
+          <td data-label="Updated" class="small text-muted">${r.lastUpdated ? mmEsc(r.lastUpdated) : (used ? "" : "using global")}</td>
         </tr>`;
       })
       .join("");

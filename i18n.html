@@ -98,6 +98,46 @@ const translations = {
     mm_delete: "Delete",
     m_stock: "Stock",
     m_out: "Stock Out",
+    m_site_transfer: "Intra Site Transfer",
+    st_transfer_create: "Create Transfer",
+    st_transfer_view: "View Transfers",
+    st_transfer_receive: "Receive Transfer",
+    st_from_site: "From Site",
+    st_to_site: "To Site",
+    st_select_from_site: "Select from site",
+    st_select_to_site: "Select to site",
+    st_driver: "Driver",
+    st_vehicle: "Vehicle No",
+    st_despatch_no: "Despatch No (Guia)",
+    st_notes: "Notes",
+    st_items: "Items",
+    st_item_search: "Search Items",
+    st_add_without_stock: "Add items without source stock",
+    st_source_stock: "Source Stock",
+    st_qty_sent: "Qty Sent",
+    st_unit_cost: "Unit Cost",
+    st_save_draft: "Save Draft",
+    st_despatch: "Despatch",
+    st_transfer_no: "Transfer No",
+    st_status: "Status",
+    st_created: "Created",
+    st_actions: "Actions",
+    st_receive_title: "Confirm Receipt",
+    st_confirm_receive: "Confirm Receive",
+    st_cancel_receive: "Cancel",
+    st_sent: "Sent",
+    st_received: "Received",
+    st_discrepancy: "Discrepancy",
+    st_no_transfers: "No transfers found.",
+    st_no_pending: "No transfers awaiting receive.",
+    st_alert_required: "From site, to site, and despatch no are required.",
+    st_alert_cart: "Add at least one item to cart.",
+    st_alert_no_stock: "Item has no stock at source site. Enable \"Add items without stock\" to override.",
+    st_alert_exceeds: "Requested qty exceeds available stock.",
+    st_draft_created: "Transfer draft created: ",
+    st_despatched: "Transfer despatched: ",
+    st_received: "Transfer received successfully.",
+    st_failed_load: "Failed to load transfers: ",
     m_cost: "Cost",
     m_clp: "CLP",
     m_supplier: "Supplier",
@@ -575,6 +615,69 @@ const translations = {
     inv_syncing: "Syncing inventory in background... (this may take a moment)", // ES: "Sincronizando inventario en segundo plano... (puede tardar un momento)"
     inv_sync_stalled: "Sync Stalled.", // ES: "Sincronización detenida."
     m_fuel_control: "Fuel Control", // en
+    m_vehicle_tracking: "Vehicle Tracking", // en
+    // Vehicle Tracking module keys
+    vt_loading: "Loading...", // en
+    vt_error_loading: "Error loading data. Please refresh.", // en
+    vt_select_site: "Select site", // en
+    vt_select_vehicle: "Select vehicle", // en
+    vt_select_driver: "Select driver", // en
+    vt_no_voyages: "No completed voyages yet.", // en
+    vt_na: "N/A", // en
+    vt_view_details: "View Details", // en
+    vt_start: "Start", // en
+    vt_destination: "Destination", // en
+    vt_vehicle_position: "Vehicle Position", // en
+    vt_gps_error: "GPS error: ", // en
+    vt_last_update: "Last update", // en
+    vt_fill_required: "Please fill all required fields.", // en
+    vt_starting: "Starting...", // en
+    vt_start_failed: "Failed to start voyage.", // en
+    vt_start_failed_try_again: "Failed to start voyage. Please try again.", // en
+    vt_end_confirm: "End this voyage? GPS tracking will stop.", // en
+    vt_end_km_prompt: "Enter end KM:", // en
+    vt_invalid_km: "Invalid KM value.", // en
+    vt_voyage_completed: "Voyage completed successfully!", // en
+    vt_end_failed: "Failed to end voyage.", // en
+    vt_valid_amount: "Please enter a valid amount.", // en
+    vt_add_expense_failed: "Failed to add expense.", // en
+    vt_no_expenses: "No expenses added yet.", // en
+    vt_new_voyage_confirm: "Start a new voyage? Current voyage will be ended.", // en
+    // UI labels
+    vt_subtitle: "Track vehicle voyages with live GPS, KM, and expenses", // en
+    vt_new_voyage: "New Voyage", // en
+    vt_start_new_voyage: "Start New Voyage", // en
+    vt_from_site: "From Site", // en
+    vt_to_site: "To Site", // en
+    vt_vehicle: "Vehicle", // en
+    vt_start_km: "Start KM", // en
+    vt_start_km_placeholder: "Start KM", // en
+    vt_driver: "Driver", // en
+    vt_reason: "Reason for Movement", // en
+    vt_reason_placeholder: "e.g. Delivery to site, Transfer between warehouses", // en
+    vt_start_voyage: "Start Voyage & Begin GPS Tracking", // en
+    vt_voyage_active: "Voyage Active", // en
+    vt_refresh_gps: "Refresh GPS", // en
+    vt_end_voyage: "End Voyage", // en
+    vt_start_km_label: "Start KM", // en
+    vt_current_km_label: "Current KM", // en
+    vt_elapsed_time_label: "Elapsed Time", // en
+    vt_total_expenses_label: "Total Expenses", // en
+    vt_live_map: "Live Tracking Map", // en
+    vt_add_expense: "Add Voyage Expense", // en
+    vt_expense_type: "Expense Type", // en
+    vt_fuel: "Fuel", // en
+    vt_food: "Food", // en
+    vt_tag: "Tag / Toll", // en
+    vt_other: "Other", // en
+    vt_amount: "Amount", // en
+    vt_amount_placeholder: "Amount", // en
+    vt_description: "Description", // en
+    vt_expense_desc_placeholder: "Optional notes", // en
+    vt_add: "Add", // en
+    vt_expenses: "Expenses", // en
+    vt_gps_active: "GPS Tracking Active", // en
+    vt_voyage_history: "Voyage History", // en
     m_azure: "Azure Integration",
     m_azure_test: "Test Graph Connection",
     m_gp_utils: "Dynamics GP Utilities",
@@ -1079,6 +1182,21 @@ const translations = {
     quote_cols_toggle: "Show / hide columns",
     quote_text_smaller: "Smaller text",
     quote_text_bigger: "Bigger text",
+    st_sub: "Transfer goods between sites. Stock updates at destination only on receive.",
+    st_select_from_site: "Select from site",
+    st_select_to_site: "Select to site",
+    st_despatch_placeholder: "e.g. GUIA-001234",
+    st_despatch_help: "Unique despatch number from SII tax system.",
+    st_notes_placeholder: "Optional notes...",
+    st_item_search_placeholder: "Search by Geo, P/N, Description...",
+    st_cart: "Transfer Cart",
+    st_receive_help: "Select a transfer destined to your site and confirm received quantities.",
+    st_pending_receive: "Transfers Awaiting Receive",
+    col_despatched: "Despatched",
+    status_draft: "Draft",
+    status_in_transit: "In Transit",
+    status_cancelled: "Cancelled",
+    st_transfers: "Transfers",
 
   },
   es: {
@@ -1179,6 +1297,46 @@ const translations = {
     mm_delete: "Eliminar",
     m_stock: "Stock",
     m_out: "Stock Fuera",
+    m_site_transfer: "Transferencia Intra Sitio",
+    st_transfer_create: "Crear Transferencia",
+    st_transfer_view: "Ver Transferencias",
+    st_transfer_receive: "Recibir Transferencia",
+    st_from_site: "Sitio Origen",
+    st_to_site: "Sitio Destino",
+    st_select_from_site: "Seleccionar sitio origen",
+    st_select_to_site: "Seleccionar sitio destino",
+    st_driver: "Conductor",
+    st_vehicle: "Nº Vehículo",
+    st_despatch_no: "Nº Despacho (Guía)",
+    st_notes: "Notas",
+    st_items: "Ítems",
+    st_item_search: "Buscar Ítems",
+    st_add_without_stock: "Agregar ítems sin stock en origen",
+    st_source_stock: "Stock Origen",
+    st_qty_sent: "Cant. Enviada",
+    st_unit_cost: "Costo Unitario",
+    st_save_draft: "Guardar Borrador",
+    st_despatch: "Despachar",
+    st_transfer_no: "Nº Transferencia",
+    st_status: "Estado",
+    st_created: "Creado",
+    st_actions: "Acciones",
+    st_receive_title: "Confirmar Recepción",
+    st_confirm_receive: "Confirmar Recepción",
+    st_cancel_receive: "Cancelar",
+    st_sent: "Enviado",
+    st_received: "Recibido",
+    st_discrepancy: "Discrepancia",
+    st_no_transfers: "No se encontraron transferencias.",
+    st_no_pending: "No hay transferencias pendientes de recepción.",
+    st_alert_required: "Sitio origen, sitio destino y nº de despacho son requeridos.",
+    st_alert_cart: "Agregue al menos un ítem al carrito.",
+    st_alert_no_stock: "El ítem no tiene stock en el sitio origen. Habilite \"Agregar ítems sin stock en origen\" para anular.",
+    st_alert_exceeds: "La cantidad solicitada excede el stock disponible.",
+    st_draft_created: "Borrador de transferencia creado: ",
+    st_despatched: "Transferencia despachada: ",
+    st_received: "Transferencia recibida exitosamente.",
+    st_failed_load: "Error al cargar transferencias: ",
     m_cost: "Costo",
     m_clp: "CLP",
     m_supplier: "Proveedor",
@@ -1607,6 +1765,21 @@ const translations = {
     btn_remove: "Quitar",
     placeholder_history: "Buscar Pedido, Geo, P/N o Desc...",
     all_statuses: "Todos los Estados",
+    st_transfers: "Transferencias",
+    st_sub: "Transferir bienes entre sitios. El stock se actualiza en el destino solo al recibir.",
+    st_select_from_site: "Seleccionar sitio origen",
+    st_select_to_site: "Seleccionar sitio destino",
+    st_despatch_placeholder: "ej. GUIA-001234",
+    st_despatch_help: "Número de despacho único del sistema SII.",
+    st_notes_placeholder: "Notas opcionales...",
+    st_item_search_placeholder: "Buscar por GEO, P/N, Descripción...",
+    st_cart: "Carrito de Transferencia",
+    st_receive_help: "Seleccione una transferencia destinada a su sitio y confirme las cantidades recibidas.",
+    st_pending_receive: "Transferencias Pendientes de Recepción",
+    col_despatched: "Despachado",
+    status_draft: "Borrador",
+    status_in_transit: "En Tránsito",
+    status_cancelled: "Cancelado",
     status_pending: "Pendiente",
     status_not_quoted: "No cotizado por proveedor",
     status_quoted: "Cotizado",
@@ -1698,6 +1871,69 @@ hse_receipt_generated: "Emisión completada. El PDF del recibo HSE se generará 
     inv_syncing: "Sincronizando inventario en segundo plano... (puede tardar un momento)",
     inv_sync_stalled: "Sincronización detenida.",
     m_fuel_control: "Control Combustible", // es
+    m_vehicle_tracking: "Rastreo de Vehículos", // es
+    // Vehicle Tracking module keys
+    vt_loading: "Cargando...", // es
+    vt_error_loading: "Error cargando datos. Por favor refresque.", // es
+    vt_select_site: "Seleccionar sitio", // es
+    vt_select_vehicle: "Seleccionar vehículo", // es
+    vt_select_driver: "Seleccionar conductor", // es
+    vt_no_voyages: "No hay viajes completados aún.", // es
+    vt_na: "N/D", // es
+    vt_view_details: "Ver detalles", // es
+    vt_start: "Inicio", // es
+    vt_destination: "Destino", // es
+    vt_vehicle_position: "Posición del vehículo", // es
+    vt_gps_error: "Error de GPS: ", // es
+    vt_last_update: "Última actualización", // es
+    vt_fill_required: "Por favor llene todos los campos requeridos.", // es
+    vt_starting: "Iniciando...", // es
+    vt_start_failed: "Error al iniciar el viaje.", // es
+    vt_start_failed_try_again: "Error al iniciar el viaje. Inténtelo de nuevo.", // es
+    vt_end_confirm: "¿Terminar este viaje? El GPS se detendrá.", // es
+    vt_end_km_prompt: "Ingrese KM final:", // es
+    vt_invalid_km: "Valor de KM inválido.", // es
+    vt_voyage_completed: "¡Viaje completado exitosamente!", // es
+    vt_end_failed: "Error al terminar el viaje.", // es
+    vt_valid_amount: "Ingrese un monto válido.", // es
+    vt_add_expense_failed: "Error al agregar gasto.", // es
+    vt_no_expenses: "No hay gastos agregados aún.", // es
+    vt_new_voyage_confirm: "¿Iniciar un nuevo viaje? El viaje actual se terminará.", // es
+    // UI labels
+    vt_subtitle: "Rastree viajes de vehículos con GPS, KM y gastos", // es
+    vt_new_voyage: "Nuevo Viaje", // es
+    vt_start_new_voyage: "Iniciar Nuevo Viaje", // es
+    vt_from_site: "Sitio Origen", // es
+    vt_to_site: "Sitio Destino", // es
+    vt_vehicle: "Vehículo", // es
+    vt_start_km: "KM Inicial", // es
+    vt_start_km_placeholder: "KM Inicial", // es
+    vt_driver: "Conductor", // es
+    vt_reason: "Razón del Movimiento", // es
+    vt_reason_placeholder: "p.ej. Entrega al sitio, Transferencia entre bodegas", // es
+    vt_start_voyage: "Iniciar Viaje &amp; Iniciar Seguimiento GPS", // es
+    vt_voyage_active: "Viaje Activo", // es
+    vt_refresh_gps: "Refrescar GPS", // es
+    vt_end_voyage: "Terminar Viaje", // es
+    vt_start_km_label: "KM Inicial", // es
+    vt_current_km_label: "KM Actual", // es
+    vt_elapsed_time_label: "Tiempo Transcurrido", // es
+    vt_total_expenses_label: "Gastos Totales", // es
+    vt_live_map: "Mapa de Seguimiento en Vivo", // es
+    vt_add_expense: "Agregar Gasto de Viaje", // es
+    vt_expense_type: "Tipo de Gasto", // es
+    vt_fuel: "Combustible", // es
+    vt_food: "Comida", // es
+    vt_tag: "Peaje / Tag", // es
+    vt_other: "Otro", // es
+    vt_amount: "Monto", // es
+    vt_amount_placeholder: "Monto", // es
+    vt_description: "Descripción", // es
+    vt_expense_desc_placeholder: "Notas opcionales", // es
+    vt_add: "Agregar", // es
+    vt_expenses: "Gastos", // es
+    vt_gps_active: "GPS Activo", // es
+    vt_voyage_history: "Historial de Viajes", // es
     m_azure: "Integración Azure",
     m_azure_test: "Probar Conexión Graph",
     m_gp_utils: "Utilidades Dynamics GP",

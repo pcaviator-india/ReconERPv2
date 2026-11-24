@@ -458,3 +458,316 @@ Known gaps (next sessions):
 5. Email dispatch (`dispatchEmailWithProvider`) — Graph API integration from Node.
 6. Browser-level E2E (the smoke test covers HTTP only; a headless-browser pass would validate the shim chains in-page).
 
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+RECON ERP — Mobile & Tablet Responsive Transformation Plan
+1. Executive Summary & Objectives
+
+RECON ERP is deployed as a Progressive Web App (PWA) with standalone installation capabilities (display: standalone). However, its UI and interaction models were originally engineered for wide desktop monitors (1400px+), relying heavily on:
+
+10+ column spreadsheet tables with horizontal scrolling
+Fixed sidebar navigation (240px)
+Ultra-wide desktop modal windows (modal-quote-full at 99vw)
+Multi-column inline tabular data-entry forms (e.g. creating requisitions, quotes, and inventory movements)
+Small touch targets (< 32px) and missing mobile virtual keyboard hints
+Core Objective
+
+Transform RECON ERP into a Mobile-First / Hybrid-Responsive Enterprise Application that delivers a fluid native-like experience on smartphones (360px–480px) and tablets (768px–1024px) while preserving full desktop power (1200px+).
+
+2. Device Breakpoint & Layout Architecture
+Breakpoint Matrix
+Breakpoint	Target Devices	Navigation Shell	Tables & Grids	Form Entry
+Mobile (< 768px)	iPhone, Galaxy, Pixel (360–430px)	Fixed Mobile Header + Thumb-friendly Bottom Bar + Offcanvas Menu	Adaptive Card / List-Detail pattern (no horizontal scroll)	Stacked Form / Bottom-Sheet Item Editor with 48px touch targets
+Tablet (768px - 1024px)	iPad, Galaxy Tab, Surface	Collapsible Slim Rail Sidebar (76px)	Split view or 2-column cards; condensed tables with touch scroll	2-column grid layout with sticky action headers
+Desktop (> 1024px)	Laptops, Monitors (1200px+)	Persistent 240px Sidebar	Full tabular multi-column view with advanced sorting	Multi-column spreadsheet / side-by-side editing
+3. App Shell & Global Responsive Foundations
+3.1 Mobile Header & Safe Area Handling
+Safe Area Insets: Support iPhone notch and Android gesture pill with padding-top: max(12px, env(safe-area-inset-top)) and padding-bottom: max(12px, env(safe-area-inset-bottom)).
+Top Mobile Header: Clean sticky bar featuring:
+Hamburger toggle button (left)
+Active Module Title + Active Site badge (center)
+User avatar / Site switcher / QR Scan shortcut (right)
+3.2 Thumb-Friendly Bottom Navigation Bar (< 768px)
+
+Operators in the field primarily use 4–5 core modules daily. A persistent bottom navigation bar provides instant one-tap thumb access:
+
+📊 Dashboard (Dashboard)
+📝 Requisitions (CreateReq / ViewReq)
+💼 Quotes (QuoteMgmt)
+⛽ Fuel Control (ControlCombustible)
+☰ More / Menu (Opens full module drawer with search)
+3.3 Touch Targets & Virtual Keyboard Optimization
+All form inputs, selects, and action buttons styled with min-height: 44px (Apple Human Interface Guidelines) and min-height: 48px (Android Material).
+Specialized virtual keyboard input modes:
+Odometer & Liters: inputmode="decimal"
+PIN codes & Counts: inputmode="numeric"
+Part Numbers / Codes: autocapitalize="characters"
+Email addresses: inputmode="email"
+Phone numbers: inputmode="tel"
+4. UI Patterns: Solving the "Big Screen" Problems
+4.1 Pattern 1: Wide Tables to Responsive Touch Cards
+
+The Problem: 10-column tables require pinching and awkward side-scrolling on phones. The Solution: A unified CSS class .recon-responsive-table using CSS custom properties and media queries:
+
+On desktop (>= 768px): Renders standard HTML <table>.
+On mobile (< 768px): The <table>, <thead>, <tbody>, <tr>, <td> switch to display: block. Each <tr> becomes an individual card with:
+Header row: Primary ID (e.g. REQ-1392) + Status Badge (Approved) + Date
+Content body: Key fields displayed with data-label="..." pseudo-elements (td::before { content: attr(data-label); font-weight: 600; })
+Action footer: Full-width tap targets (View, Edit, Approve, PDF)
+4.2 Pattern 2: Multi-Item Entry (Stacked Mobile Bottom-Sheet)
+
+The Problem: In CreateReq, QuoteMgmt, and InvMov, adding items requires filling 6–8 horizontal table columns inline. The Solution:
+
+Desktop: Retain the fast desktop spreadsheet row entry.
+Mobile / Tablet: Add a floating + Add Item button that slides up a Bottom Sheet / Mobile Modal. The operator searches P/N, inputs Qty and Unit on large touch inputs, taps Add to List, and sees a list of summary cards with swipe-to-delete.
+4.3 Pattern 3: Full-Screen Modals & Sticky Mobile Action Bars
+
+The Problem: modal-quote-full uses 99vw with fixed vertical layout. On mobile, the modal header and buttons scroll out of view. The Solution:
+
+On < 768px, modals become full-viewport views (height: 100dvh; border-radius: 0;).
+The modal header stays sticky at the top with a prominent ✕ Close or ← Back icon.
+Primary CTA buttons (Save Changes, Submit Approval, Confirm Despatch) stay sticky at the bottom (position: sticky; bottom: 0; padding: 12px; background: white; box-shadow: 0 -4px 12px rgba(0,0,0,0.1)).
+5. Module Prioritization & Implementation Roadmap
+
+We group the ERP modules into 3 phased tiers based on operational field importance:
+
+Phase 1: High-Priority Field Modules (Mobile Daily Drivers)
+
+IMPORTANT
+
+These modules are actively used in the field, warehouses, and fuel stations on phones and tablets.
+
+Fuel Control (ControlCombustible.html & ControlCombustibleJS.js)
+
+Current State: Large Mochila tabs, wide purchase history table, dense fuel entry form.
+Mobile Upgrade:
+Large swipeable Mochila selector pills.
+Big circular fuel balance gauge / progress bar optimized for phone screens.
+Large touch keypad inputs for odometer and liters.
+Purchase history converted to chronological timeline cards.
+
+Requisitions (CreateReq.html, ViewReq.html, CreateReqJS.js, ViewEditReqJS.js)
+
+Current State: Complex requisition creation with multiple inline rows and wide email chip bar.
+Mobile Upgrade:
+Mobile item drawer / bottom sheet for adding requisition items with autocomplete.
+Card-based requisition list with color-coded status badges (Pending, Quoted, Approved).
+One-tap quick approval flow for managers reviewing on phone.
+
+Inventory Movements & Scanning (InvMov.html, Scanner.html, MovScanner.html)
+
+Current State: Multi-item movement table, desktop barcode scanner layout, HSE signature canvas.
+Mobile Upgrade:
+Full-screen responsive camera viewfinder for barcode/QR scanning with flash toggle.
+Mobile-friendly touch signature canvas with landscape auto-rotate support.
+Touch-first dispatch/reception item checklists.
+
+Quote Management (QuoteMgmt.html & QuoteMgmtJS.js)
+
+Current State: 99vw modal with 15+ column item pricing table.
+Mobile Upgrade:
+Mobile filter drawer (search, site, category, status).
+Quote cards with segmented progress bar.
+Quote details and approval view converted into a mobile-friendly collapsible item list with price summaries and sticky Approve / Reject bar.
+Phase 2: Operations & Inventory Exploration (Tablets & Mobile)
+
+Stock & Products (Stock.html, Products.html, MinMax.html)
+
+Instant search bar with barcode scanner trigger.
+Stock list converted to responsive item cards showing Site, On-Hand, Min/Max alerts.
+Location map and rack view scaled for touch pinch-to-zoom.
+
+Dashboard & KPIs (Dashboard.html & DashboardJS.js)
+
+Single-column stacked KPI stat cards on mobile (grid-template-columns: 1fr on phone, repeat(2, 1fr) on tablet, repeat(4, 1fr) on desktop).
+Touch-friendly Chart.js graphs with tooltip interaction.
+Phase 3: Administrative & Back-Office
+
+Permissions & Roles (Permissions.html & PermissionsJS.js)
+
+Role selector dropdown + accordion modules with tap-to-toggle switches (replacing wide checkbox matrix).
+
+Sheets Sync & Audit Logs (SheetsSync.html, AdminVal.html, LifecycleReport.html)
+
+Responsive log viewer with collapsible payloads and copy buttons.
+6. Implementation Architecture & Code Strategy
+
+To ensure clean code without breaking desktop functionality:
+
+Shared CSS Stylesheet (frontend/css/responsive.css):
+Centralize all mobile breakpoints, touch utilities, card tables, and navigation layout styles into a single, clean CSS file included in index.html.
+Backward Compatible:
+Desktop markup and behavior remain completely unchanged at >= 1024px.
+PWA Offline & Hardware Integration:
+Utilize native mobile camera (getUserMedia with rear-facing environment mode).
+Support iOS rubber-banding and Android back-button modal dismissals.
+7. Recommended Next Steps
+Review & Approve Architecture: Confirm the proposed layout model (Bottom Nav + Card Tables + Stacked Mobile Forms).
+Sprint 1 Execution:
+Create frontend/css/responsive.css with mobile navigation shell, safe-area fixes, and table-to-card utilities.
+Implement Phase 1 Priority: Fuel Control and Requisitions (CreateReq & ViewReq).
+Sprint 2 Execution:
+Implement Quote Management (QuoteMgmt) mobile cards & approval modal.
+Implement Inventory Movements & Mobile Scanner (InvMov & Scanner).
+Sprint 3 Verification:
+Device testing on Chrome DevTools (iPhone SE, iPhone 14/15 Pro Max, Galaxy S23, iPad 10th gen) and live physical device testing via PWA.
+
+---
+
+## 8. VEHICLE TRACKING & FLEET MAP ENHANCEMENTS — 9-POINT ACTION PLAN
+
+### Point 1 & 2: Trip Completion Modal with Final Odometer & Total/Detailed Expenses
+- **Current problem:** Uses browser `confirm()` and `prompt()` for final KM. No way to record final total expenses at end of trip unless added one-by-one.
+- **Solution:** Custom Swal modal prompting for:
+  - Final Odometer (KM), pre-filled with start KM, validated (must be $\ge$ start KM).
+  - Total Expenses (optional lump sum or single total amount).
+  - Optional expander to add detailed expense line items (fuel, food, toll, other).
+  - Update `PUT /api/v1/voyages/:id` to accept `end_km`, `total_expenses`, `status: 'COMPLETED'`, and insert any quick expenses.
+
+### Point 3: SweetAlert2 (Swal) Standardization
+- Replace all native `alert()`, `confirm()`, and `prompt()` in `VehicleTrackingJS.js` with `Swal.fire()`.
+- Standardize success, error, warning, and confirmation dialogs with bootstrap-themed Swal styles.
+
+### Point 4: Fix History Detail View (No Accidental Trip Reactivation)
+- **Current problem:** Clicking "View Details" on finished voyage in history sets `activeVoyage` and calls `showActiveVoyage()`, restarting elapsed timer and showing "End Voyage" button.
+- **Solution:** Create `showVoyageDetailsModal(voyage)` with a dedicated read-only modal/offcanvas:
+  - Displays voyage number, status badge (Orange for Completed), route (From Site $\to$ To Site), start time, end time, elapsed duration, start KM, end KM, total KM driven, total expenses, detailed expense list, and Leaflet route map showing breadcrumbs and site pins.
+  - Leaves `activeVoyage` intact and does not start GPS tracking or elapsed timer.
+
+### Point 5: Driver Role & Scoped Trip Visibility
+- Add `driver` role to `roles` table in `DEFAULT_ROLES` and `permissions-seed.js`.
+- In `GET /api/v1/voyages`, if user role is `driver`, enforce scoping: `WHERE (driver_id = req.user.user_id OR driver_id = req.user.id)`.
+- Non-driver roles (admin, manager, office, etc.) can view all voyages or filtered by driver.
+- Add `vehicle_tracking` and `fleet_map` permissions to role permissions matrix.
+
+### Point 6: Fix Table Layout Shrinking on Admin Pages
+- **Current problem:** In `frontend/css/responsive.css`, the rule `.recon-responsive-table tbody, .recon-responsive-table tr, .recon-responsive-table td` assigned `display: table-cell !important;` to all three selectors on desktop, forcing tbody and rows to render as individual table cells, severely shrinking all admin tables. Also `.recon-bottom-nav` had `display: flex;` outside media query.
+- **Solution:** Clean up `responsive.css`:
+  - Properly scope card transformation strictly inside `@media (max-width: 767.98px)`.
+  - Fix desktop reset to assign proper display types: `tbody { display: table-row-group !important; }`, `tr { display: table-row !important; }`, `td { display: table-cell !important; }`.
+  - Ensure `.recon-bottom-nav` defaults to `display: none` on desktop.
+
+### Point 7: Color-Coded Status Badges
+- Running / In Progress trips: **Green** (`badge bg-success`).
+- Finished / Completed trips: **Orange** (`badge bg-warning text-dark` / custom `#fd7e14`).
+- Deleted / Cancelled trips: **Red** (`badge bg-danger`).
+- Apply consistently in active voyage header, history cards, detail modals, and fleet map popups.
+
+### Point 8: Live Fleet Map Module (`FleetTracking` / Active Trips Map)
+- Create a dedicated module `FleetTracking.html` + `FleetTrackingJS.js`:
+  - Shows an interactive Leaflet map with all currently active trips (`status = 'IN_PROGRESS'`).
+  - Each active trip renders:
+    - Route line from From Site coordinates to To Site coordinates.
+    - Moving vehicle marker at the latest GPS coordinate.
+    - Clickable popup with driver name, vehicle number, from/to sites, start KM, elapsed time.
+    - Side panel / drawer listing active voyages with "Locate on map" button.
+- In `VehicleTrackingJS.js` (for current driver's trip):
+  - Plot From Site pin, To Site pin, a connecting route polyline, and the live vehicle position marker.
+
+### Point 9: Site Coordinates & Addresses (Database & API)
+- Migrate `sites` table schema with columns:
+  - `address TEXT`
+  - `latitude REAL`
+  - `longitude REAL`
+- Add to `COLUMN_MIGRATIONS` in `db.js` and `schema.sql`.
+- Seed coordinates & addresses for all 9 sites (Store, Workshop, Manto Verde, Coipa, Fenix, AMSA, Atex, Dos Amigos, Chile Chico).
+- Update `/reference/sites` and `/reference/validation` to return `address`, `latitude`, `longitude`.
+
+---
+
+## 9. QUANTITY AUDITING, PARTIAL DELIVERIES & DISPATCH LIFECYCLE — ACTION PLAN
+
+### Gap 1: ReqEdit — Preserving Original Requested Quantity vs Approved Quantity
+- **Problem:** Currently `requisition_items` only stores `quantity_requested`. When manager reduces quantity in `ViewEditReqJS.js`, the original number is overwritten and lost.
+- **Solution:**
+  1. Add `original_quantity INTEGER DEFAULT 0` column to `requisition_items` in `api/schema.sql` and `COLUMN_MIGRATIONS` in `api/src/db.js`.
+  2. In `POST /api/v1/requisitions`, when creating requisition lines, set `original_quantity = quantity_requested`.
+  3. In `updateRequirementOnSheetWithItemStatuses` (`legacy.js`), when updating lines, keep `original_quantity` intact and only update `quantity_requested = it.cant`.
+  4. In `ViewEditReqJS.js` modal:
+     - Render both `Original Qty` (read-only reference) and `Qty` (editable approved amount).
+     - If quantity is reduced, display a small badge/hint: `"Original: X (Reduced by Y)"`.
+
+### Gap 2: QuoteMgmt — Quoted vs Approved Quantity Visibility
+- **Status:** Architecture is in place (`quantity` frozen as quoted, `approved_qty` as approved).
+- **Enhancement:**
+  - Verify and make sure that in both list/cards view and modal table, when `approved_qty < quantity`, the shortfall is highlighted with an orange badge and explicit counter: `"Quoted: X → Approved: Y (-Z)"`.
+
+### Gap 3 & 4: Supplier Partial Deliveries — Rest Later vs Short Close (Won't Send More)
+- **Problem:** When supplier sends a partial shipment and confirms no more will be sent, the line is stuck in `⚠️ X of Y missing` unless manager manually deduces how to change approved qty.
+- **Solution:**
+  1. Add a **"Short Close"** / **"Cerrar Entrega Parcial"** action button in `QuoteMgmt` when line has `received_qty > 0 && received_qty < approved_qty`.
+  2. When clicked, trigger a SweetAlert2 confirmation dialog:
+     - Prompts reason/note (e.g. "Supplier out of stock", "Cancelled remainder").
+     - Automatically sets `approved_qty = received_qty`.
+     - Appends note to `supplier_notes` / `item_notes`.
+     - Sets line/quote status to `Final Received` / `Closed` with 0 missing units.
+     - Recalculates quote total to match received goods and updates inventory records.
+
+### Gap 5: Partial Quantity Dispatched from Store to Site
+- **Problem:** When moving from Main Store to Site, setting status to `Despatched` assumes 100% of approved quantity is sent. There is no `despatched_qty` column.
+- **Solution:**
+  1. Add `despatched_qty INTEGER DEFAULT 0` column to `quote_items` in `api/schema.sql` and `COLUMN_MIGRATIONS` in `api/src/db.js`.
+  2. In `QuoteMgmtJS.js`:
+     - When status is changed to `Despatched`, enable a `Despatched Qty` input (defaults to available in store / approved qty, but editable).
+     - Store keeper can enter partial dispatch (e.g. 4 out of 10).
+  3. In `QuoteMgmtGS.js` / backend:
+     - Only deduct the actual `despatched_qty` from Main Store stock (`IssueToSite` with `despatched_qty`).
+     - Display remaining balance: `"In Store: 6, Dispatched: 4"`.
+
+### Gap 6: Partial Quantity Received at Remote Site
+- **Problem:** When Site receives less than dispatched, `PUT /quotes/:id/receive` sets `Partial Received` but doesn't track whether missing units are still in transit or lost/short.
+- **Solution:**
+  1. In `QuoteMgmtJS.js` & `api/src/routes/quotes.js`:
+     - Site receiving compares `received_qty` against `despatched_qty` (or `approved_qty`).
+     - Site user can flag:
+       - **"In Transit"** (remaining units expected in another batch).
+       - **"Missing / Damaged Claim"** (carrier/loss report).
+     - Displays badge: `⚠️ Site Received: X / Y dispatched (Z pending/claim)`.
+     - Keeps status as `Partial Received` until final balance is acknowledged or short-closed.
+
+---
+
+## 10. CLOUDFLARE D1 DATABASE SYNCHRONIZATION & AUDIT (COMPLETED)
+
+### 10.1 Schema Difference Audit (Local SQLite vs Cloudflare D1)
+- **Database Target:** Cloudflare D1 `recon-erp` (Binding ID: `1a7d3b6c-1808-4c81-baae-f5c06dc414c0`).
+- **Initial State:**
+  - Local tables: 53
+  - Remote D1 tables: 48 (5 missing: `vehicles`, `voyages`, `voyage_expenses`, `voyage_gps_points`, `voyage_tracking_sessions`)
+  - Missing Columns in D1:
+    - `quote_items`: `despatched_qty INTEGER DEFAULT 0`, `updated_at TEXT`
+    - `requisition_items`: `original_quantity INTEGER DEFAULT 0`
+    - `sites`: `address TEXT`, `latitude REAL`, `longitude REAL`
+  - Missing Reference Data:
+    - `driver` role in `roles`
+    - `vehicle_tracking` and `fleet_map` module permissions in `role_permissions`
+    - GPS coordinates and addresses for 9 production sites (IDs 4..12)
+    - 68 registered fleet vehicles in `vehicles` table
+
+### 10.2 Non-Destructive Safe Migration Applied
+- **Strict Data Safety Rules Enforced:**
+  - Zero `DROP TABLE`, zero `DELETE`, zero `TRUNCATE`.
+  - Non-destructive `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`.
+  - Safe `ALTER TABLE ADD COLUMN`.
+  - Safe `INSERT OR IGNORE` for `roles`, `role_permissions`, and `vehicles`.
+  - Targeted `UPDATE sites SET address = ..., latitude = ..., longitude = ... WHERE id = ...` for the 9 sites.
+- **Migration Executed:** via `wrangler d1 execute recon-erp --remote --file=scripts/d1_migration.sql` (108 queries, 13.52ms).
+
+### 10.3 Post-Migration Verification Results
+- Table Count: 53 (Local) = 53 (Remote D1).
+- Added Columns: All 6 columns verified with proper data types.
+- New Tables: `vehicles` (68 rows), `voyages` (0 rows), `voyage_expenses` (0 rows), `voyage_gps_points` (0 rows), `voyage_tracking_sessions` (0 rows).
+- Permissions: 10 permissions configured across admin, manager, office, user, driver.
+- Sites: All 9 sites populated with GPS coordinates and addresses.
+- **Online Data Integrity Confirmed:**
+  - `products`: 28,821 rows intact
+  - `people`: 562 rows intact
+  - `quotes`: 296 rows intact
+  - `quote_items`: 1,227 rows intact
+  - `requisitions`: 117 rows intact
+  - `requisition_items`: 1,423 rows intact
+  - `suppliers`: 128 rows intact
+  - `users`: 30 rows intact
+

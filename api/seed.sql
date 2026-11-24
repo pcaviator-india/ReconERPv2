@@ -31,3 +31,15 @@ INSERT OR IGNORE INTO categories (name, active) VALUES ('Mechanical', 1);
 INSERT OR IGNORE INTO categories (name, active) VALUES ('Safety', 1);
 INSERT OR IGNORE INTO categories (name, active) VALUES ('Consumables', 1);
 INSERT OR IGNORE INTO categories (name, active) VALUES ('Tools', 1);
+
+-- Seed vehicles
+INSERT OR IGNORE INTO vehicles (vehicle_number, vehicle_type, license_plate, capacity_kg, is_active) VALUES ('TRK-001', 'Truck', 'ABC-1234', 5000, 1);
+INSERT OR IGNORE INTO vehicles (vehicle_number, vehicle_type, license_plate, capacity_kg, is_active) VALUES ('VAN-002', 'Van', 'XYZ-5678', 1500, 1);
+INSERT OR IGNORE INTO vehicles (vehicle_number, vehicle_type, license_plate, capacity_kg, is_active) VALUES ('TRK-003', 'Truck', 'DEF-9012', 8000, 1);
+INSERT OR IGNORE INTO vehicles (vehicle_number, vehicle_type, license_plate, capacity_kg, is_active) VALUES ('CAR-004', 'Car', 'GHI-3456', 500, 1);
+
+-- Seed people
+INSERT OR IGNORE INTO people (id, name, department, active, sector, rut, email) VALUES ('P-001', 'Juan Pérez', 'Operations', 1, 'Warehouse', '11.111.111-1', 'juan.perez@recon.local');
+INSERT OR IGNORE INTO people (id, name, department, active, sector, rut, email) VALUES ('P-002', 'María García', 'Operations', 1, 'Warehouse', '11.111.111-2', 'maria.garcia@recon.local');
+INSERT OR IGNORE INTO people (id, name, department, active, sector, rut, email) VALUES ('P-003', 'Carlos López', 'Transport', 1, 'Dispatch', '11.111.111-3', 'carlos.lopez@recon.local');
+INSERT OR IGNORE INTO people (id, name, department, active, sector, rut, email) VALUES ('P-004', 'Ana Martínez', 'Logistics', 1, 'Dispatch', '11.111.111-4', 'ana.martinez@recon.local');

@@ -10,7 +10,7 @@ router.get('/validation', async (req, res) => {
     const db = req.app.locals.db;
 
     const [sites, categories, brands, suppliers, subCategories, currencies, subAreas] = await Promise.all([
-      db.prepare('SELECT id, site_id, name, code, active FROM sites WHERE active = 1 ORDER BY name').then(s => s.all()),
+      db.prepare('SELECT id, site_id, name, code, active, address, latitude, longitude FROM sites WHERE active = 1 ORDER BY name').then(s => s.all()),
       db.prepare('SELECT id, name, active FROM categories WHERE active = 1 ORDER BY name').then(s => s.all()),
       db.prepare('SELECT id, name, active FROM brands WHERE active = 1 ORDER BY name').then(s => s.all()),
       db.prepare('SELECT id, name, contact_person, email, phone, active FROM suppliers WHERE active = 1 ORDER BY name').then(s => s.all()),
@@ -43,7 +43,7 @@ router.get('/validation', async (req, res) => {
 router.get('/sites', async (req, res) => {
   try {
     const db = req.app.locals.db;
-    const stmt = await db.prepare('SELECT id, site_id, name, code, active FROM sites WHERE active = 1 ORDER BY name');
+    const stmt = await db.prepare('SELECT id, site_id, name, code, active, address, latitude, longitude FROM sites WHERE active = 1 ORDER BY name');
     const result = await stmt.all();
     res.json({ status: 'success', data: result.results || result });
   } catch (err) {

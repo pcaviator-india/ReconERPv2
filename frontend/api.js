@@ -220,6 +220,58 @@ const RECON_API = {
   },
 
   // ============================================
+  // Vehicle Tracking
+  // ============================================
+  async getVehicles() {
+    return this._request('/vehicles', 'GET');
+  },
+
+  async getVehicle(id) {
+    return this._request('/vehicles/' + id, 'GET');
+  },
+
+  async createVehicle(data) {
+    return this._request('/vehicles', 'POST', data);
+  },
+
+  async updateVehicle(id, data) {
+    return this._request('/vehicles/' + id, 'PUT', data);
+  },
+
+  async getVoyages(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this._request(`/voyages${query ? '?' + query : ''}`, 'GET');
+  },
+
+  async getVoyage(id) {
+    return this._request('/voyages/' + id, 'GET');
+  },
+
+  async createVoyage(data) {
+    return this._request('/voyages', 'POST', data);
+  },
+
+  async updateVoyage(id, data) {
+    return this._request('/voyages/' + id, 'PUT', data);
+  },
+
+  async sendGpsPoint(voyageId, data) {
+    return this._request('/voyages/' + voyageId + '/gps', 'POST', data);
+  },
+
+  async getVoyageGpsPoints(voyageId) {
+    return this._request('/voyages/' + voyageId + '/gps', 'GET');
+  },
+
+  async addVoyageExpense(voyageId, data) {
+    return this._request('/voyages/' + voyageId + '/expenses', 'POST', data);
+  },
+
+  async getVoyageExpenses(voyageId) {
+    return this._request('/voyages/' + voyageId + '/expenses', 'GET');
+  },
+
+  // ============================================
   // Products
   // ============================================
   async getProducts(params = {}) {
@@ -281,6 +333,42 @@ const RECON_API = {
 
   async getMovement(movementId) {
     return this._request(`/movements/${encodeURIComponent(movementId)}`, 'GET');
+  },
+
+  // ============================================
+  // Site Transfers
+  // ============================================
+  async getSiteTransfers(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return this._request(`/site-transfers${query ? '?' + query : ''}`, 'GET');
+  },
+
+  async getSiteTransfer(id) {
+    return this._request(`/site-transfers/${encodeURIComponent(id)}`, 'GET');
+  },
+
+  async createSiteTransfer(data) {
+    return this._request('/site-transfers', 'POST', data);
+  },
+
+  async updateSiteTransfer(id, data) {
+    return this._request(`/site-transfers/${encodeURIComponent(id)}`, 'PUT', data);
+  },
+
+  async deleteSiteTransfer(id) {
+    return this._request(`/site-transfers/${encodeURIComponent(id)}`, 'DELETE');
+  },
+
+  async despatchSiteTransfer(id, data) {
+    return this._request(`/site-transfers/${encodeURIComponent(id)}/despatch`, 'POST', data);
+  },
+
+  async receiveSiteTransfer(id, data) {
+    return this._request(`/site-transfers/${encodeURIComponent(id)}/receive`, 'POST', data);
+  },
+
+  async cancelSiteTransfer(id) {
+    return this._request(`/site-transfers/${encodeURIComponent(id)}/cancel`, 'POST');
   },
 
   // ============================================

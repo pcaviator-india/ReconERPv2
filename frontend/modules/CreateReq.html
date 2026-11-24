@@ -4,7 +4,7 @@
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>
-  <div class="row g-3 mb-3">
+  <div class="row g-3 mb-3 mobile-stack">
     <div class="col-md-4">
       <label class="small fw-bold text-uppercase" data-i18n="site">Project Site</label>
       <select id="siteSelect" class="form-select" onchange="window.refreshLiveStock()"></select>
@@ -50,7 +50,7 @@
 
   <div class="mt-3 border-top pt-2">
       <h6 data-i18n="lbl_cart">Cart</h6>
-    <table class="table table-sm"><thead class="table-light"><tr>
+    <table class="table table-sm recon-responsive-table"><thead class="table-light"><tr>
       <th data-i18n="geo">Geo</th><th data-i18n="pn">P/N</th><th data-i18n="desc">Description</th>
       <th data-i18n="qty">Qty</th><th id="cartNotesTh" data-i18n="item_notes" style="min-width:140px;">Item Notes</th><th id="cartSupplierNotesTh" data-i18n="supplier_notes" style="min-width:140px;">Supplier Notes</th><th id="cartImagesTh" data-i18n="item_images" style="min-width:120px;">Images</th><th></th>
     </tr></thead><tbody id="cartBody"></tbody></table>
