@@ -216,10 +216,20 @@
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
               </button>
             </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="btn-group" role="group" aria-label="View mode">
+                <button type="button" id="stViewListBtn" class="btn btn-outline-secondary active" onclick="window.SiteTransfer.setViewMode('list')" title="List view">
+                  <i class="bi bi-list-ul"></i>
+                </button>
+                <button type="button" id="stViewCardsBtn" class="btn btn-outline-secondary" onclick="window.SiteTransfer.setViewMode('cards')" title="Card view">
+                  <i class="bi bi-grid-3x3-gap"></i>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Transfers Table -->
-          <div class="table-responsive">
+          <div id="stViewTableWrap" class="table-responsive">
             <table class="table table-hover align-middle" id="stViewTable">
               <thead class="table-light">
                 <tr>
@@ -240,6 +250,9 @@
               <tbody id="stViewBody"></tbody>
             </table>
           </div>
+
+          <!-- Transfers Cards (Card view) -->
+          <div id="stViewCardsWrap" class="row g-3 d-none"></div>
 
           <div id="stViewEmpty" class="text-center py-4 text-muted d-none">
             <i class="bi bi-inbox fs-1 mb-2"></i><p data-i18n="st_no_transfers">No transfers found.</p>
@@ -335,6 +348,146 @@
 
     </div>
 
+  </div>
+
+  <!-- View Transfer Details Modal -->
+  <div class="modal fade" id="stViewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+      <div class="modal-content">
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title"><i class="bi bi-truck me-2"></i>Transfer Details</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3 mb-4">
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Transfer No</label>
+              <div id="stModalTransferNo" class="form-control fw-bold bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Despatch No</label>
+              <div id="stModalDespatchNo" class="form-control bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Status</label>
+              <div id="stModalStatus" class="badge"></div>
+            </div>
+          </div>
+          <div class="row g-3 mb-4">
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">From Site</label>
+              <div id="stModalFromSite" class="form-control bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">To Site</label>
+              <div id="stModalToSite" class="form-control bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Driver</label>
+              <div id="stModalDriver" class="form-control bg-light"></div>
+            </div>
+          </div>
+          <div class="row g-3 mb-4">
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Vehicle</label>
+              <div id="stModalVehicle" class="form-control bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Created</label>
+              <div id="stModalCreated" class="form-control bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Notes</label>
+              <div id="stModalNotes" class="form-control bg-light"></div>
+            </div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Qty Sent</label>
+              <div id="stModalTotalSent" class="form-control fw-bold text-primary bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Qty Received</label>
+              <div id="stModalTotalReceived" class="form-control fw-bold text-success bg-light"></div>
+            </div>
+          </div>
+
+          <h6 class="fw-bold mb-2">Items</h6>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Item</th>
+                  <th>P/N</th>
+                  <th class="text-end">Qty Sent</th>
+                  <th class="text-end">Qty Received</th>
+                  <th class="text-end">Discrepancy</th>
+                  <th>Desc EN</th>
+                  <th>Desc ES</th>
+                </tr>
+              </thead>
+              <tbody id="stViewModalItemsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Transfer Modal -->
+  <div class="modal fade" id="stEditModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-warning text-white">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Transfer</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="stEditTransferId">
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Transfer No</label>
+              <div id="stEditTransferNo" class="form-control fw-bold bg-light"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Despatch No <span class="text-danger">*</span></label>
+              <input type="text" id="stEditDespatchNo" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Status</label>
+              <div class="form-control bg-light">Draft</div>
+            </div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">To Site</label>
+              <select id="stEditToSite" class="form-select"></select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Driver</label>
+              <select id="stEditDriver" class="form-select"></select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small text-uppercase text-muted">Vehicle</label>
+              <select id="stEditVehicle" class="form-select"></select>
+            </div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-12">
+              <label class="form-label fw-bold small text-uppercase text-muted">Notes</label>
+              <textarea id="stEditNotes" class="form-control" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-warning" onclick="window.SiteTransfer.saveEditTransfer()">Save Changes</button>
+        </div>
+      </div>
+    </div>
   </div>
 
 </div>

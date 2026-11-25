@@ -61,7 +61,10 @@ router.get('/', authenticateToken, requirePermission('site_transfer', 'view'), a
       'p.name as driver_name, ' +
       'v.vehicle_number, ' +
       'u.name as created_by_name, ' +
-      'ru.name as received_by_name ' +
+      'ru.name as received_by_name, ' +
+      '(SELECT COUNT(*) FROM site_transfer_items sti WHERE sti.transfer_id = st.id) as item_count, ' +
+      '(SELECT COALESCE(SUM(sti.quantity_sent),0) FROM site_transfer_items sti WHERE sti.transfer_id = st.id) as total_sent, ' +
+      '(SELECT COALESCE(SUM(sti.quantity_received),0) FROM site_transfer_items sti WHERE sti.transfer_id = st.id) as total_received ' +
       'FROM site_transfers st ' +
       'JOIN sites fs ON st.from_site_id = fs.id ' +
       'JOIN sites ts ON st.to_site_id = ts.id ' +
@@ -109,7 +112,10 @@ router.get('/:id', authenticateToken, requirePermission('site_transfer', 'view')
       'p.name as driver_name, ' +
       'v.vehicle_number, ' +
       'u.name as created_by_name, ' +
-      'ru.name as received_by_name ' +
+      'ru.name as received_by_name, ' +
+      '(SELECT COUNT(*) FROM site_transfer_items sti WHERE sti.transfer_id = st.id) as item_count, ' +
+      '(SELECT COALESCE(SUM(sti.quantity_sent),0) FROM site_transfer_items sti WHERE sti.transfer_id = st.id) as total_sent, ' +
+      '(SELECT COALESCE(SUM(sti.quantity_received),0) FROM site_transfer_items sti WHERE sti.transfer_id = st.id) as total_received ' +
       'FROM site_transfers st ' +
       'JOIN sites fs ON st.from_site_id = fs.id ' +
       'JOIN sites ts ON st.to_site_id = ts.id ' +
@@ -132,7 +138,7 @@ router.get('/:id', authenticateToken, requirePermission('site_transfer', 'view')
 
     const itemsStmt = await db.prepare(
       'SELECT sti.*, ' +
-      'p.geo, p.name as product_name, p.description, p.unit ' +
+      'p.geo, p.name as product_name, p.description, p.description_es, p.unit ' +
       'FROM site_transfer_items sti ' +
       'JOIN products p ON sti.item_id = p.id ' +
       'WHERE sti.transfer_id = ? ' +
@@ -162,11 +168,25 @@ router.post('/', authenticateToken, requirePermission('site_transfer', 'edit'), 
       from_site_id, to_site_id, driver_id, vehicle_id, despatch_no, notes, items
     } = req.body;
 
-    if (!from_site_id || !to_site_id || !despatch_no) {
+    // Coerce scalar inputs to SQLite-safe primitives so a client sending
+    // non-primitive values (objects, undefined, etc.) cannot cause a
+    // datatype mismatch when the values are bound to typed columns.
+    const fromSiteId = Number.parseInt(from_site_id, 10) || null;
+    const toSiteId = Number.parseInt(to_site_id, 10) || null;
+    const safeDriverId = driver_id == null
+      ? null
+      : (driver_id && typeof driver_id === 'object' && driver_id.id != null
+          ? String(driver_id.id)
+          : String(driver_id));
+    const safeVehicleId = vehicle_id == null ? null : (Number.parseInt(vehicle_id, 10) || null);
+    const safeDespatchNo = despatch_no == null ? '' : String(despatch_no);
+    const safeNotes = notes == null ? '' : String(notes);
+
+    if (!fromSiteId || !toSiteId || !safeDespatchNo) {
       return res.status(400).json({ status: 'error', message: 'from_site_id, to_site_id, and despatch_no are required' });
     }
 
-    if (String(from_site_id) === String(to_site_id)) {
+    if (String(fromSiteId) === String(toSiteId)) {
       return res.status(400).json({ status: 'error', message: 'From site and to site must be different' });
     }
 
@@ -174,30 +194,30 @@ router.post('/', authenticateToken, requirePermission('site_transfer', 'edit'), 
       return res.status(400).json({ status: 'error', message: 'At least one item is required' });
     }
 
-    if (userRole === 'user' && userSite && String(from_site_id) !== userSite) {
+    if (userRole === 'user' && userSite && String(fromSiteId) !== userSite) {
       return res.status(403).json({ status: 'error', message: 'Users can only create transfers from their own site' });
     }
 
-    const existing = await db.prepare('SELECT id FROM site_transfers WHERE despatch_no = ?').bind(despatch_no).first();
+    const existing = await db.prepare('SELECT id FROM site_transfers WHERE despatch_no = ?').bind(safeDespatchNo).first();
     if (existing) {
       return res.status(400).json({ status: 'error', message: 'Despatch No "' + despatch_no + '" already exists' });
     }
 
-    const fromSite = await db.prepare('SELECT id FROM sites WHERE id = ? AND active = 1').bind(from_site_id).first();
-    const toSite = await db.prepare('SELECT id FROM sites WHERE id = ? AND active = 1').bind(to_site_id).first();
+    const fromSite = await db.prepare('SELECT id FROM sites WHERE id = ? AND active = 1').bind(fromSiteId).first();
+    const toSite = await db.prepare('SELECT id FROM sites WHERE id = ? AND active = 1').bind(toSiteId).first();
     if (!fromSite || !toSite) {
       return res.status(400).json({ status: 'error', message: 'Invalid from_site_id or to_site_id' });
     }
 
     if (driver_id) {
-      const driver = await db.prepare('SELECT id FROM people WHERE id = ? AND active = 1').bind(driver_id).first();
+      const driver = await db.prepare('SELECT id FROM people WHERE id = ? AND active = 1').bind(safeDriverId).first();
       if (!driver) {
         return res.status(400).json({ status: 'error', message: 'Invalid driver_id' });
       }
     }
 
     if (vehicle_id) {
-      const vehicle = await db.prepare('SELECT id FROM vehicles WHERE id = ? AND is_active = 1').bind(vehicle_id).first();
+      const vehicle = await db.prepare('SELECT id FROM vehicles WHERE id = ? AND is_active = 1').bind(safeVehicleId).first();
       if (!vehicle) {
         return res.status(400).json({ status: 'error', message: 'Invalid vehicle_id' });
       }
@@ -211,8 +231,8 @@ router.post('/', authenticateToken, requirePermission('site_transfer', 'edit'), 
       'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const transferResult = await insertTransfer.bind(
-      transferNo, parseInt(from_site_id, 10), parseInt(to_site_id, 10),
-      driver_id || null, vehicle_id ? parseInt(vehicle_id, 10) : null, despatch_no, 'draft', userId, notes || ''
+      transferNo, fromSiteId, toSiteId,
+      safeDriverId, safeVehicleId, safeDespatchNo, 'draft', userId, safeNotes
     ).run();
     const transferId = transferResult.meta.last_row_id;
 
@@ -227,10 +247,12 @@ router.post('/', authenticateToken, requirePermission('site_transfer', 'edit'), 
         return res.status(400).json({ status: 'error', message: 'Each item must have item_id and quantity_sent > 0' });
       }
       await insertItem.bind(
-        transferId, parseInt(item.item_id, 10), item.stock_id ? parseInt(item.stock_id, 10) : null,
-        parseInt(item.quantity_sent, 10),
-        parseFloat(item.unit_cost) || 0,
-        item.notes || ''
+        transferId,
+        Number.parseInt(item.item_id, 10) || null,
+        item.stock_id == null ? null : (Number.parseInt(item.stock_id, 10) || null),
+        Number.parseInt(item.quantity_sent, 10) || null,
+        Number.parseFloat(item.unit_cost) || 0,
+        item.notes == null ? '' : String(item.notes)
       ).run();
     }
 
@@ -373,6 +395,10 @@ router.post('/:id/despatch', authenticateToken, requirePermission('site_transfer
     const itemList = items.results || items || [];
 
     for (const item of itemList) {
+      // Items added "without stock" (stock_id null) have no source stock record
+      // to validate against — skip stock checks for them.
+      if (item.stock_id == null) continue;
+
       const stock = await db.prepare(
         'SELECT id, quantity FROM stock WHERE id = ? AND site_id = ? AND is_active = 1'
       ).bind(item.stock_id, transfer.from_site_id).first();
@@ -393,6 +419,9 @@ router.post('/:id/despatch', authenticateToken, requirePermission('site_transfer
     }
 
     for (const item of itemList) {
+      // Skip decrementing stock for items that have no source stock record.
+      if (item.stock_id == null) continue;
+
       await db.prepare(
         'UPDATE stock SET quantity = quantity - ?, available_qty = available_qty - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
       ).bind(item.quantity_sent, item.quantity_sent, item.stock_id).run();
