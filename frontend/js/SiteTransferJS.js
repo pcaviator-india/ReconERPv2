@@ -244,7 +244,7 @@
           '<td data-label="Description"><small>' + escapeHtml(i.name || i.description || '') + '</small></td>' +
           '<td data-label="Source Stock" id="st_stock_' + i.id + '" class="' + stockBadge + ' fw-bold">' + stockQty + '</td>' +
           '<td data-label="Qty"><input type="number" id="st_q_' + i.id + '" value="1" min="1" class="form-control form-control-sm" style="width:70px"></td>' +
-          '<td data-label="Add"><button class="btn btn-sm ' + (canAdd ? 'btn-primary' : 'btn-outline-secondary') + '" ' + addDisabled + ' onclick="addItemToCart(' + i.id + ')"><i class="bi bi-' + (inCart ? 'cart-check' : 'plus') + '"></i></button></td>' +
+          '<td data-label="Add"><button class="btn btn-sm ' + (canAdd ? 'btn-primary' : 'btn-outline-secondary') + '" ' + addDisabled + ' onclick="window.SiteTransfer.addItemToCart(' + i.id + ')"><i class="bi bi-' + (inCart ? 'cart-check' : 'plus') + '"></i></button></td>' +
           '</tr>';
       }).join('');
     } catch (err) {
