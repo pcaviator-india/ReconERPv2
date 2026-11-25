@@ -212,8 +212,8 @@ router.post('/', authenticateToken, requirePermission('site_transfer', 'edit'), 
       'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     await insertTransfer.bind(
-      transferId, transferNo, from_site_id, to_site_id,
-      driver_id || null, vehicle_id || null, despatch_no, 'draft', userId, notes || ''
+      transferId, transferNo, parseInt(from_site_id, 10), parseInt(to_site_id, 10),
+      driver_id || null, vehicle_id ? parseInt(vehicle_id, 10) : null, despatch_no, 'draft', userId, notes || ''
     ).run();
 
     const insertItem = await db.prepare(
@@ -227,7 +227,7 @@ router.post('/', authenticateToken, requirePermission('site_transfer', 'edit'), 
         return res.status(400).json({ status: 'error', message: 'Each item must have item_id and quantity_sent > 0' });
       }
       await insertItem.bind(
-        transferId, item.item_id, item.stock_id || null,
+        transferId, parseInt(item.item_id, 10), item.stock_id ? parseInt(item.stock_id, 10) : null,
         parseInt(item.quantity_sent, 10),
         parseFloat(item.unit_cost) || 0,
         item.notes || ''

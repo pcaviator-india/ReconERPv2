@@ -10,13 +10,13 @@ router.get('/validation', async (req, res) => {
     const db = req.app.locals.db;
 
     const [sites, categories, brands, suppliers, subCategories, currencies, subAreas] = await Promise.all([
-      db.prepare('SELECT id, site_id, name, code, active, address, latitude, longitude FROM sites WHERE active = 1 ORDER BY name').then(s => s.all()),
-      db.prepare('SELECT id, name, active FROM categories WHERE active = 1 ORDER BY name').then(s => s.all()),
-      db.prepare('SELECT id, name, active FROM brands WHERE active = 1 ORDER BY name').then(s => s.all()),
-      db.prepare('SELECT id, name, contact_person, email, phone, active FROM suppliers WHERE active = 1 ORDER BY name').then(s => s.all()),
-      db.prepare('SELECT id, category_id, name, active FROM sub_categories WHERE active = 1 ORDER BY name').then(s => s.all()),
-      db.prepare('SELECT id, name, code, symbol, active FROM currencies WHERE active = 1 ORDER BY name').then(s => s.all()),
-      db.prepare('SELECT id, name, active FROM sub_areas WHERE active = 1 ORDER BY name').then(s => s.all())
+      db.prepare('SELECT id, site_id, name, code, active, address, latitude, longitude FROM sites WHERE active = 1 ORDER BY name').all(),
+      db.prepare('SELECT id, name, active FROM categories WHERE active = 1 ORDER BY name').all(),
+      db.prepare('SELECT id, name, active FROM brands WHERE active = 1 ORDER BY name').all(),
+      db.prepare('SELECT id, name, contact_person, email, phone, active FROM suppliers WHERE active = 1 ORDER BY name').all(),
+      db.prepare('SELECT id, category_id, name, active FROM sub_categories WHERE active = 1 ORDER BY name').all(),
+      db.prepare('SELECT id, name, code, symbol, active FROM currencies WHERE active = 1 ORDER BY name').all(),
+      db.prepare('SELECT id, name, active FROM sub_areas WHERE active = 1 ORDER BY name').all()
     ]);
 
     res.json({
