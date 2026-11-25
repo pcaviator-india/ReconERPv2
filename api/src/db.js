@@ -280,7 +280,7 @@ class Database {
     }
   }
 
-  async prepare(sql) {
+  prepare(sql) {
     if (this._sqlite) {
       return new SqliteStatement(this._sqlite.prepare(sql));
     }
