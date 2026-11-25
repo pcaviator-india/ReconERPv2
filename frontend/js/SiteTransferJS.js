@@ -244,7 +244,7 @@
           '<td data-label="Description"><small>' + escapeHtml(i.name || i.description || '') + '</small></td>' +
           '<td data-label="Source Stock" id="st_stock_' + i.id + '" class="' + stockBadge + ' fw-bold">' + stockQty + '</td>' +
           '<td data-label="Qty"><input type="number" id="st_q_' + i.id + '" value="1" min="1" class="form-control form-control-sm" style="width:70px"></td>' +
-          '<td data-label="Add"><button class="btn btn-sm ' + (canAdd ? 'btn-primary' : 'btn-outline-secondary') + '" ' + addDisabled + ' onclick="window.SiteTransfer.addItemToCart(' + i.id + ')"><i class="bi bi-' + (inCart ? 'cart-check' : 'plus') + '"></i></button></td>' +
+          '<td data-label="Add"><button class="btn btn-sm ' + (canAdd ? 'btn-primary' : 'btn-outline-secondary') + '" ' + addDisabled + ' onclick="window.SiteTransfer.addItemToCart(\'' + escapeHtml(i.geo || '') + '\')"><i class="bi bi-' + (inCart ? 'cart-check' : 'plus') + '"></i></button></td>' +
           '</tr>';
       }).join('');
     } catch (err) {
@@ -253,13 +253,13 @@
     }
   }
 
-  async function addItemToCart(itemId) {
-    let item = fullInventory.find(function (i) { return i.id === itemId; });
+  async function addItemToCart(geoCode) {
+    let item = fullInventory.find(function (i) { return String(i.geo || '') === String(geoCode); });
 
     // If item not in local cache, fetch from server
     if (!item) {
       try {
-        const res = await RECON_API.getProductByGeo(itemId);
+        const res = await RECON_API.getProductByGeo(geoCode);
         if (res.status === 'success' && res.data) {
           item = res.data;
           // Add to local cache for future use
@@ -274,14 +274,14 @@
       }
     }
 
-    const stockQty = liveStockMap[itemId] !== undefined ? liveStockMap[itemId] : 0;
+    const stockQty = liveStockMap[item.id] !== undefined ? liveStockMap[item.id] : 0;
 
     if (stockQty <= 0 && !allowNoStock) {
       showAlert('Item has no stock at source site. Enable "Add items without stock" to override.', 'warning');
       return;
     }
 
-    const qtyInput = document.getElementById('st_q_' + itemId);
+    const qtyInput = document.getElementById('st_q_' + item.id);
     const qty = qtyInput ? parseInt(qtyInput.value, 10) || 1 : 1;
 
     if (stockQty > 0 && qty > stockQty && !allowNoStock) {
@@ -290,12 +290,12 @@
     }
 
     // Check if already in cart
-    const existing = cart.findIndex(function (c) { return c.item_id === itemId; });
+    const existing = cart.findIndex(function (c) { return c.item_id === item.id; });
     if (existing >= 0) {
       cart[existing].quantity_sent += qty;
     } else {
       cart.push({
-        item_id: itemId,
+        item_id: item.id,
         geo: item.geo,
         pn: item.pn,
         name: item.name || item.description || '',
