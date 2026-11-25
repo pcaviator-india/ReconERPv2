@@ -204,17 +204,17 @@ router.post('/', authenticateToken, requirePermission('site_transfer', 'edit'), 
     }
 
     const transferNo = 'TRF-' + uuidv4().slice(0, 8).toUpperCase();
-    const transferId = uuidv4();
 
     const insertTransfer = await db.prepare(
       'INSERT INTO site_transfers ' +
-      '(id, transfer_no, from_site_id, to_site_id, driver_id, vehicle_id, despatch_no, status, created_by, notes) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      '(transfer_no, from_site_id, to_site_id, driver_id, vehicle_id, despatch_no, status, created_by, notes) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    await insertTransfer.bind(
-      transferId, transferNo, parseInt(from_site_id, 10), parseInt(to_site_id, 10),
+    const transferResult = await insertTransfer.bind(
+      transferNo, parseInt(from_site_id, 10), parseInt(to_site_id, 10),
       driver_id || null, vehicle_id ? parseInt(vehicle_id, 10) : null, despatch_no, 'draft', userId, notes || ''
     ).run();
+    const transferId = transferResult.meta.last_row_id;
 
     const insertItem = await db.prepare(
       'INSERT INTO site_transfer_items ' +
