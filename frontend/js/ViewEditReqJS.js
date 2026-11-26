@@ -781,6 +781,7 @@ window.renderReqCardsBody_ = function(data) {
     const pdfBtn = main.pdfUrl
       ? '<a href="' + main.pdfUrl + '" target="_blank" class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation()" title="PDF"><i class="bi bi-file-pdf"></i></a>'
       : '';
+    const xlsxBtn = '<button type="button" class="btn btn-sm btn-outline-success xlsx-export-btn" data-orderid="' + escAttr(orderId) + '" title="Export to Excel"><i class="bi bi-file-earmark-excel"></i></button>';
     const notesIcon = main.notes
       ? '<i class="bi bi-sticky-fill text-warning ms-1" style="cursor:help;" title="' + escAttr(window.notesToPlainText(main.notes, 160)) + '" onclick="event.stopPropagation()"></i>'
       : '';
@@ -788,12 +789,20 @@ window.renderReqCardsBody_ = function(data) {
       ? '<button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Save in Progress"><i class="bi bi-pencil"></i></button>'
       : '<button type="button" class="btn btn-sm btn-outline-primary" onclick="window.reqCardEdit(event, \'' + escAttr(orderId) + '\')" title="' + escAttr(t('btn_edit')) + '"><i class="bi bi-pencil"></i></button>';
 
-    box.appendChild(window.buildReqCard_(group, {
+    const cardEl = window.buildReqCard_(group, {
       orderId: orderId, main: main, isSelected: isSelected, isSaving: isSaving,
       statusSummary: statusSummary, quotesHtml: quotesHtml, subAreaHtml: subAreaHtml,
-      pdfBtn: pdfBtn, notesIcon: notesIcon, editBtn: editBtn, escAttr: escAttr, escHtml: escHtml, t: t,
+      pdfBtn: pdfBtn, xlsxBtn: xlsxBtn, notesIcon: notesIcon, editBtn: editBtn, escAttr: escAttr, escHtml: escHtml, t: t,
       cardTintClass: cardTintClass
-    }));
+    });
+    box.appendChild(cardEl);
+    const xlsxEl = cardEl.querySelector('.xlsx-export-btn');
+    if (xlsxEl) {
+      xlsxEl.addEventListener('click', function(e) {
+        e.stopPropagation();
+        window.exportReqCardToXlsx(this.getAttribute('data-orderid'));
+      });
+    }
   });
 
   if (typeof updateActionButtons === 'function') updateActionButtons();
@@ -988,7 +997,7 @@ window.buildReqCard_ = function(group, ctx) {
     + '<div class="card-body">'
     + '<div class="d-flex justify-content-between align-items-center gap-2 mb-1">'
     + '<h6 class="fw-bold mb-0"><i class="bi bi-box-seam text-primary me-1"></i>#' + escHtml(ctx.orderId) + ctx.notesIcon + '</h6>'
-    + '<div class="d-flex gap-1 flex-shrink-0">' + ctx.pdfBtn + ctx.editBtn + '</div>'
+    + '<div class="d-flex gap-1 flex-shrink-0">' + ctx.pdfBtn + ctx.editBtn + (ctx.xlsxBtn || '') + '</div>'
     + '</div>'
     + '<div class="req-card-meta">' + escHtml(ctx.main.fecha || '') + ' &middot; ' + escHtml(ctx.main.faena || '') + ctx.subAreaHtml + '</div>'
     + '<div class="small text-primary text-uppercase">' + escHtml(ctx.main.user || ctx.main.solicitante || 'System') + '</div>'
@@ -1001,6 +1010,54 @@ window.buildReqCard_ = function(group, ctx) {
     + escHtml(t('req_view_details_hint')) + '</div>'
     + '</div></div>';
   return col;
+};
+
+/** Export a single requirement (one order's items) to an .xlsx file (client-side, SheetJS). */
+window.exportReqCardToXlsx = function(orderId) {
+  if (typeof window.XLSX === 'undefined') {
+    alert("Excel library (XLSX) is not available.");
+    return;
+  }
+  orderId = String(orderId);
+  var rows = (typeof fullHistory !== 'undefined' && Array.isArray(fullHistory))
+    ? fullHistory.filter(function(r) { return String(r.order || r.orderId || r.id) === orderId; })
+    : [];
+  if (!rows.length) { alert("No data found for requirement #" + orderId); return; }
+
+  var main = rows[0];
+  var wb = window.XLSX.utils.book_new();
+
+  // Requirement info sheet
+  var info = [
+    { Field: 'Order #', Value: main.order || main.orderId || main.id || '' },
+    { Field: 'Date', Value: main.fecha || '' },
+    { Field: 'Site', Value: main.faena || '' },
+    { Field: 'Sub Area', Value: main.subArea || '' },
+    { Field: 'Requester', Value: main.user || main.solicitante || 'System' },
+    { Field: 'Category', Value: main.category || 'General' },
+    { Field: 'Status', Value: main.estado || 'Pending' }
+  ];
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(info), 'Requirement');
+
+  // Items sheet
+  var inv = window.inventory || window.fullInventory || [];
+  var itemRows = rows.map(function(item) {
+    var product = inv.find(function(p) { return String(p.geo) === String(item.geo); });
+    return {
+      Geo: item.geo || '',
+      'P/N': item.pn || '',
+      Description: product ? (product.es || '') : (item.desc || ''),
+      Qty: item.cant || 0,
+      Status: item.estado || 'Pending',
+      'Item Notes': item.itemNotes || '',
+      'Supplier Notes': item.supplierNotes || ''
+    };
+  });
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(itemRows), 'Items');
+
+  var safeId = String(orderId).replace(/[^a-z0-9]/gi, '_');
+  var fileName = 'Req_' + safeId + '_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+  window.XLSX.writeFile(wb, fileName);
 };
 
 
@@ -1783,24 +1840,115 @@ window.handleExport = function(moduleType, format, event) {
     btn.disabled = true;
   }
 
-  // 4. Server Call
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (btn) {
-        btn.innerText = originalText;
-        btn.disabled = false;
-      }
-      alert("✅ " + getI18nText('msg_export_success') + " (" + res.fileName + ")");
-    })
-    .withFailureHandler(function(err) {
-      if (btn) {
-        btn.innerText = originalText;
-        btn.disabled = false;
-      }
-      alert(getI18nText('msg_sys_error') + " " + err);
-    })
-    .master_ExportToDrive(config.data, config.headers, config.keys, config.name, format);
+  // 4. Client-side export.
+  // master_ExportToDrive is not implemented on the PostgreSQL/Express backend
+  // (it is in KNOWN_UNIMPLEMENTED in api/src/routes/legacy.js), so we build
+  // the file locally using the SheetJS / jsPDF libraries loaded in index.html.
+  try {
+    var fileBase = config.name + '_' + new Date().toISOString().slice(0, 10);
+    if (format === 'CSV') {
+      exportAsCsv(config.data, config.headers, config.keys, fileBase + '.csv');
+    } else if (format === 'EXCEL') {
+      exportAsXlsx(config.data, config.headers, config.keys, fileBase + '.xlsx');
+    } else if (format === 'PDF') {
+      exportAsPdf(config.data, config.headers, config.keys, config.name, fileBase + '.pdf');
+    } else {
+      throw new Error('Unknown export format: ' + format);
+    }
+    if (btn) {
+      btn.innerText = originalText;
+      btn.disabled = false;
+    }
+    alert("✅ " + (typeof getI18nText === 'function' ? getI18nText('msg_export_success') : '') + " (" + fileBase + ")");
+  } catch (err) {
+    if (btn) {
+      btn.innerText = originalText;
+      btn.disabled = false;
+    }
+    alert((typeof getI18nText === 'function' ? getI18nText('msg_sys_error') : 'System Error:') + " " + String(err));
+  }
 };
+
+// --- Client-side export helpers (SheetJS + jsPDF) ---
+
+/** Build a CSV string and download it as a file. */
+function exportAsCsv(data, headers, keys, fileName) {
+  var lines = [];
+  lines.push(headers.map(function(h) {
+    return '"' + String(h).replace(/"/g, '""') + '"';
+  }).join(','));
+  data.forEach(function(row) {
+    lines.push(keys.map(function(k) {
+      var v = String(row == null ? '' : row[k] || '');
+      return '"' + v.replace(/"/g, '""') + '"';
+    }).join(','));
+  });
+  var blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, fileName);
+}
+
+/** Build an XLSX workbook and download it (SheetJS). */
+function exportAsXlsx(data, headers, keys, fileName) {
+  if (typeof window.XLSX === 'undefined') {
+    throw new Error('XLSX library (SheetJS) is not available.');
+  }
+  var wb = window.XLSX.utils.book_new();
+  var wsData = [headers];
+  data.forEach(function(row) {
+    wsData.push(keys.map(function(k) { return row == null ? '' : row[k]; }));
+  });
+  var ws = window.XLSX.utils.aoa_to_sheet(wsData);
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Export');
+  window.XLSX.writeFile(wb, fileName);
+}
+
+/** Build a PDF document and download it (jsPDF + autotable). */
+function exportAsPdf(data, headers, keys, title, fileName) {
+  var jsPdfCtor = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
+  if (!jsPdfCtor) {
+    throw new Error('PDF library (jsPDF) is not available.');
+  }
+  var doc = new jsPdfCtor({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  var autoTable = typeof doc.autoTable === 'function'
+    ? doc.autoTable
+    : (typeof window.autoTable === 'function' ? function(opts) { window.autoTable(doc, opts); } : null);
+  if (!autoTable) {
+    throw new Error('PDF autotable plugin is not available.');
+  }
+
+  doc.setFontSize(16);
+  doc.text(title, 40, 30);
+  doc.setFontSize(9);
+  doc.text('Exported: ' + new Date().toLocaleString(), 40, 44);
+
+  var body = data.map(function(row) {
+    return keys.map(function(k) { return String(row == null ? '' : row[k] || ''); });
+  });
+
+  autoTable({
+    startY: 55,
+    head: [headers],
+    body: body,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 3 },
+    headStyles: { fillColor: [13, 110, 253] },
+    margin: { left: 40, right: 40 }
+  });
+
+  doc.save(fileName);
+}
+
+/** Create an object URL, click a temporary anchor to download, then clean up. */
+function downloadBlob(blob, fileName) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 
 window.selectItemForEdit = function(pn, desc, geo) {
